@@ -1,0 +1,10 @@
+{
+  "package": "@openai/codex@0.162.1-win32-x64",
+  "registry": "https://registry.npmjs.org",
+  "integrity": "sha512-dfl4MhHuEi0ARKyNmrTxk+RQmsWNCQAoVLUtrYq+yrW1C8P2sg5ziwgHUUACHjYLKuACV7ARH5Nq5pnCz3GlaQ==",
+  "integrityVerified": true,
+  "source": "https://github.com/openai/codex/tree/rust-v0.162.1",
+  "license": "Apache-2.0",
+  "bundledLayout": "official full vendor layout and included component licenses",
+  "modifiedBinaries": false
+}
