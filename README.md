@@ -1,13 +1,13 @@
-# Hermes DevDesk 0.6.1
+# Hermes DevDesk 0.7.0
 
 Windows x64용 독립 개발 에이전트 클라이언트입니다. 현재 Codex 데스크톱 화면을 참고해 밝은 사이드바, 프로젝트별 채팅, 넓은 대화 영역, 하단 입력창과 접이식 오른쪽 패널로 구성했습니다. 전체 Codex 기능과 서비스가 동일한 제품은 아닙니다.
 
 ## Windows 다운로드 및 실행
 
-[0.6.1 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.6.1)에서 **Setup.exe** 또는 **Portable.zip**을 받으세요. GitHub의 자동 생성 Source code ZIP은 소스이며 실행 패키지가 아닙니다.
+[0.7.0 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.7.0)에서 **Setup.exe** 또는 **Portable.zip**을 받으세요. GitHub의 자동 생성 Source code ZIP은 소스이며 실행 패키지가 아닙니다.
 
-- 설치: `HermesDevDesk-0.6.1-win-x64-Setup.exe` 실행.
-- 설치 없이 실행: `HermesDevDesk-0.6.1-win-x64-Portable.zip` 전체 압축 해제 후 `HermesDevDesk.exe` 실행. EXE만 따로 복사하면 실행되지 않습니다.
+- 설치: `HermesDevDesk-0.7.0-win-x64-Setup.exe` 실행.
+- 설치 없이 실행: `HermesDevDesk-0.7.0-win-x64-Portable.zip` 전체 압축 해제 후 `HermesDevDesk.exe` 실행. EXE만 따로 복사하면 실행되지 않습니다.
 - Windows 10/11 x64. .NET 10.0.12 Desktop 런타임과 공식 Codex CLI 0.162.1을 포함합니다. 브라우저 패널은 Microsoft Edge WebView2 Runtime이 필요합니다. 자동 설치하지 않습니다.
 - 설치본은 코드 서명되지 않았습니다. 배포 파일의 SHA-256은 같은 릴리스의 `SHA256SUMS.txt`에서 확인할 수 있습니다.
 
@@ -63,9 +63,9 @@ Windows x64용 독립 개발 에이전트 클라이언트입니다. 현재 Codex
 
 ## 데이터 및 현재 범위
 
-앱 데이터는 `%LOCALAPPDATA%\HermesDevDesk\0.6.1`에 저장합니다. 회사 키는 현재 Windows 사용자 DPAPI로 보호합니다. 기존 Codex 인증파일/비공개 DB/세션을 직접 가져오지 않습니다. 이력과 초안은 평문 JSON이므로 임의 비밀 문자열을 모두 판별할 수는 없습니다. 키는 설정 화면에서 입력하세요.
+앱 데이터는 `%LOCALAPPDATA%\HermesDevDesk\0.7.0`에 저장합니다. 회사 키는 현재 Windows 사용자 DPAPI로 보호합니다. 기존 Codex 인증파일/비공개 DB/세션을 직접 가져오지 않습니다. 이력과 초안은 평문 JSON이므로 임의 비밀 문자열을 모두 판별할 수는 없습니다. 키는 설정 화면에서 입력하세요.
 
-아직 연결되지 않은 기능: 전체 데스크톱 컴퓨터 제어, 음성/Realtime, 이미지 생성, 외부 MCP/OAuth 통합, 플러그인 스토어, 공식 클라우드/원격 모바일/프로젝트 동기화, Space/문서 아티팩트/Pets, 무인 자동 AI 실행. 디자인도 공식 앱의 모든 화면을 1:1 복제한 것은 아닙니다. 앱의 도움말 → 기능 및 연결 상태 및 `PLAN.md`에서 상태를 확인할 수 있습니다.
+아직 연결되지 않은 기능: 음성/Realtime, 이미지 생성, 외부 MCP/OAuth 통합, 플러그인 스토어, 공식 클라우드/원격 모바일/프로젝트 동기화, Space/문서 아티팩트/Pets, 무인 자동 AI 실행. 디자인도 공식 앱의 모든 화면을 1:1 복제한 것은 아닙니다. 앱의 도움말 → 기능 및 연결 상태 및 `PLAN.md`에서 상태를 확인할 수 있습니다.
 
 ## 개발 및 빌드
 
@@ -83,3 +83,11 @@ pwsh -File scripts/build.ps1 -DotnetPath 'C:\path\dotnet.exe'
 일반 테스트는 로컬 synthetic fixture만 사용합니다. `--desktop-engine-smoke`는 실제 공개 엔진과 로컬 가짜 provider로 브라우저 도구/추가 지시 계약을 검증합니다. `--live-smoke`/`--tool-smoke`는 실제 모델 사용량이 발생하므로 별도 의도 없이 실행하지 마세요.
 
 자체 코드 MIT, 공식 CLI Apache-2.0, .NET/WebView2/Fluent 아이콘의 라이선스와 notices를 배포 패키지에 포함합니다. 공식 CLI 바이너리는 수정하지 않았습니다.
+
+## Windows 컴퓨터 제어 (0.7.0)
+
+왼쪽 컴퓨터 아이콘 → ‘새 채팅에 Windows 컴퓨터 도구 연결’을 선택합니다. 창 목록을 새로 고친 뒤 제어할 창을 추가하고 ‘선택한 창 제어 허용’을 누르세요. 새 채팅에서 작업을 요청하면 화면 읽기와 각 입력 요청을 검토할 수 있습니다. 실행 후 대상 창의 스크린샷과 UI 텍스트는 연결된 모델 서버에 전달됩니다.
+
+화면 읽기, 창 활성화, 클릭/더블클릭, 한글 입력, 단축키, 세로·가로 스크롤, 드래그를 지원합니다. 상단 중단 버튼 또는 전역 Ctrl+Alt+F12로 즉시 중단합니다. 입력은 45초 이내 최신 화면 좌표로 한 번만 허용하며, 중단하면 기존 화면과 대기 요청이 만료됩니다.
+
+관리자 앱, UAC, 잠금 화면, 비밀번호 입력과 클립보드는 지원하지 않습니다. 일부 GPU/보호된 앱은 창 캡처가 되지 않을 수 있습니다. 창별 클라이언트 영역만 제어하며, 작업 표시줄이나 바탕화면 전체 제어는 제공하지 않습니다. 화면 캡처/UI Automation은 별도 작업 프로세스에서 실행하여 응답 없는 창을 중단할 수 있습니다. 실제 모델의 작업 성공률은 모델 및 서버의 vision/tool 지원에 따라 달라집니다.

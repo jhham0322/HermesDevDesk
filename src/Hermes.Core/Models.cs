@@ -11,6 +11,7 @@ public sealed class ProjectEntry
     public string? BaseCommit { get; set; }
     public bool LocalMcpEnabled { get; set; }
     public bool BrowserEnabled { get; set; }
+    public bool ComputerEnabled { get; set; }
     public override string ToString() => Name;
 }
 public sealed class WorkItem
@@ -32,6 +33,7 @@ public sealed class WorkItem
     public bool UsageBaselineKnown { get; set; }
     public bool? ThreadMcpEnabled { get; set; }
     public bool? ThreadBrowserEnabled { get; set; }
+    public bool? ThreadComputerEnabled { get; set; }
     public bool IsReview { get; set; }
     public bool Archived { get; set; }
     public bool Pinned { get; set; }

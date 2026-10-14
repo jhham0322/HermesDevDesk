@@ -38,6 +38,10 @@ if (args.Contains("--resume-only"))
     Console.WriteLine("RESUME: " + node["resumeVerified"]); File.WriteAllText(reportPath, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true })); return;
 }
 var baseDir = Path.Combine(Environment.CurrentDirectory, "artifacts", "test-scratch", "Hermes-tests-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(baseDir);
+if (args.Contains("--computer-engine-smoke"))
+{
+    await ComputerEngineTests.Run(Path.Combine(baseDir, "computer-engine"), args[Array.IndexOf(args, "--codex") + 1], args[Array.IndexOf(args, "--report") + 1]); return;
+}
 if (args.Contains("--desktop-engine-smoke"))
 {
     await DesktopEngineTests.Run(Path.Combine(baseDir, "desktop-engine"), args[Array.IndexOf(args, "--codex") + 1], args[Array.IndexOf(args, "--report") + 1]); return;
@@ -142,6 +146,7 @@ await using (var rpc = new AppServerClient())
 Console.WriteLine($"PASS {count} checks. Fixture transport is unit testing, not engine verification. Scratch: {baseDir}");
 await CompanyTests.Run(baseDir, Assert);
 await DesktopFeatureTests.Run(baseDir, Assert);
+ComputerFeatureTests.Run(Assert);
 Console.WriteLine($"PASS {count} total checks including synthetic company server/security/usage. No real company endpoint or key used.");
 
 if (args.Contains("--company-engine-smoke"))

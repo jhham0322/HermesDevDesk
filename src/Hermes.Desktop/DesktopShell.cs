@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -34,6 +34,7 @@ public partial class MainWindow
         EnterSendMenu.IsChecked = desk.State.Desktop.EnterToSend;
         Effort.ItemsSource = new[] { "기본" }; Effort.SelectedIndex = 0;
         InitializeBrowserPanel();
+        InitializeComputerPanel();
         GitRunner.Executable = desk.State.Desktop.GitExecutable;
         refreshTimer.Tick += (_, _) => { refreshTimer.Stop(); Refresh(); };
         SizeChanged += (_, _) => { SetSidebar(desk.State.Desktop.SidebarVisible); SetInspector(desk.State.Desktop.InspectorVisible); };
@@ -88,6 +89,7 @@ public partial class MainWindow
         var running = CurrentTask != null && DeskController.IsRunning(CurrentTask);
         StartButton.IsEnabled = desk.SubscriptionReady && CurrentTask != null && !CurrentTask.Archived && (CurrentTask.Status == "실행 중" || !DeskController.IsRunning(CurrentTask));
         browserEnable.IsChecked = CurrentProject?.BrowserEnabled == true;
+        computerEnable.IsChecked = CurrentProject?.ComputerEnabled == true;
         StopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
         StartButton.ToolTip = CurrentTask?.Status == "실행 중" ? "실행 중 추가 지시 보내기" : "전송 · Enter";
         var approvals = desk.Approvals.Count(a => a.Params.Text("threadId") == CurrentTask?.ThreadId);
@@ -225,7 +227,7 @@ public partial class MainWindow
     private void Shortcuts_Click(object sender, RoutedEventArgs e) => MessageBox.Show(this, "Ctrl+N 새 채팅\nCtrl+K 명령 팔레트\nCtrl+F 채팅 검색\nCtrl+B 사이드바\nCtrl+J 오른쪽 패널\nEnter 전송 · Shift+Enter 줄바꿈\n실행 중 Enter: 추가 지시", "단축키");
     private void Palette_Click(object sender, RoutedEventArgs e)
     {
-        var commands = new (string Name, Action Run)[] { ("새 채팅", () => NewTask_Click(this, new())), ("프로젝트 열기", () => Register_Click(this, new())), ("엔진 연결", () => Connect_Click(this, new())), ("설정", () => Settings_Click(this, new())), ("로컬 Git 및 원격 서버", () => GitSettings_Click(this, new())), ("테마 변경", () => Theme_Click(this, new())), ("파일", () => OpenPanel(0)), ("변경 검토", () => ReviewPanel_Click(this, new())), ("터미널 명령", () => OpenPanel(6)), ("브라우저", () => OpenPanel(8)), ("사용량", () => OpenPanel(5)), ("승인", () => OpenPanel(3)), ("스킬", () => Skills_Click(this, new())), ("MCP", () => Mcp_Click(this, new())), ("초안 예약", () => Schedule_Click(this, new())), ("기능 및 연결 상태", () => Capabilities_Click(this, new())) };
+        var commands = new (string Name, Action Run)[] { ("새 채팅", () => NewTask_Click(this, new())), ("프로젝트 열기", () => Register_Click(this, new())), ("엔진 연결", () => Connect_Click(this, new())), ("설정", () => Settings_Click(this, new())), ("로컬 Git 및 원격 서버", () => GitSettings_Click(this, new())), ("테마 변경", () => Theme_Click(this, new())), ("파일", () => OpenPanel(0)), ("변경 검토", () => ReviewPanel_Click(this, new())), ("터미널 명령", () => OpenPanel(6)), ("브라우저", () => OpenPanel(8)), ("Windows 컴퓨터 제어", () => OpenPanel(9)), ("사용량", () => OpenPanel(5)), ("승인", () => OpenPanel(3)), ("스킬", () => Skills_Click(this, new())), ("MCP", () => Mcp_Click(this, new())), ("초안 예약", () => Schedule_Click(this, new())), ("기능 및 연결 상태", () => Capabilities_Click(this, new())) };
         var window = new Window { Owner = this, Title = "명령 팔레트", Width = 540, Height = 440, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new DockPanel { Margin = new Thickness(16) }; var input = new TextBox(); DockPanel.SetDock(input, Dock.Top); panel.Children.Add(input); var list = new ListBox(); panel.Children.Add(list); window.Content = panel;
         void Filter() { list.ItemsSource = commands.Where(c => c.Name.Contains(input.Text, StringComparison.OrdinalIgnoreCase)).Select(c => c.Name).ToList(); list.SelectedIndex = 0; }

@@ -310,7 +310,7 @@ public partial class MainWindow : Window
         if (desk.State.Tasks.Any(DeskController.IsRunning) && MessageBox.Show(this, "Hermes의 실행 작업을 중단하고 종료할까요?", "종료", MessageBoxButton.YesNo) != MessageBoxResult.Yes) { e.Cancel = true; return; }
         e.Cancel = true; closing = true; draftTimer.Stop();
         foreach (var task in desk.State.Tasks.Where(DeskController.IsRunning).ToList()) { try { await desk.StopAsync(task); } catch (IOException) { } }
-        draftSaveTimer.Stop(); browserView?.Dispose();
+        StopComputer(); draftSaveTimer.Stop(); browserView?.Dispose();
         await terminal.DisposeAsync(); await desk.DisposeAsync(); desk.Save(); Close();
     }
 }
