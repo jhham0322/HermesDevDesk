@@ -1,0 +1,139 @@
+{
+  "version": "0.5.1",
+  "repository": "jhham0322/HermesDevDesk",
+  "sourceCommit": "5448396b9e48323fda96414bcd90d34ce9c2defc",
+  "existingTag": "v0.5.1",
+  "sourceCodeUnchanged": true,
+  "packagingOptions": [
+    "Deflate Optimal instead of uncompressed ZIP payload",
+    "No local PDBs; deterministic path mapping to /_/HermesDevDesk",
+    "READ-ME-FIRST and engine provenance included in both packages"
+  ],
+  "runtime": ".NET 10.0.12 Windows Desktop self-contained",
+  "engine": "Official Codex CLI 0.162.1 Windows x64 full package",
+  "engineReusedFilesHashVerified": 49,
+  "engineVerification": "Cached official package compared file-for-file with prior validated release SHA256 manifest; original npm integrity is recorded in ENGINE-PROVENANCE.json. No new registry download claimed.",
+  "coreSecurityUsageChecks": 74,
+  "officialEngineLocalFixtureGroups": {
+    "mcp": {
+      "count": 11,
+      "checks": [
+        "PASS official MCP discovery uses credential-free local server",
+        "PASS official MCP direct tool call reads selected project",
+        "PASS MCP listing excludes secret paths",
+        "PASS MCP outside path returns tool error",
+        "PASS MCP error is distinguished from success",
+        "PASS MCP file not created before explicit approval",
+        "PASS MCP decline preserves filesystem",
+        "PASS MCP file not created before explicit approval",
+        "PASS MCP accepted one-off confirmation creates only new scoped file",
+        "PASS MCP existing data conflict rejected",
+        "PASS MCP inventory refresh after errors"
+      ]
+    },
+    "native-features-fixture": {
+      "count": 15,
+      "checks": [
+        "PASS PNG CRC/dimension/header accepted",
+        "PASS image outside selected project blocked",
+        "PASS duplicate image blocked",
+        "PASS corrupt PNG CRC rejected",
+        "PASS changed attachment rejected before engine send",
+        "PASS actual official localImage becomes provider input_image data",
+        "PASS actual official engine invokes MCP and forwards real tool result",
+        "PASS MCP result and final answer stored/displayed",
+        "PASS image metadata persists without base64 raster in history",
+        "PASS three observed provider response usages counted once each",
+        "PASS actual agent MCP elicitation approved through task controller",
+        "PASS official conversation fork preserves source and requires no model call",
+        "PASS fork keeps app-owned attachment/history metadata",
+        "PASS official review/start read-only lifecycle and result captured (fixture, not real review quality)",
+        "PASS AI review preserves actual project files"
+      ]
+    },
+    "lifecycle": {
+      "count": 26,
+      "checks": [
+        "PASS project-local skill listing",
+        "PASS outside skill blocked",
+        "PASS duplicate skill name blocked",
+        "PASS changed skill blocked",
+        "PASS invalid skill surfaced without overwriting source",
+        "PASS sensitive fixture skill not sent",
+        "PASS official skills/list filtered to project only",
+        "PASS repeat skill discovery has no model call",
+        "PASS skill discovery cancellation",
+        "PASS official skill input reaches configured provider with actual instructions",
+        "PASS skill metadata persists without importing private sessions",
+        "PASS official archive and archive view preserve task",
+        "PASS repeat archive idempotent and no model call",
+        "PASS archived task execution blocked",
+        "PASS cancel restore before RPC preserves archive",
+        "PASS official restore repeat/restart state and no model call",
+        "PASS restored thread/resume repeats skill call",
+        "PASS archive while running rejected",
+        "PASS skill turn interruption preserves task/history",
+        "PASS skill source unchanged after invoke/archive/restore/cancel",
+        "PASS official archive RPC failure preserves app state",
+        "PASS archive provider mismatch blocked",
+        "PASS due reminder creates draft without model/command call",
+        "PASS repeated/restarted timer does not duplicate draft",
+        "PASS scheduled draft cancellation",
+        "PASS invalid schedule rejected"
+      ]
+    }
+  },
+  "installerLifecycleChecks": 9,
+  "installedAppWpfStartupChecked": true,
+  "portableAppWpfControlChecks": 36,
+  "appFileVersion": "0.5.1.0",
+  "nativeMouseKeyboardVerified": false,
+  "realCompanyAzureLoginApiVerified": false,
+  "realPaidModelCalls": 0,
+  "publicPackageAudit": {
+    "manifestFilesVerified": 456,
+    "portableFilesVerified": 457,
+    "portableExtractedSha256Matches": true,
+    "installerExtractedMatches": true,
+    "forbiddenFileNameCount": 0,
+    "knownPersonalBuildPathLeakCount": 0,
+    "personalScanScope": "Known local username/path UTF-8 and UTF-16LE byte patterns in every published file; not a claim that arbitrary secrets can always be detected",
+    "requiredLicensesPresent": [
+      "LICENSE",
+      "DOTNET-LICENSE.txt",
+      "DOTNET-THIRD-PARTY-NOTICES.txt",
+      "WPF-LICENSE.txt",
+      "engine/CODEX-LICENSE.txt",
+      "engine/CODEX-NOTICE.txt",
+      "ENGINE-PROVENANCE.json"
+    ],
+    "engineLicenseFilesPreserved": [
+      "engine/vendor/x86_64-pc-windows-msvc/codex-resources/voice/licenses/proxy-libintl.txt",
+      "engine/vendor/x86_64-pc-windows-msvc/codex-resources/voice/licenses/zlib.txt",
+      "engine/CODEX-LICENSE.txt",
+      "engine/vendor/x86_64-pc-windows-msvc/codex-resources/voice/licenses/sljit.txt",
+      "engine/vendor/x86_64-pc-windows-msvc/codex-resources/voice/licenses/LGPL-2.1.txt",
+      "engine/vendor/x86_64-pc-windows-msvc/codex-resources/voice/licenses/PCRE2.md",
+      "engine/vendor/x86_64-pc-windows-msvc/codex-resources/voice/licenses/Opus.txt",
+      "engine/CODEX-NOTICE.txt",
+      "engine/vendor/x86_64-pc-windows-msvc/codex-resources/voice/NOTICE.md",
+      "engine/vendor/x86_64-pc-windows-msvc/codex-resources/voice/licenses/libffi.txt"
+    ],
+    "companyProfileOrAuthenticationFilesIncluded": false,
+    "sourceCommit": "5448396b9e48323fda96414bcd90d34ce9c2defc",
+    "portableDataLocation": "Current-user LOCALAPPDATA/HermesDevDesk/0.5.1, not alongside exe; --data-dir optional",
+    "codeSigned": false,
+    "companyAzureLiveTested": false,
+    "nativeInputTested": false
+  },
+  "installer": {
+    "file": "HermesDevDesk-0.5.1-win-x64-Setup.exe",
+    "bytes": 232097280,
+    "sha256": "d77c73ee2bca04ddd911d249619b970d83581585b7c48fef35325277b1985e83"
+  },
+  "portable": {
+    "file": "HermesDevDesk-0.5.1-win-x64-Portable.zip",
+    "bytes": 232072784,
+    "sha256": "668ad1b0cd74c5630a57f48510a70d358ea15e36bf1eef7b256899284c05ae4a"
+  }
+}
