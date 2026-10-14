@@ -4,6 +4,7 @@ using System.Text.Json;
 namespace Hermes.Core;
 public sealed record TokenCounts(long? Input, long? Output, long? Cached, long? Reasoning, long? Total)
 {
+    public long? UncachedInput => Input is { } input && Cached is { } cached && cached <= input ? input - cached : null;
     public static TokenCounts Missing => new(null, null, null, null, null);
     private static long? N(JsonElement e, string name) => e.Property(name) is { ValueKind: JsonValueKind.Number } n && n.TryGetInt64(out var value) && value is >= 0 and <= 1_000_000_000_000 ? value : null;
     public static TokenCounts FromResponse(JsonElement response)
@@ -60,7 +61,7 @@ public static class UsageLedger
         foreach (var group in list.GroupBy(e => new { Day = e.At.UtcDateTime.Date, e.TaskId, e.Deployment, e.Model }))
         {
             var rows = group.ToList(); result.AppendLine($"{group.Key.Day:yyyy-MM-dd} · 작업 {group.Key.TaskId} · deployment {group.Key.Deployment} · model {group.Key.Model}");
-            result.AppendLine($"HTTP 시도/CLI 미제공 {Count(rows.Select(e => e.Requests.HasValue ? (long?)e.Requests.Value : null))} / 실패·중단 {rows.Count(e => e.Status is "failed" or "cancelled" or "incomplete")} / 미확인 {rows.Count(e => e.Status is "started" or "unknown-after-restart" or "unknown")}\n입력 {Count(rows.Select(e => e.Tokens.Input))} / 출력 {Count(rows.Select(e => e.Tokens.Output))}\n입력 중 캐시 {Count(rows.Select(e => e.Tokens.Cached))} / 출력 중 reasoning {Count(rows.Select(e => e.Tokens.Reasoning))}\n서버 total {Count(rows.Select(e => e.Tokens.Total))}\n");
+            result.AppendLine($"HTTP 시도/CLI 미제공 {Count(rows.Select(e => e.Requests.HasValue ? (long?)e.Requests.Value : null))} / 실패·중단 {rows.Count(e => e.Status is "failed" or "cancelled" or "incomplete")} / 미확인 {rows.Count(e => e.Status is "started" or "unknown-after-restart" or "unknown")}\n입력 {Count(rows.Select(e => e.Tokens.Input))} / 출력 {Count(rows.Select(e => e.Tokens.Output))}\n입력 중 캐시 {Count(rows.Select(e => e.Tokens.Cached))} / 비캐시 입력 {Count(rows.Select(e => e.Tokens.UncachedInput))} / 출력 중 reasoning {Count(rows.Select(e => e.Tokens.Reasoning))}\n서버 total {Count(rows.Select(e => e.Tokens.Total))}\n");
         }
         result.AppendLine("연결 검사·재시도·실패도 관측 요청에 포함. 사용량 없는 실패를 0 토큰으로 만들지 않습니다. 로컬 명령/외부 도구 자체 사용량은 이 응답에 제공되지 않으면 확인 불가입니다.");
         return result.ToString();

@@ -22,6 +22,8 @@ public sealed class DeskController : IAsyncDisposable
     public Func<WorkItem, JsonElement, Task<string>>? BrowserTool { get; set; }
     public Func<WorkItem, JsonElement, Task<ComputerToolResult>>? ComputerTool { get; set; }
     public event Action<WorkItem?>? ComputerStopRequested;
+    public event Action<WorkItem, ComputerToolResult>? ComputerResultDelivered;
+    public event Action<WorkItem, string>? ComputerLifecycleEvent;
     private readonly Action<Action> dispatch;
     private readonly HashSet<string> loadedThreads = [];
     private readonly Dictionary<string, object> disabledMcp = [];
@@ -96,7 +98,7 @@ public sealed class DeskController : IAsyncDisposable
         client.Diagnostic += s => dispatch(() => Diagnostic?.Invoke(s));
         client.Disconnected += () => dispatch(() =>
         {
-            SubscriptionReady = false; AccountStatus = "연결 끊김"; Approvals.Clear();
+            ComputerStopRequested?.Invoke(null); SubscriptionReady = false; AccountStatus = "연결 끊김"; Approvals.Clear();
             foreach (var t in State.Tasks.Where(IsRunning)) { t.Status = "연결 끊김 · 재개 가능"; t.TurnId = null; }
             Save();
         });
@@ -221,6 +223,7 @@ public sealed class DeskController : IAsyncDisposable
         if (IsRunning(task) || State.Tasks.Any(t => t.ProjectId == task.ProjectId && IsRunning(t))) throw new IOException("이 프로젝트에서 다른 작업이 실행 중입니다.");
         if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > 100_000 || !Models.Contains(model)) throw new IOException("작업 내용과 사용 가능한 모델을 선택하세요.");
         if (!string.IsNullOrEmpty(effort) && (!ModelEfforts.TryGetValue(model, out var supported) || !supported.Contains(effort))) throw new IOException("선택 모델이 제공한 추론 수준을 선택하세요.");
+        ComputerLifecycleEvent?.Invoke(task, "new-command");
         task.ReasoningEffort = effort ?? "";
         if (task.ThreadId != null && task.ThreadWritable is { } originalMode && originalMode != writable) throw new IOException("작업의 쓰기 권한은 생성 후 변경하지 않습니다. 원하는 모드로 새 작업을 만드세요.");
         var root = Safety.ProjectRoot(Project(task).Root);
@@ -293,6 +296,7 @@ public sealed class DeskController : IAsyncDisposable
         if (Engine == null || !SubscriptionReady || task.ThreadId == null || task.TurnId == null || task.Status != "실행 중") throw new IOException("실행 중인 작업에만 추가 지시를 보낼 수 있습니다.");
         if (connectedFingerprint != State.Provider.Fingerprint || task.ProviderFingerprint != connectedFingerprint) throw new IOException("작업의 연결 설정이 바뀌었습니다.");
         if (string.IsNullOrWhiteSpace(text) || text.Length > 100_000) throw new IOException("추가 지시 내용을 확인하세요.");
+        ComputerLifecycleEvent?.Invoke(task, "new-command");
         await Engine.RequestAsync("turn/steer", new { threadId = task.ThreadId, expectedTurnId = task.TurnId, input = new[] { new { type = "text", text } } });
         task.Transcript.Add(new("사용자", Safety.Redact(text), DateTime.UtcNow)); Save();
     }
@@ -319,6 +323,7 @@ public sealed class DeskController : IAsyncDisposable
                 if (company == null) UsageLedger.RecordThreadUpdate(State, task, p);
                 break;
             case "turn/completed":
+                ComputerStopRequested?.Invoke(task);
                 var turn = p.GetProperty("turn"); task.Status = turn.Text("status") switch { "completed" => "완료", "interrupted" => "중단됨", _ => "실패" };
                 if (turn.Property("error") is { ValueKind: JsonValueKind.Object } error) task.Transcript.Add(new("오류", Safety.Redact(error.Text("message")), DateTime.UtcNow));
                 task.TurnId = null; Approvals.RemoveAll(a => a.Params.Text("threadId") == task.ThreadId); break;
@@ -367,7 +372,7 @@ public sealed class DeskController : IAsyncDisposable
         { _ = AnswerBrowserAsync(task, request); return; }
         if (request.Method == "mcpServer/elicitation/request" && (!Project(task).LocalMcpEnabled || !IsRunning(task))) { _ = Engine!.RespondAsync(request, new { action = "cancel" }); return; }
         if (request.Method is "item/commandExecution/requestApproval" or "item/fileChange/requestApproval" or "item/tool/requestUserInput" or "mcpServer/elicitation/request")
-        { Approvals.Add(request); task.Status = "승인 대기"; task.Transcript.Add(new("승인 요청", Safety.Redact(request.Method + "\n" + request.Params), DateTime.UtcNow)); Save(); }
+        { ComputerLifecycleEvent?.Invoke(task, "approval"); Approvals.Add(request); task.Status = "승인 대기"; task.Transcript.Add(new("승인 요청", Safety.Redact(request.Method + "\n" + request.Params), DateTime.UtcNow)); Save(); }
         else { _ = Engine!.RejectUnsupportedAsync(request); task.Transcript.Add(new("요청 차단", request.Method, DateTime.UtcNow)); Save(); }
     }
     private async Task AnswerBrowserAsync(WorkItem task, ServerRequest request)
@@ -393,10 +398,15 @@ public sealed class DeskController : IAsyncDisposable
             var result = await ComputerTool!(task, request.Params.GetProperty("arguments"));
             if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new IOException("컴퓨터 요청의 작업이 중단되었거나 변경됐습니다.");
             await engine.RespondAsync(request, new { success = true, contentItems = result.ContentItems });
-            var text = Safety.Redact(result.Text); task.Transcript.Add(new("컴퓨터 제어", text.Length > 2000 ? text[..2000] : text, DateTime.UtcNow)); Save();
+            ComputerResultDelivered?.Invoke(task, result);
+            if (ComputerTools.Parse(request.Params.GetProperty("arguments")).Action != "wait_for_change") ComputerLifecycleEvent?.Invoke(task, "action-completed");
+            var args = ComputerTools.Parse(request.Params.GetProperty("arguments"));
+            var bytes = result.ImageUrl == null ? 0 : Convert.FromBase64String(result.ImageUrl.Split(',')[1]).Length;
+            task.Transcript.Add(new("컴퓨터 제어", $"action={args.Action}; textChars={result.Text.Length}; imageBytes={bytes}; observation={JsonSerializer.Serialize(result.Observation)}; actualModelRequests=unknown; content omitted from audit history", DateTime.UtcNow)); Save();
         }
         catch (Exception ex)
         {
+            ComputerLifecycleEvent?.Invoke(task, "error");
             if (engine == Engine) try { await engine.RespondAsync(request, new { success = false, contentItems = new[] { new { type = "inputText", text = Safety.Redact(ex.Message) } } }); } catch (IOException) { }
         }
     }

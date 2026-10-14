@@ -27,6 +27,11 @@ if (args.Contains("app-server"))
     }
     return;
 }
+if (args.Contains("--computer-policy-only"))
+{
+    int checks = 0; ComputerFeatureTests.Run((ok, label) => { if (!ok) throw new IOException(label); checks++; Console.WriteLine("PASS: " + label); });
+    ComputerChangeTests.Run((ok, label) => { if (!ok) throw new IOException(label); checks++; Console.WriteLine("PASS: " + label); }); Console.WriteLine("Computer policy checks=" + checks + "; no native or model calls"); return;
+}
 if (args.Contains("--resume-only"))
 {
     var reportPath = args[Array.IndexOf(args, "--report") + 1];

@@ -19,7 +19,7 @@ internal static class ComputerNativeChecks
     {
         root = Safety.ProjectRoot(root);
         if (Directory.EnumerateFileSystemEntries(root).Any()) throw new IOException("Fixture directory must be empty");
-        var app = new Application(); var window = new Window { Title = "Hermes Computer Fixture · " + Path.GetFileName(root), Width = 900, Height = 680, Left = 100, Top = 100, Background = Brushes.White };
+        var app = new Application(); var window = new Window { Title = "Hermes Computer Fixture · " + Path.GetFileName(root), Width = Path.GetFileName(root) == "window-two" ? 1400 : 900, Height = Path.GetFileName(root) == "window-two" ? 900 : 680, Left = 100, Top = 100, Background = Brushes.White };
         var grid = new Grid { Margin = new Thickness(16) }; grid.RowDefinitions.Add(new() { Height = GridLength.Auto }); grid.RowDefinitions.Add(new() { Height = new GridLength(90) }); grid.RowDefinitions.Add(new()); window.Content = grid;
         var toolbar = new StackPanel { Orientation = Orientation.Horizontal }; grid.Children.Add(toolbar);
         var input = new TextBox { Width = 340, Height = 40, FontSize = 18 }; AutomationProperties.SetAutomationId(input, "fixture-input"); toolbar.Children.Add(input);
@@ -31,7 +31,7 @@ internal static class ComputerNativeChecks
         authorize.Click += (_, _) => { ComputerNative.AllowSetForegroundWindow((uint)parent); File.WriteAllText(Path.Combine(root, "input-authorized.signal"), "owned fixture input authorized"); authorize.Visibility = Visibility.Collapsed; };
         window.Activated += (_, _) => ComputerNative.AllowSetForegroundWindow((uint)parent);
         var hangTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
-        hangTimer.Tick += (_, _) => { if (File.Exists(Path.Combine(root, "hang.signal"))) { hangTimer.Stop(); File.WriteAllText(Path.Combine(root, "hang-started.signal"), "fixture only"); Thread.Sleep(5000); } }; hangTimer.Start(); window.Closed += (_, _) => hangTimer.Stop();
+        hangTimer.Tick += (_, _) => { if (File.Exists(Path.Combine(root, "blank-capture.signal"))) { foreach (UIElement child in grid.Children) child.Visibility = Visibility.Collapsed; grid.Background = Brushes.Black; window.Background = Brushes.Black; } else if (File.Exists(Path.Combine(root, "visual-change.signal"))) grid.Background = Brushes.Orange; if (File.Exists(Path.Combine(root, "hang.signal"))) { hangTimer.Stop(); File.WriteAllText(Path.Combine(root, "hang-started.signal"), "fixture only"); Thread.Sleep(5000); } }; hangTimer.Start(); window.Closed += (_, _) => hangTimer.Stop();
         var rows = new StackPanel(); for (var i = 0; i < 100; i++) rows.Children.Add(new TextBlock { Text = "Owned computer control fixture row " + i, FontSize = 18, Margin = new Thickness(10) });
         var scroll = new ScrollViewer { Content = rows }; AutomationProperties.SetAutomationId(scroll, "fixture-scroll"); Grid.SetRow(scroll, 2); grid.Children.Add(scroll);
         var clicks = 0; var keys = 0; var moves = 0;
@@ -48,11 +48,17 @@ internal static class ComputerNativeChecks
         return app.Run(window);
     }
 
-    internal static async Task<int> Run(string root)
+    internal static async Task<int> Run(string root, bool approveOwnedStart = false)
     {
         root = Path.GetFullPath(root); Directory.CreateDirectory(root); Safety.ProjectRoot(root);
         if (Directory.EnumerateFileSystemEntries(root).Any()) throw new IOException("Native check root must be new and empty");
         var records = new List<string>(); var fixtures = new List<Process>(); var clock = Stopwatch.StartNew();
+        var metrics = new List<ComputerWorkerMetric>();
+        using var worker = new ComputerWorkerClient { Observe = metric => metrics.Add(metric) };
+        ComputerFrame? frame = null;
+        ComputerAction Action(string name, double x = 0, double y = 0, string text = "", string key = "", double toX = 0, double toY = 0, int steps = 1) => new(name, Guid.NewGuid().ToString("N"), Guid.NewGuid().ToString("N"), x, y, toX, toY, text, key, "left", 1, steps, false);
+        async Task<ComputerFrame> RunAction(ComputerWindow target, ComputerAction action)
+        { frame = await worker.Execute(new(target, action, frame?.ClientWidth ?? 0, frame?.ClientHeight ?? 0, frame?.ImageWidth ?? 0, frame?.ImageHeight ?? 0), CancellationToken.None); return frame; }
         void Check(bool condition, string name) { if (!condition) throw new IOException("FAIL " + name); records.Add("PASS " + name); }
         async Task<ComputerWindow> Start(string label)
         {
@@ -62,25 +68,41 @@ internal static class ComputerNativeChecks
             var process = Process.Start(info) ?? throw new IOException("Fixture launch failed"); fixtures.Add(process);
             var line = await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10));
             var window = JsonSerializer.Deserialize<ComputerWindow>(line ?? "") ?? throw new IOException("Fixture handshake failed");
+            if (approveOwnedStart)
+            {
+                var observed = await RunAction(window, Action("inspect"));
+                var start = observed.Elements.Single(e => e.AutomationId == "fixture-start" && e.Name == "Start owned test" && e.Enabled);
+                await RunAction(window, Action("click", start.X + start.Width / 2, start.Y + start.Height / 2));
+                Check(frame!.IsForeground, "owned start click verifies actual foreground");
+                Check(!frame.Elements.Any(e => e.AutomationId == "fixture-start"), "owned start button disappears after actual native click");
+            }
             var wait = Stopwatch.StartNew(); while (!File.Exists(Path.Combine(directory, "input-authorized.signal"))) { if (wait.Elapsed > TimeSpan.FromSeconds(90)) throw new IOException("Owned fixture start button was not clicked"); await Task.Delay(100); }
             return window;
         }
         ComputerFixtureState State(string label) => JsonSerializer.Deserialize<ComputerFixtureState>(File.ReadAllText(Path.Combine(root, label, "fixture-state.json")))!;
-        ComputerAction Action(string name, double x = 0, double y = 0, string text = "", string key = "", double toX = 0, double toY = 0, int steps = 1) => new(name, Guid.NewGuid().ToString("N"), Guid.NewGuid().ToString("N"), x, y, toX, toY, text, key, "left", 1, steps, false);
-        using var worker = new ComputerWorkerClient();
-        ComputerFrame? frame = null;
-        async Task<ComputerFrame> RunAction(ComputerWindow target, ComputerAction action)
-        { frame = await worker.Execute(new(target, action, frame?.ClientWidth ?? 0, frame?.ClientHeight ?? 0), CancellationToken.None); return frame; }
+        void WriteReport(bool passed, string error)
+        {
+            var stats = metrics.GroupBy(m => m.Action).Select(g => new { action = g.Key, requests = g.Count(), succeeded = g.Count(m => m.Success), failed = g.Count(m => !m.Success), nativeInputEvents = g.Sum(m => m.NativeInputEvents) }).ToArray();
+            File.WriteAllText(Path.Combine(root, "computer-native-report.json"), JsonSerializer.Serialize(new {
+                version = "0.7.1", passed, checks = records.Count, results = records, error,
+                elapsedMs = clock.ElapsedMilliseconds, target = "two owned WPF fixtures only",
+                explicitOwnedStartApproval = approveOwnedStart, realModelCalls = false, mockModelCalls = 0,
+                hostApprovalLoopVerified = false, componentNativeTest = true,
+                stats, totalNativeInputEvents = metrics.Sum(m => m.NativeInputEvents),
+                successfulImageFrames = metrics.Count(m => m.Success), imageBytes = metrics.Sum(m => m.ImageBytes),
+                traces = metrics, screenshotOrInputContentLogged = false
+            }, new JsonSerializerOptions { WriteIndented = true }));
+        }
         try
         {
             var first = await Start("window-one"); await RunAction(first, Action("inspect"));
             Check(frame!.ImageUrl.StartsWith("data:image/jpeg;base64,", StringComparison.Ordinal) && frame.ImageWidth > 300, "real selected-window JPEG capture");
-            File.WriteAllBytes(Path.Combine(root, "native-window.jpg"), Convert.FromBase64String(frame.ImageUrl.Split(',')[1]));
+            Check(frame.Dpi >= 96 && frame.SessionId == Process.GetCurrentProcess().SessionId, "actual DPI and interactive target session observed");
             var input = frame.Elements.First(e => e.AutomationId == "fixture-input");
             Check(input.Width > 0 && input.Height > 0, "real UI Automation element coordinates");
             await RunAction(first, Action("click", input.X + input.Width / 2, input.Y + input.Height / 2));
-            await RunAction(first, Action("type", text: "Hermes 컴퓨터 제어 123"));
-            Check(State("window-one").Text == "Hermes 컴퓨터 제어 123", "actual Unicode keyboard input in owned fixture");
+            await RunAction(first, Action("type", text: "Hermes 한글 Ω 😀 123"));
+            Check(State("window-one").Text == "Hermes 한글 Ω 😀 123", "actual Unicode keyboard input in owned fixture");
             await RunAction(first, Action("key", key: "CTRL+A")); await RunAction(first, Action("type", text: "Replaced fixture"));
             Check(State("window-one").Text == "Replaced fixture", "actual key chord and replacement");
             var button = frame!.Elements.First(e => e.AutomationId == "fixture-button");
@@ -100,7 +122,17 @@ internal static class ComputerNativeChecks
                 try { await worker.Execute(new(first, Action("inspect"), frame!.ClientWidth, frame.ClientHeight), cancellation.Token); Check(false, "cancelled request rejected"); }
                 catch (OperationCanceledException) { Check(true, "cancelled request rejected without launching input"); }
             }
-            var second = await Start("window-two"); await RunAction(second, Action("activate")); await RunAction(first, Action("activate"));
+            var second = await Start("window-two"); await RunAction(second, Action("activate"));
+            Check(frame!.IsForeground, "second owned window is foreground after native activation");
+            Check(frame.ImageWidth <= 1600 && frame.ImageHeight <= 1000 && frame.ImageWidth < frame.ClientWidth, "large owned fixture exercises downscaled client/image coordinates");
+            var scaledInput = frame.Elements.Single(e => e.AutomationId == "fixture-input");
+            await RunAction(second, Action("click", scaledInput.X + scaledInput.Width / 2, scaledInput.Y + scaledInput.Height / 2));
+            await RunAction(second, Action("type", text: "Scaled 한글 😀"));
+            Check(State("window-two").Text == "Scaled 한글 😀" && frame!.IsForeground, "scaled DPI click and Unicode input verified by actual fixture state and recapture");
+            var beforeResizeFailure = State("window-two");
+            try { await worker.Execute(new(second, Action("click", 10, 10), frame!.ClientWidth + 1, frame.ClientHeight), CancellationToken.None); Check(false, "resized frame accepted"); }
+            catch (IOException) { Check(State("window-two") == beforeResizeFailure, "changed client size rejected without input"); }
+            await RunAction(first, Action("activate"));
             Check(ComputerNative.GetForegroundWindow().ToInt64() == first.Handle, "actual activation between two owned windows");
             File.WriteAllText(Path.Combine(root, "window-two", "hang.signal"), "owned fixture hang");
             var ready = Stopwatch.StartNew(); while (!File.Exists(Path.Combine(root, "window-two", "hang-started.signal"))) { if (ready.Elapsed > TimeSpan.FromSeconds(3)) throw new IOException("Hang fixture not ready"); await Task.Delay(20); }
@@ -112,11 +144,13 @@ internal static class ComputerNativeChecks
             }
             fixtures[0].CloseMainWindow(); await fixtures[0].WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             try { await RunAction(first, Action("inspect")); Check(false, "closed window rejected"); } catch (IOException) { Check(true, "closed window rejected"); }
-            File.WriteAllText(Path.Combine(root, "computer-native-report.json"), JsonSerializer.Serialize(new { version = "0.7.0", passed = true, checks = records.Count, results = records, elapsedMs = clock.ElapsedMilliseconds, target = "two owned WPF fixture processes only", realModelCalls = false }, new JsonSerializerOptions { WriteIndented = true }));
+            Check(metrics.Where(m => m.Success).All(m => m.ImageBytes > 0 && m.ImageWidth > 0), "every successful native action returns a fresh captured frame");
+            WriteReport(true, "");
             return 0;
         }
         catch (Exception ex)
         {
+            WriteReport(false, ex.Message);
             File.WriteAllText(Path.Combine(root, "computer-native-error.txt"), ex.ToString() + "\n" + string.Join('\n', records)); return 1;
         }
         finally { worker.Stop(); foreach (var fixture in fixtures) { try { if (!fixture.HasExited) { fixture.CloseMainWindow(); if (!fixture.WaitForExit(2000)) fixture.Kill(true); } } finally { fixture.Dispose(); } } }

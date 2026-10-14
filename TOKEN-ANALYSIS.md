@@ -1,0 +1,16 @@
+# Where Computer Use increases token use
+
+No comparable real-model usage sample was available. Historical v0.7.0 computer-engine validation explicitly says `syntheticProviderOnly=true` and `realModelCalls=false`; its small scripted usage values are fixture data, not a benchmark. This improvement's tests made no model calls. No multiplier, savings percentage, monetary estimate or fabricated token total is reported.
+
+| Cause | Code evidence / implication | Improvement or measurement |
+|---|---|---|
+| Screenshot size | Selected-window JPEG, quality 86, capped at 1600×1000. Resolution/model image processing matters; JPEG bytes are not token counts. | Log dimensions/byte count separately from usage. Current change test returned one 128865-byte image. |
+| Screenshot frequency | Original inspect/activate/input results always return a fresh image. | `wait_for_change` compares locally every 300ms, returns no unchanged image and coalesces cursor/animation changes. |
+| Context replay | Each returned changed image enters the official engine's tool conversation. The engine may reuse earlier context; this client does not determine the engine/provider's full replay/caching behavior. | Track actual usage per turn/provider response; do not equate “one latest tool image” with “one image in all future model context.” |
+| Tool/UI text | Native UI scan allows up to 180 elements, names up to 220 characters. In-app DOM read allows 50000 body characters plus 100 elements. Tool schemas also consume input context. | Audit only char/element counts, scope to selected client; consider region/read modes later. Avoid repeating DOM and screenshots unnecessarily. |
+| Model calls | More observe→reason→act cycles can mean more provider requests even for a short task. AppServer aggregate usage does not expose an exact request count. | Native captures, changes, coalesced notifications, tool-result count and actual provider requests are different counters. Missing exact requests stay null/unknown. |
+| Reasoning/output | Existing `Usage.cs` parses input/output, cached input, reasoning output, total. Reasoning is included in output; cached input is included in input. | Added uncached input = input−cached only when both valid values are known. Never add cached/reasoning twice. |
+| Failure/retry | Failed activation, stale snapshots and protected capture may prompt extra model reasoning. Company provider request/stream retries are configured to 0; user/model-level retries can still occur. | Structured foreground/desktop failure, one failed protected capture, cancellation and no background model polling. |
+| Timeout/lifecycle | Local no-change polling uses no API, but a timeout/new-command/error result can legitimately wake the existing model loop. | Timeout is explicit and returns text-only metadata; do not claim indefinite zero inference after tool completion. |
+
+Native tests measure capture counts, notification counts, image bytes and elapsed time. Logic tests cover cursor-only changes, cumulative changes, animation rate limiting and stop/restart. Real input and cached/uncached token differences still require an approved, functioning normal model connection and matched task comparison. No paid benchmark was run.
