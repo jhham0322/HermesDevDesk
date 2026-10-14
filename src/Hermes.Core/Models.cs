@@ -10,6 +10,7 @@ public sealed class ProjectEntry
     public string? WorktreeBranch { get; set; }
     public string? BaseCommit { get; set; }
     public bool LocalMcpEnabled { get; set; }
+    public bool BrowserEnabled { get; set; }
     public override string ToString() => Name;
 }
 public sealed class WorkItem
@@ -30,13 +31,16 @@ public sealed class WorkItem
     public string Model { get; set; } = "";
     public bool UsageBaselineKnown { get; set; }
     public bool? ThreadMcpEnabled { get; set; }
+    public bool? ThreadBrowserEnabled { get; set; }
     public bool IsReview { get; set; }
     public bool Archived { get; set; }
+    public bool Pinned { get; set; }
+    public string ReasoningEffort { get; set; } = "";
     public List<SkillRecord> Skills { get; set; } = [];
     public List<AttachmentRecord> Attachments { get; set; } = [];
     public override string ToString() => $"{Title} · {Status}";
 }
-public sealed record TranscriptEntry(string Kind, string Text, DateTime At);
+public sealed record TranscriptEntry(string Kind, string Text, DateTime At, string? ItemId = null);
 public sealed class AppState
 {
     public string? CodexPath { get; set; }
@@ -46,9 +50,21 @@ public sealed class AppState
     public List<ScheduledDraft> ScheduledDrafts { get; set; } = [];
     public List<UsageEntry> Usage { get; set; } = [];
     public Dictionary<string, TokenCounts> ThreadUsageSnapshots { get; set; } = [];
+    public DesktopPreferences Desktop { get; set; } = new();
+}
+public sealed class DesktopPreferences
+{
+    public bool DarkTheme { get; set; }
+    public bool SidebarVisible { get; set; } = true;
+    public bool InspectorVisible { get; set; }
+    public double InspectorWidth { get; set; } = 400;
+    public bool EnterToSend { get; set; } = true;
+    public string GitExecutable { get; set; } = "git";
+    public Dictionary<string, string> Drafts { get; set; } = [];
 }
 public sealed class StateStore
 {
+    public int SaveCount { get; private set; }
     private readonly string path;
     public StateStore(string directory) { Directory.CreateDirectory(directory); path = Path.Combine(directory, "state.json"); }
     public AppState Load()
@@ -61,6 +77,7 @@ public sealed class StateStore
     }
     public void Save(AppState state)
     {
+        foreach (var id in state.Desktop.Drafts.Keys.ToList()) state.Desktop.Drafts[id] = Safety.Redact(state.Desktop.Drafts[id]);
         foreach (var draft in state.ScheduledDrafts) { draft.Title = Safety.Redact(draft.Title); draft.Prompt = Safety.Redact(draft.Prompt); }
         foreach (var task in state.Tasks)
         {
@@ -72,6 +89,7 @@ public sealed class StateStore
         File.WriteAllText(pending, json);
         if (File.Exists(path)) File.Copy(path, path + ".backup", true);
         File.Move(pending, path, true);
+        SaveCount++;
     }
 }
 public static class Json

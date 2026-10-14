@@ -5,9 +5,10 @@ namespace Hermes.Core;
 public sealed record GitResult(int Exit, string Output, string Error);
 public static class GitRunner
 {
+    public static string Executable { get; set; } = "git";
     private static ProcessStartInfo Info(string root, IEnumerable<string> args)
     {
-        var psi = new ProcessStartInfo("git") { WorkingDirectory = Safety.ProjectRoot(root), RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true, StandardErrorEncoding = Encoding.UTF8 };
+        var psi = new ProcessStartInfo(Executable) { WorkingDirectory = Safety.ProjectRoot(root), RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true, StandardErrorEncoding = Encoding.UTF8 };
         foreach (var a in new[] { "--no-pager", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=NUL", "-c", "gc.auto=0", "-c", "maintenance.auto=false" }.Concat(args)) psi.ArgumentList.Add(a);
         psi.Environment["GIT_OPTIONAL_LOCKS"] = "0";
         foreach (var key in psi.Environment.Keys.Where(k => k.StartsWith("GIT_", StringComparison.OrdinalIgnoreCase) && k != "GIT_OPTIONAL_LOCKS").ToArray()) psi.Environment.Remove(key);

@@ -1,27 +1,28 @@
-# Hermes DevDesk 0.5.1 최종 핵심 기능표
+# Hermes 0.6.1 기능 현황
 
-| 기능 | 구현 및 검증 상태 |
-|---|---|
-| 프로젝트 등록/선택, 작업·대화·이력·검색 | 구현/회귀 검사 |
-| 공식 엔진 실행/진행/중단/재개, command 결과/로그/승인 | 구현/실제 공개 CLI+로컬 company fixture. 기존 구독 실제 호출 검사는 이전 버전 증거 보존 |
-| 파일/비밀 제외/경로, Git 및 작업 diff, worktree | 구현/실제 Git·격리·보존 검사 |
-| 회사 Azure v1/legacy/Gateway Responses, Chat 호환, DPAPI 키, usage | 구현/합성 키·정상 TLS·redirect 차단·unknown·dedup·restart 검사. 실제 회사 정보 없음 |
-| 프로젝트 로컬 MCP 목록/실행/오류/승인·거절 | 구현/실제 엔진 및 실제 파일 I/O. 앱 내 무자격증명 서버만 사용 |
-| PNG/JPEG 입력·이미지 metadata, conversation fork, AI review | 구현/실제 engine 계약·모델 fixture. 회사 vision/review 품질은 미검증 |
-| 프로젝트 스킬 목록/선택/공식 확인/호출 | 0.5 구현. 실제 skills/list, skill 지침 전송, 반복·변경·민감 값·오류·취소·이력 보존 검사 |
-| 대화 보관함/보관/복원 | 0.5 구현. 실제 thread/archive/unarchive/resume, 반복·취소·진행 중 거부·provider mismatch·RPC 오류·보존 검사 |
-| 로컬 작업초안 예약/알림 | 0.5 구현. 앱 실행/재시작에 due draft 한 번 생성·취소·오류·중복 방지. 모델/명령 자동 실행 없음 |
-| Windows 설치/실행/취소/복구/반복/제거 | self-contained per-user 설치본. modified/user/history 보존. 격리 event/payload/hash 검사 |
+기준: 설치된 Codex 데스크톱 화면 캡처 및 공개 App Server 0.162.1 stable/experimental schema. 사용자 요청은 전체 디자인/기능 일치이며 아래 미구현 항목 때문에 전체 동등성은 달성하지 않았다.
 
-이 범위의 공개 로컬 핵심 기능은 후속 구현 목록으로 남기지 않았다. 범위를 늘리는 새 기능을 추가하지 않는다.
+| 기능 | 상태 | 검증 / 조건 |
+|---|---|---|
+| 밝은 사이드바 / 프로젝트 채팅 / 하단 입력 / 접이식 패널 | 구현 | 실제 화면 비교 및 WPF / native UI 검사 |
+| 어두운 테마 / 고정 / 이름 변경 / 검색 / 초안 / 단축키 / 팔레트 | 구현 | 영속성, 컨트롤, 재사용 검사 |
+| 채팅 스트리밍 / 완료 중복 제거 / 추가 지시 / 중단 / 재개 | 구현 | 공식 엔진 + synthetic provider round trip |
+| 모델 / 추론 수준 | 구현 | 연결한 model/list에서 제공한 값만 선택 |
+| 회사 Responses SSE | 구현 | 최종 응답 전 첫 chunk 도착, 사용량/취소/실패 검사 |
+| 로컬 Git / 지정 git.exe / 원격 서버 / stage / commit / fetch / push | 구현 | 실제 격리 Git / bare 원격 Push/Fetch / working file 보존 |
+| 파일 / 실제 Git diff / 저장된 작업 diff / worktree / AI 검토 | 기존 구현 유지 | 회귀 검사; 실제 AI 품질은 provider 조건 필요 |
+| 이미지 입력 / 스킬 / 로컬 MCP / 분기 / 보관 | 기존 구현 유지 | 공개 engine 계약 / 로컬 fixture |
+| 앱 브라우저 / 모델 탐색·읽기·클릭·입력 도구 | 구현 | 실제 WebView2 fixture + 공개 dynamic tool 계약; WebView2 Runtime 필요 |
+| 사용량 / DPAPI 키 / sandbox 명령 | 기존 구현 유지 | synthetic key / usage / Windows sandbox |
+| 예약 초안 / 알림 | 구현 | 앱 실행 중 처리; 자동 AI 실행 아님 |
+| 렌더링 / 이력 저장 튜닝 | 구현 | 2000 deltas, 1 snapshot, 텍스트 보존; 메시지와 사이드바 재사용 |
+| 전체 컴퓨터 제어 / 음성 / 이미지 생성 | 미구현 | 장치 / 도구 호스트 / provider 연결 추가 개발 필요 |
+| 외부 MCP/OAuth / 플러그인 스토어 | 미구현 | 실제 서비스 설정·인증과 UI/호스트 추가 구현 필요 |
+| 공식 클라우드 / 원격 모바일 / 공식 프로젝트 동기화 | 미연결 | 독립 앱용 서비스 계약 및 접근 미확보 |
+| Space / 문서 아티팩트 / Pets | 미구현 | 별도 서비스 구현과 연결 필요 |
+| 무인 자동 AI 실행 | 미구현 | 현재 예약은 초안/알림만 생성 |
+| 공식 앱 전체 화면 / 모든 메뉴 1:1 일치 | 미달성 | 주요 작업 화면 구조를 맞췄으며 앱별 기능과 브랜드 차이 유지 |
 
-남은 항목의 구체적 조건:
-- 실제 회사 인증·vision/review 품질: 회사 endpoint/deployment/api-version/auth/사용자 키 및 실제 사내망 조건 없음. 키는 앱에 직접 입력.
-- native mouse/keyboard 검증: CUA Windows runtime 경로 HRESULT 0x80070003. WPF/WinForms event 검사를 실제 native click으로 주장하지 않음.
-- 외부 MCP/OAuth/통합: 실제 서버 command/url, 코드 접근 범위, 허용 도구와 자격증명 대상 미지정. 외부 설치/권한/토큰 승인 없음. 공개 config를 비공개 API로 오분류하지 않음.
-- voice/realtime/remote/mobile: 공개 실험적 methods 존재. 회사 realtime endpoint/deployment 및 microphone/remote pairing 등 장치·접근 권한이 없음. 자동 활성화 없음.
-- 이미지 생성: 실제 provider imageGeneration 지원/배포·인증 조건 없음. 이미지 입력과 생성은 구분.
-- 공식 Desktop cloud job/project sync/plugin store: 독립 제품용 공개 계약 확인 안 됨. 비공개 DB/session/token/API 복제 안 함.
-- unattended background AI 자동 실행: 실제 provider 조건 및 작업별 미래 자동 모델 실행 승인이 없음. 현재 예약은 명확히 초안/알림 전용이고 자동 AI 실행으로 가장하지 않음. OS service/권한 변경 없음.
+공식 문서: https://learn.chatgpt.com/docs/features , https://learn.chatgpt.com/docs/app-server
 
-근거: 공식 CLI 0.162.1 generated stable/experimental App Server schema. skills/list + UserInput.skill, thread/archive/unarchive/resume/fork/review/start는 실제 시험. MCP와 model provider 설정은 공식 버전 config.schema.json. source/SDK/npm licenses 및 integrity는 ENGINE-PROVENANCE.json/vendor.
+Windows 실행 패키지는 GitHub Release에 첨부하며 source Git history에는 대형 runtime/CLI/EXE, 계정 데이터, 브라우저 프로필, 개인 화면 캡처를 넣지 않는다.

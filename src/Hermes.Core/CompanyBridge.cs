@@ -63,7 +63,7 @@ public sealed class CompanyBridge : IAsyncDisposable
     {
         if (!incoming.Headers.TryGetValue("Authorization", out var auth) || !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(auth), Encoding.UTF8.GetBytes("Bearer " + capability))) { await LoopbackHttp.Reply(stream, 403, "application/json", "{\"error\":{\"message\":\"Local capability required\"}}", ct); return; }
         if (incoming.Method != "POST" || incoming.Path.Split('?')[0] != "/v1/responses") { await LoopbackHttp.Reply(stream, 404, "application/json", "{\"error\":{\"message\":\"Unsupported local route\"}}", ct); return; }
-        var entry = StartEntry(); using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, operation.Token);
+        var entry = StartEntry(); var streaming = false; using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, operation.Token);
         try
         {
             if (incoming.Headers.ContainsKey("Content-Encoding")) throw new IOException("Compressed request body not supported by the local adapter");
@@ -72,13 +72,40 @@ public sealed class CompanyBridge : IAsyncDisposable
             ChatAdaptation? adaptation = settings.IsChat ? ChatAdapter.Request(body) : null;
             using var request = Request(HttpMethod.Post, settings.RequestUri(false, testLoopback));
             request.Content = new StringContent((adaptation?.Body ?? body).ToJsonString(), Encoding.UTF8, "application/json");
-            entry.Requests = 1; using var response = await http.SendAsync(request, linked.Token); entry.HttpStatus = (int)response.StatusCode;
-            var text = Safety.Redact(await response.Content.ReadAsStringAsync(linked.Token));
+            entry.Requests = 1; using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token); entry.HttpStatus = (int)response.StatusCode;
             if (!response.IsSuccessStatusCode)
             {
                 entry.Status = "failed"; entry.Note = $"HTTP {(int)response.StatusCode}; no fallback; usage not provided"; Emit(entry);
                 await LoopbackHttp.Reply(stream, (int)response.StatusCode is >= 300 and < 400 ? 502 : (int)response.StatusCode, "application/json", JsonSerializer.Serialize(new { error = new { message = entry.Note, type = "company_endpoint_error" } }), ct); return;
             }
+            if (adaptation == null && wantsStream && response.Content.Headers.ContentType?.MediaType == "text/event-stream")
+            {
+                streaming = true;
+                await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"), linked.Token);
+                await stream.FlushAsync(linked.Token);
+                using var upstream = new StreamReader(await response.Content.ReadAsStreamAsync(linked.Token), Encoding.UTF8);
+                var frame = new StringBuilder(); JsonElement? final = null; long total = 0;
+                async Task Forward()
+                {
+                    if (frame.Length == 0) return;
+                    var eventText = Safety.Redact(frame.ToString());
+                    total += eventText.Length; if (total > 64_000_000) throw new IOException("Company stream size limit");
+                    var observed = ResponseWire.LastResponse(eventText); if (observed.HasValue) final = observed;
+                    await stream.WriteAsync(Encoding.UTF8.GetBytes(eventText + "\n"), linked.Token);
+                    await stream.FlushAsync(linked.Token); frame.Clear();
+                }
+                while (await upstream.ReadLineAsync(linked.Token) is { } line)
+                {
+                    if (line.Length == 0) await Forward();
+                    else { frame.AppendLine(line); if (frame.Length > 2_000_000) throw new IOException("Company event size limit"); }
+                }
+                await Forward();
+                entry.Tokens = final.HasValue ? TokenCounts.FromResponse(final.Value) : TokenCounts.Missing;
+                entry.Model = final?.Text("model") is { Length: > 0 } streamModel ? streamModel : settings.Deployment;
+                entry.Status = final?.Text("status") ?? "unknown";
+                entry.Note = "실시간 Responses SSE 전달 · 최종 서버 usage만 집계"; Emit(entry); return;
+            }
+            var text = Safety.Redact(await response.Content.ReadAsStringAsync(linked.Token));
             string output; string contentType; string finalStatus = "completed";
             if (adaptation != null)
             {
@@ -104,7 +131,7 @@ public sealed class CompanyBridge : IAsyncDisposable
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException or JsonException or InvalidOperationException)
         {
             entry.Status = ex is OperationCanceledException ? "cancelled" : "failed"; entry.Note = "요청 실패/중단 또는 호환 불가; usage 미제공; 외부 fallback 없음"; Emit(entry);
-            if (!ct.IsCancellationRequested) await LoopbackHttp.Reply(stream, 502, "application/json", JsonSerializer.Serialize(new { error = new { message = entry.Note, type = "company_adapter_error" } }), ct);
+            if (!streaming && !ct.IsCancellationRequested) await LoopbackHttp.Reply(stream, 502, "application/json", JsonSerializer.Serialize(new { error = new { message = entry.Note, type = "company_adapter_error" } }), ct);
         }
     }
     public async ValueTask DisposeAsync() { operation.Cancel(); await server.DisposeAsync(); http.Dispose(); operation.Dispose(); }

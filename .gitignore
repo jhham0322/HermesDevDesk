@@ -19,3 +19,8 @@ state.json
 state.json.backup
 auth.json
 credentials.json
+
+**/design/protocol*/
+**/design/*reference*.png
+**/browser-profile/
+*.dpapi

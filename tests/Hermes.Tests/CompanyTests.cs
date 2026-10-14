@@ -38,6 +38,7 @@ internal static class CompanyTests
         var pendingRecovered = pendingStore.Load(); assert(pendingRecovered.Usage.Single().Requests == null && pendingRecovered.Usage.Single().Status == "unknown-after-restart", "unfinished request count remains unknown after crash/restart");
         var output = new JsonObject { ["id"] = "resp_mock", ["object"] = "response", ["status"] = "completed", ["created_at"] = at.ToUnixTimeSeconds(), ["model"] = "server-model", ["output"] = new JsonArray(new JsonObject { ["id"] = "msg_mock", ["type"] = "message", ["role"] = "assistant", ["status"] = "completed", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = "COMPANY_MOCK_OK", ["annotations"] = new JsonArray() }) }), ["usage"] = JsonNode.Parse("{\"input_tokens\":100,\"output_tokens\":30,\"total_tokens\":130,\"input_tokens_details\":{\"cached_tokens\":40},\"output_tokens_details\":{\"reasoning_tokens\":10}}") };
         var observed = new List<UsageEntry>(); int hits = 0; bool authenticated = false; string lastPath = ""; var replyMode = "success";
+        var releaseFinal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var mock = new LoopbackHttp(async (request, stream, ct) =>
         {
             Interlocked.Increment(ref hits); lastPath = request.Path; authenticated = request.Headers.TryGetValue("api-key", out var value) && value == key;
@@ -45,6 +46,12 @@ internal static class CompanyTests
             if (replyMode == "fail") { await LoopbackHttp.Reply(stream, 401, "application/json", JsonSerializer.Serialize(new { error = new { message = key } }), ct); return; }
             if (replyMode == "failed-response") { var failedResponse = (JsonObject)output.DeepClone(); failedResponse["status"] = "failed"; await LoopbackHttp.Reply(stream, 200, "text/event-stream", ResponseWire.Sse(failedResponse), ct); return; }
             if (replyMode == "missing-final") { await LoopbackHttp.Reply(stream, 200, "text/event-stream", "data: {\"type\":\"response.created\"}\n\n", ct); return; }
+            if (replyMode == "delayed-stream")
+            {
+                await stream.WriteAsync(Encoding.UTF8.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"FIRST_CHUNK\"}\n\n"), ct);
+                await stream.FlushAsync(ct); await releaseFinal.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+                await stream.WriteAsync(Encoding.UTF8.GetBytes(ResponseWire.Sse(output)), ct); await stream.FlushAsync(ct); return;
+            }
             if (request.Method == "GET") { await LoopbackHttp.Reply(stream, 200, "application/json", "{\"data\":[]}", ct); return; }
             using var body = JsonDocument.Parse(request.Body); assert(body.RootElement.Text("model") == "company-deployment", "configured Azure deployment reaches company request");
             await LoopbackHttp.Reply(stream, 200, "text/event-stream", ResponseWire.Sse(output), ct);
@@ -67,6 +74,18 @@ internal static class CompanyTests
         replyMode = "fail"; var failed = await Send(); assert(!failed.Contains(key) && observed[^1].Status == "failed" && observed[^1].Tokens.Input == null, "upstream failure does not leak key or invent usage");
         replyMode = "failed-response"; await Send(); assert(observed[^1].Status == "failed" && observed[^1].Tokens.Total == 130, "HTTP 200 failed Responses status and supplied usage retained");
         replyMode = "missing-final"; await Send(); assert(observed[^1].Status == "unknown" && observed[^1].Tokens.Total == null, "unfinished SSE stays unknown with no invented usage");
+        replyMode = "delayed-stream";
+        using (var streamingRequest = new HttpRequestMessage(HttpMethod.Post, bridge.BaseUri.AbsoluteUri + "/responses"))
+        {
+            streamingRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bridge.Capability);
+            streamingRequest.Content = new StringContent("{\"model\":\"unused\",\"input\":\"stream fixture\",\"stream\":true}", Encoding.UTF8, "application/json");
+            using var streamingReply = await client.SendAsync(streamingRequest, HttpCompletionOption.ResponseHeadersRead);
+            using var reader = new StreamReader(await streamingReply.Content.ReadAsStreamAsync());
+            var firstLine = await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            assert(firstLine?.Contains("FIRST_CHUNK") == true && !releaseFinal.Task.IsCompleted, "Responses SSE first chunk reaches client before final response");
+            releaseFinal.TrySetResult(); var remaining = await reader.ReadToEndAsync();
+            assert(remaining.Contains("response.completed") && observed[^1].Tokens.Total == 130, "stream completion retains final actual usage");
+        }
         var adaptation = ChatAdapter.Request(JsonNode.Parse("{\"model\":\"deployment\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}],\"tools\":[{\"type\":\"namespace\",\"name\":\"functions\",\"tools\":[{\"type\":\"function\",\"name\":\"read\",\"parameters\":{\"type\":\"object\"}}]}]}")!.AsObject());
         using var chat = JsonDocument.Parse("{\"id\":\"chat-mock\",\"model\":\"server-model\",\"choices\":[{\"message\":{\"content\":\"reply\",\"tool_calls\":[{\"id\":\"call1\",\"function\":{\"name\":\"functions__read\",\"arguments\":\"{}\"}}]}}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3,\"total_tokens\":8}}");
         var converted = ChatAdapter.Response(chat.RootElement, adaptation); assert(converted["output"]![1]!["namespace"]!.GetValue<string>() == "functions" && TokenCounts.FromResponse(JsonSerializer.SerializeToElement(converted)).Total == 8, "Chat Completions namespace tools and usage adapt to Responses");

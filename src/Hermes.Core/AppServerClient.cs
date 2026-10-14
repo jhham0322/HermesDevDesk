@@ -60,7 +60,7 @@ public sealed class AppServerClient : IAsyncDisposable
         _ = ReadDiagnosticsAsync();
         try
         {
-            await RequestAsync("initialize", new { clientInfo = new { name = "hermes_devdesk", title = "Hermes DevDesk (independent client)", version = "0.5.1" }, capabilities = new { experimentalApi = false } });
+            await RequestAsync("initialize", new { clientInfo = new { name = "hermes_devdesk", title = "Hermes DevDesk (independent client)", version = "0.6.1" }, capabilities = new { experimentalApi = true } });
             await WriteAsync(new { method = "initialized", @params = new { } });
         }
         catch { await DisposeAsync(); throw; }

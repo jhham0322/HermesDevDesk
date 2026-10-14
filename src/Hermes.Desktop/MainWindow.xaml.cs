@@ -26,7 +26,8 @@ public partial class MainWindow : Window
     public MainWindow(string data)
     {
         InitializeComponent();
-        desk = new(data, a => Dispatcher.BeginInvoke(a)); desk.Changed += Refresh;
+        desk = new(data, a => Dispatcher.BeginInvoke(a)); desk.Changed += Refresh; desk.StreamChanged += QueueRefresh;
+        InitializeShell();
         terminal = new(Path.Combine(data, "terminal-home")); terminal.Output += text => Dispatcher.BeginInvoke(() => { CommandOutput.AppendText(text); if (CommandOutput.Text.Length > 300000) CommandOutput.Text = CommandOutput.Text[^200000..]; CommandOutput.ScrollToEnd(); });
         UsageStart.SelectedDate = DateTime.UtcNow.Date.AddDays(-6); UsageEnd.SelectedDate = DateTime.UtcNow.Date;
         desk.Diagnostic += s => { Logs.AppendText(s + "\n"); if (Logs.Text.Length > 200_000) Logs.Text = Logs.Text[^100_000..]; Logs.ScrollToEnd(); };
@@ -45,10 +46,12 @@ public partial class MainWindow : Window
             ApprovalList.ItemsSource = desk.Approvals.Select(r => new ApprovalDisplay(r)).ToList();
             ApprovalList.SelectedItem = ApprovalList.Items.Cast<ApprovalDisplay>().FirstOrDefault(d => d.Request == approval) ?? ApprovalList.Items.Cast<ApprovalDisplay>().FirstOrDefault();
             Connection.Text = desk.AccountStatus;
-            if (!Model.Items.Cast<string>().SequenceEqual(desk.Models)) { var selected = Model.SelectedItem as string; Model.ItemsSource = desk.Models.ToList(); Model.SelectedItem = desk.Models.Contains(selected!) ? selected : desk.Models.FirstOrDefault(); }
-            ProviderHint.Text = desk.State.Provider.Mode == ConnectionMode.CompanyApi ? "회사 설정 endpoint에만 전송 · 외부 fallback 없음 · 0.5 API 응답은 완료 후 표시" : "명시적으로 선택한 기존 ChatGPT CLI · 구독 사용량 소비 · 회사 API 자동 전환 없음";
-            StartButton.IsEnabled = desk.SubscriptionReady && CurrentTask != null && !CurrentTask.Archived && !DeskController.IsRunning(CurrentTask);
+            var visibleModels = desk.Models.Count == 0 ? new List<string> { "모델 연결 필요" } : desk.Models.ToList();
+            if (!Model.Items.Cast<string>().SequenceEqual(visibleModels)) { var selected = Model.SelectedItem as string; Model.ItemsSource = visibleModels; Model.SelectedItem = visibleModels.Contains(selected!) ? selected : visibleModels.FirstOrDefault(); }
+            ProviderHint.Text = desk.State.Provider.Mode == ConnectionMode.CompanyApi ? "회사 API · Responses SSE 실시간 지원 · Chat 호환 응답은 완료 후 표시" : "ChatGPT CLI · 구독 사용량 사용";
+            StartButton.IsEnabled = desk.SubscriptionReady && CurrentTask != null && !CurrentTask.Archived && (CurrentTask.Status == "실행 중" || !DeskController.IsRunning(CurrentTask));
             RenderTask();
+            RenderSidebar(); UpdateShellState();
         }
         finally { refreshing = false; }
     }
@@ -60,8 +63,7 @@ public partial class MainWindow : Window
         TaskDetails.Text = CurrentTask == null ? "선택한 작업 없음" : Review.Detail(desk.State, CurrentTask);
         Writable.IsEnabled = CurrentTask?.ThreadId == null;
         if (CurrentTask?.ThreadId != null) Writable.IsChecked = CurrentTask.ThreadWritable == true;
-        Transcript.Text = CurrentTask == null ? "공식 CLI를 연결하면 실제 작업을 시작할 수 있습니다.\n\n새 프로젝트 등록 → 새 작업 → 지시 입력 → 모델 선택 → 실행" : string.Join("\n\n", CurrentTask.Transcript.Select(e => $"[{e.Kind} · {e.At.ToLocalTime():HH:mm:ss}]\n{e.Text}"));
-        Transcript.ScrollToEnd();
+        SwitchDraft(); RenderConversation(); UpdateShellState();
     }
     private async Task Guard(Func<Task> action)
     { try { await action(); } catch (Exception ex) { Footer.Text = Safety.Redact(ex.Message); MessageBox.Show(this, Safety.Redact(ex.Message), "Hermes DevDesk", MessageBoxButton.OK, MessageBoxImage.Information); } }
@@ -171,9 +173,15 @@ public partial class MainWindow : Window
     });
     private async void Start_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
-        var task = CurrentTask ?? throw new IOException("새 작업을 만드세요."); var prompt = Prompt.Text;
+        var prompt = Prompt.Text; var task = CurrentTask;
+        if (task == null) { NewTask_Click(this, new RoutedEventArgs()); task = CurrentTask ?? throw new IOException("프로젝트를 선택하세요."); }
+        if (task.Status == "실행 중")
+        {
+            if (pendingImages.Count > 0 || pendingSkills.Count > 0) throw new IOException("추가 지시는 텍스트로 전송하세요. 첨부는 다음 실행에서 사용할 수 있습니다.");
+            await desk.SteerAsync(task, prompt); Prompt.Clear(); return;
+        }
         if (task.Transcript.Count == 0) task.Title = Safety.Redact(prompt.Length > 45 ? prompt[..45] + "…" : prompt);
-        await desk.StartAsync(task, prompt, Model.SelectedItem as string ?? "", Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList()); Prompt.Clear(); ImageClear_Click(this, new RoutedEventArgs()); SkillClear_Click(this, new RoutedEventArgs());
+        await desk.StartAsync(task, prompt, Model.SelectedItem as string ?? "", Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList(), effort: Effort.SelectedIndex > 0 ? Effort.SelectedItem as string : null); Prompt.Clear(); ImageClear_Click(this, new RoutedEventArgs()); SkillClear_Click(this, new RoutedEventArgs());
     });
     private async void Stop_Click(object sender, RoutedEventArgs e) => await Guard(async () => { if (CurrentTask != null) await desk.StopAsync(CurrentTask); });
     private void RefreshFiles(bool clearPreview = true)
@@ -293,6 +301,7 @@ public partial class MainWindow : Window
         var reminder = desk.ScheduleDraft(project, "UI reminder fixture", "manual-only", DateTimeOffset.UtcNow.AddHours(1)); var dueTasks = desk.CreateDueDrafts(reminder.DueAtUtc);
         Check(dueTasks.Count == 1 && dueTasks.Single().Status == "예약 초안", "scheduled draft notification data");
         Check(desk.CreateDueDrafts(reminder.DueAtUtc).Count == 0, "scheduled draft duplicate protection");
+        checks += await RunShellChecks();
         return $"PASS: {checks} programmatic WPF control/event checks; isolated fixtures. Not native mouse/keyboard automation.\n";
     }
     private async void Window_Closing(object? sender, CancelEventArgs e)
@@ -301,6 +310,7 @@ public partial class MainWindow : Window
         if (desk.State.Tasks.Any(DeskController.IsRunning) && MessageBox.Show(this, "Hermes의 실행 작업을 중단하고 종료할까요?", "종료", MessageBoxButton.YesNo) != MessageBoxResult.Yes) { e.Cancel = true; return; }
         e.Cancel = true; closing = true; draftTimer.Stop();
         foreach (var task in desk.State.Tasks.Where(DeskController.IsRunning).ToList()) { try { await desk.StopAsync(task); } catch (IOException) { } }
+        draftSaveTimer.Stop(); browserView?.Dispose();
         await terminal.DisposeAsync(); await desk.DisposeAsync(); desk.Save(); Close();
     }
 }

@@ -12,10 +12,11 @@ public partial class App : Application
         try
         {
             var dataIndex = Array.IndexOf(e.Args, "--data-dir");
-            var data = dataIndex >= 0 && e.Args.Length > dataIndex + 1 ? e.Args[dataIndex + 1] : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HermesDevDesk", "0.5.1");
+            var data = dataIndex >= 0 && e.Args.Length > dataIndex + 1 ? e.Args[dataIndex + 1] : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HermesDevDesk", "0.6.1");
             var window = new MainWindow(data); MainWindow = window;
             if (e.Args.Contains("--ui-smoke"))
             {
+                window.Width = 1280; window.Height = 1392;
                 window.Show();
                 window.Dispatcher.BeginInvoke(async () =>
                 {
