@@ -46,9 +46,10 @@ public partial class MainWindow : Window
             ApprovalList.ItemsSource = desk.Approvals.Select(r => new ApprovalDisplay(r)).ToList();
             ApprovalList.SelectedItem = ApprovalList.Items.Cast<ApprovalDisplay>().FirstOrDefault(d => d.Request == approval) ?? ApprovalList.Items.Cast<ApprovalDisplay>().FirstOrDefault();
             Connection.Text = desk.AccountStatus;
-            var visibleModels = desk.Models.Count == 0 ? new List<string> { "모델 연결 필요" } : desk.Models.ToList();
+            var visibleModels = desk.Models.Count > 0 ? desk.Models.ToList() : desk.State.Provider.Mode == ConnectionMode.CompanyApi && !string.IsNullOrWhiteSpace(desk.State.Provider.Deployment) ? new List<string> { desk.State.Provider.Deployment } : new List<string> { "모델을 설정하세요" };
             if (!Model.Items.Cast<string>().SequenceEqual(visibleModels)) { var selected = Model.SelectedItem as string; Model.ItemsSource = visibleModels; Model.SelectedItem = visibleModels.Contains(selected!) ? selected : visibleModels.FirstOrDefault(); }
-            ProviderHint.Text = desk.State.Provider.Mode == ConnectionMode.CompanyApi ? "회사 API · Responses SSE 실시간 지원 · Chat 호환 응답은 완료 후 표시" : "ChatGPT CLI · 구독 사용량 사용";
+            Model.ToolTip = "설정한 모델 · " + desk.AccountStatus;
+            ProviderHint.Text = desk.State.Provider.Mode == ConnectionMode.CompanyApi ? desk.State.Provider.IsAnthropic ? "Anthropic Messages · " + desk.ProviderCheckStatus : "회사 API · " + desk.ProviderCheckStatus : "ChatGPT CLI · 구독 사용량 사용";
             StartButton.IsEnabled = desk.SubscriptionReady && CurrentTask != null && !CurrentTask.Archived && (CurrentTask.Status == "실행 중" || !DeskController.IsRunning(CurrentTask));
             RenderTask();
             RenderSidebar(); UpdateShellState();
@@ -169,7 +170,9 @@ public partial class MainWindow : Window
     {
         if (desk.State.Tasks.Any(DeskController.IsRunning)) throw new IOException("실행 중인 작업을 먼저 중단하세요.");
         var exe = desk.State.CodexPath ?? AppServerClient.FindInstalledCodex() ?? throw new IOException("공식 Codex CLI를 설치하고 codex.exe를 선택하세요. 자동 설치/로그인은 수행하지 않습니다.");
-        await desk.ConnectAsync(exe, CurrentProject?.Root ?? throw new IOException("엔진 연결 전에 프로젝트를 등록/선택하세요.")); Refresh();
+        await desk.ConnectAsync(exe, CurrentProject?.Root ?? throw new IOException("엔진 연결 전에 프로젝트를 등록/선택하세요."));
+        if (desk.State.Provider.Mode == ConnectionMode.CompanyApi) await desk.CheckProviderAsync();
+        Refresh();
     });
     private async void Start_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
     {

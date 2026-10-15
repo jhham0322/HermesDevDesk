@@ -1,4 +1,4 @@
-# Hermes 0.7.0 기능 현황
+# Hermes 0.8.0 기능 현황
 
 기준: 설치된 Codex 데스크톱 화면 캡처 및 공개 App Server 0.162.1 stable/experimental schema. 사용자 요청은 전체 디자인/기능 일치이며 아래 미구현 항목 때문에 전체 동등성은 달성하지 않았다.
 
@@ -7,7 +7,9 @@
 | 밝은 사이드바 / 프로젝트 채팅 / 하단 입력 / 접이식 패널 | 구현 | 실제 화면 비교 및 WPF / native UI 검사 |
 | 어두운 테마 / 고정 / 이름 변경 / 검색 / 초안 / 단축키 / 팔레트 | 구현 | 영속성, 컨트롤, 재사용 검사 |
 | 채팅 스트리밍 / 완료 중복 제거 / 추가 지시 / 중단 / 재개 | 구현 | 공식 엔진 + synthetic provider round trip |
-| 모델 / 추론 수준 | 구현 | 연결한 model/list에서 제공한 값만 선택 |
+| 모델 / 추론 수준 | 구현 | 설정 모델 실패 후 보존, 회사 models 목록 선택, 추론 수준은 서버 제공 값만 |
+| Anthropic Messages | 구현 | 텍스트/도구/이미지/SSE/usage 변환, 로컬 합성 서버 및 공식 CLI 검사 |
+| Azure 연결 예시 | 구현 | v1/구버전 예시 채우기, 자동 저장/요청 없음 |
 | 회사 Responses SSE | 구현 | 최종 응답 전 첫 chunk 도착, 사용량/취소/실패 검사 |
 | 로컬 Git / 지정 git.exe / 원격 서버 / stage / commit / fetch / push | 구현 | 실제 격리 Git / bare 원격 Push/Fetch / working file 보존 |
 | 파일 / 실제 Git diff / 저장된 작업 diff / worktree / AI 검토 | 기존 구현 유지 | 회귀 검사; 실제 AI 품질은 provider 조건 필요 |

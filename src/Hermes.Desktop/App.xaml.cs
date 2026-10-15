@@ -12,9 +12,11 @@ public partial class App : Application
         try
         {
             var dataIndex = Array.IndexOf(e.Args, "--data-dir");
-            var data = dataIndex >= 0 && e.Args.Length > dataIndex + 1 ? e.Args[dataIndex + 1] : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HermesDevDesk", "0.7.3");
+            var data = dataIndex >= 0 && e.Args.Length > dataIndex + 1 ? e.Args[dataIndex + 1] : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HermesDevDesk", "0.8.0");
             var window = new MainWindow(data); MainWindow = window;
-            if (e.Args.Contains("--maximize-smoke"))
+            if (e.Args.Contains("--provider-settings-smoke"))
+            { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunProviderSettingsChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "provider-settings-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
+            else if (e.Args.Contains("--maximize-smoke"))
             { window.Show();window.Dispatcher.BeginInvoke(async()=>{try{await window.RunMaximizeChecks(data);await window.ShutdownController();Shutdown(0);}catch{await window.ShutdownController();Shutdown(1);}}); }
             else if (e.Args.Contains("--http-settings-smoke"))
             {

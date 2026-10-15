@@ -12,6 +12,7 @@ public sealed class DeskController : IAsyncDisposable
     private string connectedFingerprint = "";
     private readonly bool allowTestLoopback;
     public string AccountStatus { get; private set; } = "연결 안 됨";
+    public string ProviderCheckStatus { get; private set; } = "연결 검사 전";
     public bool SubscriptionReady { get; private set; }
     public List<string> Models { get; } = [];
     public Dictionary<string, List<string>> ModelEfforts { get; } = [];
@@ -47,12 +48,14 @@ public sealed class DeskController : IAsyncDisposable
         settings.KeyRevision = State.Provider.KeyRevision;
         if (newKey != null) { Safety.RegisterSecret(newKey); KeyStore.Save(newKey); settings.KeyRevision++; }
         if (deleteKey) { KeyStore.DeleteOwnKey(); settings.KeyRevision++; }
-        State.Provider = settings; SubscriptionReady = false; AccountStatus = "설정 변경됨 · 명시적으로 다시 연결하세요"; Save();
+        State.Provider = settings; ProviderCheckStatus = "연결 검사 전"; Models.Clear(); ModelEfforts.Clear(); SubscriptionReady = false; AccountStatus = "설정 변경됨 · 명시적으로 다시 연결하세요"; Save();
     }
     public async Task<string> CheckProviderAsync(CancellationToken ct = default)
     {
         if (State.Provider.Mode != ConnectionMode.CompanyApi) return "기존 CLI 인증은 엔진 연결로 확인합니다. 회사 서버로 전환하지 않습니다.";
-        await using var check = new CompanyBridge(State.Provider, KeyStore, allowTestLoopback); check.Usage += e => dispatch(() => { UsageLedger.Upsert(State, e); Save(); }); return await check.CheckConnectionAsync(ct);
+        await using var check = new CompanyBridge(State.Provider, KeyStore, allowTestLoopback); check.Usage += e => dispatch(() => { UsageLedger.Upsert(State, e); Save(); }); ProviderCheckStatus = await check.CheckConnectionAsync(ct); Models.Clear(); Models.Add(State.Provider.Deployment); Models.AddRange(check.DiscoveredModels.Where(m => !Models.Contains(m))); company?.SetAvailableModels(Models);
+        if (Engine != null && connectedFingerprint == State.Provider.Fingerprint && ((State.Provider.IsAnthropic && !check.LastCheckSucceeded) || check.LastCheckHttpStatus is 401 or 403)) { SubscriptionReady = false; AccountStatus = "회사 모델 연결 검사 실패 · 설정 모델: " + State.Provider.Deployment; }
+        Save(); return ProviderCheckStatus;
     }
     public void Save() { dirty = false; Store.Save(State); Changed?.Invoke(); }
     private void SaveStream()
@@ -108,11 +111,12 @@ public sealed class DeskController : IAsyncDisposable
             {
                 State.Provider.Validate(allowTestLoopback);
                 if (State.Provider.Authentication != ProviderAuth.None && !KeyStore.HasKey) throw new IOException("회사 키를 앱 설정에서 직접 입력하세요. 기존 키를 추출하지 않습니다.");
+                var savedModels = Models.ToList();
                 company = new(State.Provider, KeyStore, allowTestLoopback); company.Usage += e => dispatch(() => { UsageLedger.Upsert(State, e); Save(); });
                 await client.ConnectAsync(exe, cwd, Path.Combine(DataDirectory, "engine-home"), company.BaseUri, company.Capability, State.Provider.Deployment);
                 var providerAccount = await client.RequestAsync("account/read", new { refreshToken = false });
                 if (providerAccount.Property("requiresOpenaiAuth") is { ValueKind: JsonValueKind.True }) throw new IOException("회사 provider가 외부 OpenAI 인증을 요구해 차단했습니다.");
-                Models.Clear(); ModelEfforts.Clear(); Models.Add(State.Provider.Deployment); SubscriptionReady = true; connectedFingerprint = State.Provider.Fingerprint;
+                Models.Clear(); ModelEfforts.Clear(); Models.Add(State.Provider.Deployment); Models.AddRange(savedModels.Where(m => !Models.Contains(m))); company.SetAvailableModels(Models); SubscriptionReady = true; connectedFingerprint = State.Provider.Fingerprint;
                 AccountStatus = "회사 API 전용 연결 · 실제 인증/배포 검증은 첫 서버 응답 기준 · 외부 fallback 없음";
                 State.CodexPath = exe; Save(); return;
             }
@@ -138,7 +142,7 @@ public sealed class DeskController : IAsyncDisposable
             State.CodexPath = exe; Save();
             connectedFingerprint = State.Provider.Fingerprint;
         }
-        catch { SubscriptionReady = false; AccountStatus = "연결 실패"; await client.DisposeAsync(); Save(); throw; }
+        catch { SubscriptionReady = false; AccountStatus = "연결 실패 · 설정 모델: " + State.Provider.Deployment; await client.DisposeAsync(); Save(); throw; }
     }
     public static bool IsRunning(WorkItem t) => t.Status is "실행 중" or "승인 대기" or "시작 중" or "중단 중";
     public ScheduledDraft ScheduleDraft(ProjectEntry project, string title, string prompt, DateTimeOffset due)
@@ -199,7 +203,7 @@ public sealed class DeskController : IAsyncDisposable
         if (!SubscriptionReady || connectedFingerprint != State.Provider.Fingerprint || !Models.Contains(model) || State.Tasks.Any(IsRunning)) throw new IOException("provider 연결/모델을 확인하고 진행 중 작업을 중단하세요.");
         var root = Safety.ProjectRoot(project.Root); var top = await GitRunner.Run(root, "rev-parse", "--show-toplevel");
         if (top.Exit != 0 || !string.Equals(Path.GetFullPath(top.Output.Trim()), root, StringComparison.OrdinalIgnoreCase)) throw new IOException("등록한 루트 자체가 Git 저장소여야 합니다.");
-        var task = NewTask(project, "AI 변경 검토 " + DateTime.Now.ToString("MM-dd HH:mm")); task.IsReview = true; task.Model = model; task.ProviderFingerprint = connectedFingerprint; task.Status = "시작 중"; task.UsageBaselineKnown = true; company?.BeginTask(task.Id); Save();
+        var task = NewTask(project, "AI 변경 검토 " + DateTime.Now.ToString("MM-dd HH:mm")); task.IsReview = true; task.Model = model; task.ProviderFingerprint = connectedFingerprint; task.Status = "시작 중"; task.UsageBaselineKnown = true; company?.BeginTask(task.Id, model); Save();
         try
         {
             var response = await engine.RequestAsync("thread/start", new { cwd = root, model, modelProvider = company == null ? "openai" : "hermes_company", approvalPolicy = "on-request", approvalsReviewer = "user", sandbox = "read-only", config = new { mcp_servers = disabledMcp, web_search = "disabled", review_model = model }, developerInstructions = "Review only this project. Never read secrets/credentials or other projects. Never write/delete files, change security settings, use network tools or other model APIs. MCP/remote/computer use are disabled for this review." });
@@ -240,7 +244,7 @@ public sealed class DeskController : IAsyncDisposable
         var mcp = new Dictionary<string, object>(disabledMcp);
         if (useMcp) foreach (var server in McpConfiguration.BuiltIn(mcpHostExe ?? Environment.ProcessPath!, root, writable)) mcp[server.Key] = server.Value;
         task.Writable = writable; task.Status = "시작 중"; task.Updated = DateTime.UtcNow; Save();
-        task.Model = model; task.ProviderFingerprint = connectedFingerprint; company?.BeginTask(task.Id);
+        task.Model = model; task.ProviderFingerprint = connectedFingerprint; company?.BeginTask(task.Id, model);
         try
         {
             if (task.ThreadId == null || !loadedThreads.Contains(task.ThreadId))
