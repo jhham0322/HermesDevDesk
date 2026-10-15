@@ -21,6 +21,7 @@ public sealed partial class SettingsWindow
     }
     private void ApplyProviderExample(int index)
     {
+        manual.IsChecked = true;
         mode.SelectedItem = ConnectionMode.CompanyApi;
         protocol.SelectedItem = index switch { 1 => ProviderProtocol.AzureV1ChatCompletions, 2 => ProviderProtocol.AzureLegacyChatCompletions, 3 => ProviderProtocol.AnthropicMessages, _ => ProviderProtocol.AzureV1Responses };
         endpoint.Text = index == 3 ? "http://YOUR-COMPANY-GATEWAY" : index == 2 ? "https://YOUR-RESOURCE.openai.azure.com" : "https://YOUR-RESOURCE.openai.azure.com/openai/v1";

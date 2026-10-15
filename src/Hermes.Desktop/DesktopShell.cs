@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -87,7 +87,7 @@ public partial class MainWindow
     {
         if (desk == null) return;
         var running = CurrentTask != null && DeskController.IsRunning(CurrentTask);
-        StartButton.IsEnabled = desk.SubscriptionReady && CurrentTask != null && !CurrentTask.Archived && (CurrentTask.Status == "실행 중" || !DeskController.IsRunning(CurrentTask));
+        StartButton.IsEnabled = !connectingCompany && !desk.HasPendingModel && (desk.SubscriptionReady || desk.CanConnectCompany) && CurrentTask != null && !CurrentTask.Archived && (CurrentTask.Status == "실행 중" || !DeskController.IsRunning(CurrentTask));
         browserEnable.IsChecked = CurrentProject?.BrowserEnabled == true;
         computerEnable.IsChecked = CurrentProject?.ComputerEnabled == true;
         StopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;

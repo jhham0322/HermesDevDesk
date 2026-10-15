@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace Hermes.Core;
 public enum EndpointSchemeChoice { RequireExplicitScheme, Https, Http }
-public enum ProviderProtocol { AzureV1Responses, AzureLegacyResponses, GatewayResponses, AzureV1ChatCompletions, AzureLegacyChatCompletions, GatewayChatCompletions, AnthropicMessages }
+public enum ProviderProtocol { AzureV1Responses, AzureLegacyResponses, GatewayResponses, AzureV1ChatCompletions, AzureLegacyChatCompletions, GatewayChatCompletions, AnthropicMessages, GatewayAuto }
 public enum ProviderAuth { ApiKeyHeader, BearerKey, None }
 public enum ConnectionMode { CompanyApi, ExistingChatGptCli }
 public sealed class ProviderSettings
@@ -14,6 +14,7 @@ public sealed class ProviderSettings
     public string ApiVersion { get; set; } = "";
     public ProviderProtocol Protocol { get; set; } = ProviderProtocol.AzureV1Responses;
     public ProviderAuth Authentication { get; set; } = ProviderAuth.ApiKeyHeader;
+    public bool UseAdvancedSettings { get; set; }
     public int KeyRevision { get; set; }
     public int MaxOutputTokens { get; set; } = 8192;
     public bool IsAnthropic => Protocol == ProviderProtocol.AnthropicMessages;
@@ -54,7 +55,7 @@ public sealed class ProviderSettings
         if (IsLegacy && !baseUri.AbsolutePath.TrimEnd('/').EndsWith("/openai", StringComparison.OrdinalIgnoreCase)) basePath += "/openai";
         if (IsAnthropic)
         {
-            if (baseUri.AbsolutePath.TrimEnd('/').EndsWith("/v1/messages", StringComparison.OrdinalIgnoreCase)) return baseUri;
+            if (baseUri.AbsolutePath.TrimEnd('/').EndsWith("/messages", StringComparison.OrdinalIgnoreCase)) return baseUri;
             if (!baseUri.AbsolutePath.TrimEnd('/').EndsWith("/v1", StringComparison.OrdinalIgnoreCase)) basePath += "/v1";
             return new(basePath + "/messages");
         }

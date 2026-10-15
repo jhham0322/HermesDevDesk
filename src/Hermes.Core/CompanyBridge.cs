@@ -79,7 +79,7 @@ public sealed class CompanyBridge : IAsyncDisposable
             if ((int)response.StatusCode is >= 300 and < 400) return "Redirect 차단. 다른 서버로 전송하지 않았습니다.";
             return response.IsSuccessStatusCode ? "설정된 서버의 models 경로 응답 확인. 실제 추론은 아직 확인하지 않았습니다." : $"서버 응답 HTTP {(int)response.StatusCode}. 요청 경로: {settings.RequestUri(true, testLoopback).AbsolutePath}. 경로/모델/권한을 확인하세요. 모델 목록 경로 404만으로 추론 실패를 판단하지 않습니다. 외부 fallback 없음.";
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException) { entry.Status = "failed"; entry.Note = "연결/TLS/키 저장 상태 확인 필요; 서버가 usage를 제공하지 않음"; Emit(entry); return entry.Note; }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException) { entry.Status = "failed"; entry.Note = ConnectionErrors.Describe(ex, ct) + " · 요청 경로: " + settings.RequestUri(true, testLoopback).AbsolutePath; if (entry.Requests == null) entry.Requests = 0; Emit(entry); return entry.Note; }
     }
     private void Emit(UsageEntry entry) => Usage?.Invoke(JsonSerializer.Deserialize<UsageEntry>(JsonSerializer.Serialize(entry))!);
     private UsageEntry StartEntry()

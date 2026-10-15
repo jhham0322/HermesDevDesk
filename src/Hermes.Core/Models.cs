@@ -45,6 +45,7 @@ public sealed class WorkItem
 public sealed record TranscriptEntry(string Kind, string Text, DateTime At, string? ItemId = null);
 public sealed class AppState
 {
+    public string PendingModel { get; set; } = "";
     public string? CodexPath { get; set; }
     public List<ProjectEntry> Projects { get; set; } = [];
     public List<WorkItem> Tasks { get; set; } = [];

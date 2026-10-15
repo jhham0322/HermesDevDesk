@@ -1,25 +1,24 @@
-# Hermes DevDesk 0.8.0
+# Hermes DevDesk 0.8.1
 
-[Windows Setup 및 Portable 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.8.0)
+[Windows Setup 및 Portable 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.8.1)
 
 공식 Codex CLI를 독립 Windows UI에서 실행하며 회사 API는 로컬 프로토콜 변환기로 연결합니다.
 
-## 회사 API 설정
+## 회사 서버 연결
 
-설정 화면에서 예시를 선택하고 ‘선택 예시 채우기’를 누른 뒤 실제 회사 값으로 바꾸세요. 예시 채우기는 저장하거나 서버에 접속하지 않습니다.
+기본 화면에 서버 URL, API 키, 모델명 세 값만 입력하고 **저장하고 연결 확인**을 누르세요. 일반 사내 게이트웨이에 Azure 설정을 요구하지 않습니다. Azure 구버전, 특별한 인증 헤더, CLI 구독 연결이 필요한 경우에만 고급 설정을 사용합니다.
 
-| 서버 | 프로토콜 | URL 예시 | 인증 | 모델 |
-|---|---|---|---|---|
-| Azure OpenAI v1 | AzureV1Responses | https://YOUR-RESOURCE.openai.azure.com/openai/v1 | ApiKeyHeader | 실제 deployment 이름 |
-| Azure v1 Chat | AzureV1ChatCompletions | 위와 동일 | ApiKeyHeader | 실제 deployment 이름 |
-| Azure 구버전 Chat | AzureLegacyChatCompletions | https://YOUR-RESOURCE.openai.azure.com | ApiKeyHeader + 회사 api-version | 실제 deployment 이름 |
-| Claude Code 호환 게이트웨이 | AnthropicMessages | ANTHROPIC_BASE_URL 값 | BearerKey | ANTHROPIC_DEFAULT_OPUS_MODEL 등의 실제 값 |
+모델명은 회사가 준 문자열을 그대로 사용합니다. 입력 중에도 메인 모델 선택 상자에 표시하며, 저장 검증 실패·연결 오류·재실행 후에도 보존합니다. 저장 전 모델은 미저장 상태이며 연결 성공을 의미하지 않습니다. API 키는 이 PC의 보호 저장소에 저장하며 설정 창을 다시 열어도 키 내용을 표시하지 않습니다.
 
-Anthropic AUTH_TOKEN은 API 키 입력란에 직접 넣습니다. ANTHROPIC_API_KEY 방식이면 ApiKeyHeader를 선택하며 x-api-key로 전달합니다. 환경변수 이름이 아니라 변수에 지정된 값을 입력하세요. api-version은 비우고 최대 출력 토큰을 모델 한도 이내로 설정합니다. /v1/messages를 자동 구성하며 이미 /v1 또는 /v1/messages가 있으면 중복하지 않습니다.
+자동 연결은 입력한 서버와 경로 범위 안에서 Responses, Chat Completions, Anthropic Messages API를 확인합니다. HTTP/HTTPS, 포트, 기본 경로를 유지하며 /v1/chat/completions 같은 완전한 호출 URL도 지원합니다. API 키가 Bearer 또는 표준 API-key 헤더로 전달되는 호환 게이트웨이를 대상으로 합니다. 사내 고유 요청/인증 규격이면 회사의 규격에 맞춘 추가 지원이 필요합니다.
 
-Anthropic 연결 검사는 선택 모델에 최대 출력 1토큰을 요청합니다(입력 토큰 등 사용량 발생 가능). Azure/Gateway 검사는 GET models를 조회합니다. 목록 API의 404는 실제 추론 실패를 확정하지 않습니다. 모델명은 실패/재시작 후에도 유지되고 연결 상태는 따로 표시합니다. 서버가 반환한 모델 목록을 선택할 수 있습니다. Azure 일반 모델 ID와 실제 deployment 이름이 다를 수 있으므로 회사가 제공한 deployment를 우선 사용하세요.
+연결 확인은 최대 출력 1토큰의 짧은 생성 요청을 보내므로 사용량이 발생할 수 있습니다. 지원되지 않는 경로만 다음 경로로 확인하고, 명시적인 모델 오류·서버 오류·리다이렉트는 중단합니다. 다른 서버, 다른 모델, HTTPS에서 HTTP로 전환하지 않습니다. HTTP는 암호화되지 않습니다. 저장만으로는 네트워크에 요청하지 않습니다.
 
-엔진 연결 버튼에서도 회사 API 검사와 모델 목록 조회를 수행합니다. HTTP/HTTPS를 지원하며 HTTP는 암호화되지 않습니다. 외부 fallback, 인증서 검증 해제, 자동 리다이렉트는 없습니다.
+이전 앱의 프로필을 재사용하므로 업데이트 후에도 설정을 이어 사용합니다. 새 설치는 공통 data 프로필을 사용합니다. 기존 키를 복사/추출하지 않습니다. 프로젝트를 선택해 첫 작업을 전송하면 필요한 엔진 연결을 자동 수행합니다.
+
+오류에는 실제 키 저장, DNS, TCP, TLS, 응답 JSON 형식 또는 HTTP 요청 경로를 표시합니다. 연결 실패를 모델명 미설정이나 사용량 미제공으로 바꿔 표시하지 않습니다.
+
+고급 설정에는 기존 Azure v1/구버전 및 Anthropic 예시가 있습니다. 예시 채우기는 저장/접속하지 않습니다. Azure의 모델 ID와 deployment 이름은 다를 수 있으므로 회사에서 제공한 값을 사용하세요.
 
 ## 지원 범위
 
@@ -29,6 +28,6 @@ Anthropic Messages의 텍스트, system/developer 지시, 함수/이름공간/cu
 
 ## 실행 및 빌드
 
-Setup.exe로 설치하거나 Portable.zip을 풀고 HermesDevDesk.exe를 실행하세요. .NET 런타임과 공식 CLI가 포함됩니다. WebView2 Runtime은 브라우저 패널에 필요합니다. 이 버전 설정은 0.8.0 데이터 폴더에 저장하며 이전 버전 데이터는 유지합니다. 회사 키는 Windows 사용자 DPAPI로 보호됩니다.
+Setup.exe로 설치하거나 Portable.zip을 풀고 HermesDevDesk.exe를 실행하세요. .NET 런타임과 공식 CLI가 포함됩니다. WebView2 Runtime은 브라우저 패널에 필요합니다. 이전 앱 프로필 또는 공통 data 폴더에 설정을 보존합니다. 회사 키는 Windows 사용자 DPAPI로 보호됩니다.
 
 소스 빌드: .NET 10 SDK에서 scripts/fetch-engine.ps1 실행 후 scripts/build.ps1 -DotnetPath <dotnet.exe>. 사용자 설정/키/브라우저 프로필/화면 캡처를 패키지에 포함하지 않습니다.

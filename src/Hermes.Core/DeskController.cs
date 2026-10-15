@@ -31,6 +31,7 @@ public sealed class DeskController : IAsyncDisposable
     private readonly Dictionary<string, List<string>> pendingChanges = [];
     private readonly Timer persistenceTimer;
     private bool dirty;
+    private bool connecting;
     private bool disposed;
     private readonly bool batchPersistence;
     public DeskController(string directory, Action<Action>? dispatch = null, bool allowLoopbackForTests = false)
@@ -39,20 +40,54 @@ public sealed class DeskController : IAsyncDisposable
         batchPersistence = dispatch != null;
         persistenceTimer = new(_ => this.dispatch(() => { if (!dirty || disposed) return; dirty = false; Store.Save(State); }), null, Timeout.Infinite, Timeout.Infinite);
     }
+    public bool CanConnectCompany => !HasPendingModel && State.Provider.Mode == ConnectionMode.CompanyApi && !string.IsNullOrWhiteSpace(State.Provider.Endpoint) && !string.IsNullOrWhiteSpace(State.Provider.Deployment) && (State.Provider.Authentication == ProviderAuth.None || KeyStore.HasKey);
+    public bool HasPendingModel => State.PendingModel.Length > 0;
+    public IReadOnlyList<string> DisplayModels
+    {
+        get
+        {
+            var names = new List<string>();
+            if (HasPendingModel) names.Add(State.PendingModel);
+            if (State.Provider.Mode == ConnectionMode.CompanyApi && !string.IsNullOrWhiteSpace(State.Provider.Deployment) && !names.Contains(State.Provider.Deployment)) names.Add(State.Provider.Deployment);
+            names.AddRange(Models.Where(m => !names.Contains(m)));
+            return names;
+        }
+    }
+    public void RememberModel(string value, string? excludedSecret = null)
+    {
+        value = value.Trim();
+        if (value.Length > 200 || value.Any(char.IsControl) || Safety.Redact(value) != value || (excludedSecret is { Length: >= 8 } && value.Contains(excludedSecret, StringComparison.Ordinal))) return;
+        if (State.PendingModel == value) return;
+        State.PendingModel = value; Changed?.Invoke();
+    }
+    private async Task<string> ResolveGateway(CancellationToken ct)
+    {
+        var original = State.Provider;
+        var result = await GatewayConnector.Connect(original, KeyStore, ct);
+        if (!ReferenceEquals(original, State.Provider)) throw new IOException("설정이 바뀌어 이전 연결 확인 결과를 적용하지 않았습니다.");
+        State.Provider = result.Settings; ProviderCheckStatus = result.Note; Models.Clear(); Models.Add(State.Provider.Deployment);
+        UsageLedger.Upsert(State, new UsageEntry { Id = Guid.NewGuid().ToString("N"), TaskId = "connection-check", At = DateTimeOffset.UtcNow, Model = State.Provider.Deployment, Deployment = State.Provider.Deployment, Source = "gateway-auto-probe", Status = "completed", Requests = null, Tokens = result.Tokens, Note = "자동 연결 검사: 최종 응답 usage. 경로 탐색 요청 수는 미집계." });
+        Save(); return result.Note;
+    }
     public void Configure(ProviderSettings settings, string? newKey = null, bool deleteKey = false)
     {
-        if (State.Tasks.Any(IsRunning)) throw new IOException("실행 작업을 중단한 후 설정/키를 변경하세요.");
+        if (connecting || State.Tasks.Any(IsRunning)) throw new IOException("진행 중인 연결/작업이 끝난 뒤 설정을 저장하세요.");
         if (settings.Mode == ConnectionMode.CompanyApi) settings.Validate(allowTestLoopback);
         var candidateKey = newKey ?? (KeyStore.HasKey ? KeyStore.ReadOwnKey() : null);
         if (candidateKey != null && JsonSerializer.Serialize(new { settings.Endpoint, settings.Deployment, settings.ApiVersion }).Contains(candidateKey, StringComparison.Ordinal)) throw new IOException("API 키를 주소/배포명에 넣을 수 없습니다. 전용 키 입력란을 사용하세요.");
         settings.KeyRevision = State.Provider.KeyRevision;
         if (newKey != null) { Safety.RegisterSecret(newKey); KeyStore.Save(newKey); settings.KeyRevision++; }
         if (deleteKey) { KeyStore.DeleteOwnKey(); settings.KeyRevision++; }
-        State.Provider = settings; ProviderCheckStatus = "연결 검사 전"; Models.Clear(); ModelEfforts.Clear(); SubscriptionReady = false; AccountStatus = "설정 변경됨 · 명시적으로 다시 연결하세요"; Save();
+        State.Provider = settings; State.PendingModel = ""; ProviderCheckStatus = "연결 검사 전"; Models.Clear(); ModelEfforts.Clear(); SubscriptionReady = false; AccountStatus = "설정 변경됨 · 명시적으로 다시 연결하세요"; Save();
     }
     public async Task<string> CheckProviderAsync(CancellationToken ct = default)
     {
         if (State.Provider.Mode != ConnectionMode.CompanyApi) return "기존 CLI 인증은 엔진 연결로 확인합니다. 회사 서버로 전환하지 않습니다.";
+        if (State.Provider.Protocol == ProviderProtocol.GatewayAuto)
+        {
+            try { return await ResolveGateway(ct); }
+            catch (IOException ex) { ProviderCheckStatus = Safety.Redact(ex.Message); SubscriptionReady = false; AccountStatus = "모델 연결 확인 실패"; Save(); return ProviderCheckStatus; }
+        }
         await using var check = new CompanyBridge(State.Provider, KeyStore, allowTestLoopback); check.Usage += e => dispatch(() => { UsageLedger.Upsert(State, e); Save(); }); ProviderCheckStatus = await check.CheckConnectionAsync(ct); Models.Clear(); Models.Add(State.Provider.Deployment); Models.AddRange(check.DiscoveredModels.Where(m => !Models.Contains(m))); company?.SetAvailableModels(Models);
         if (Engine != null && connectedFingerprint == State.Provider.Fingerprint && ((State.Provider.IsAnthropic && !check.LastCheckSucceeded) || check.LastCheckHttpStatus is 401 or 403)) { SubscriptionReady = false; AccountStatus = "회사 모델 연결 검사 실패 · 설정 모델: " + State.Provider.Deployment; }
         Save(); return ProviderCheckStatus;
@@ -91,6 +126,11 @@ public sealed class DeskController : IAsyncDisposable
     }
     public async Task ConnectAsync(string exe, string cwd)
     {
+        if (connecting) throw new IOException("이미 연결 중입니다.");
+        connecting = true; try { await ConnectCoreAsync(exe, cwd); } finally { connecting = false; }
+    }
+    private async Task ConnectCoreAsync(string exe, string cwd)
+    {
         ComputerStopRequested?.Invoke(null);
         if (Engine != null) await Engine.DisposeAsync();
         if (company != null) { await company.DisposeAsync(); company = null; }
@@ -111,6 +151,7 @@ public sealed class DeskController : IAsyncDisposable
             {
                 State.Provider.Validate(allowTestLoopback);
                 if (State.Provider.Authentication != ProviderAuth.None && !KeyStore.HasKey) throw new IOException("회사 키를 앱 설정에서 직접 입력하세요. 기존 키를 추출하지 않습니다.");
+                if (State.Provider.Protocol == ProviderProtocol.GatewayAuto) await ResolveGateway(CancellationToken.None);
                 var savedModels = Models.ToList();
                 company = new(State.Provider, KeyStore, allowTestLoopback); company.Usage += e => dispatch(() => { UsageLedger.Upsert(State, e); Save(); });
                 await client.ConnectAsync(exe, cwd, Path.Combine(DataDirectory, "engine-home"), company.BaseUri, company.Capability, State.Provider.Deployment);
@@ -186,7 +227,7 @@ public sealed class DeskController : IAsyncDisposable
     public async Task<WorkItem> ForkAsync(WorkItem source, string? mcpHostExe = null)
     {
         var engine = Engine ?? throw new IOException("엔진 연결 필요");
-        if (!SubscriptionReady || connectedFingerprint != State.Provider.Fingerprint || source.ThreadId == null || source.ProviderFingerprint != connectedFingerprint || State.Tasks.Any(IsRunning)) throw new IOException("같은 provider의 시작된 대화를 작업 중이 아닐 때 분기하세요.");
+        if (HasPendingModel || !SubscriptionReady || connectedFingerprint != State.Provider.Fingerprint || source.ThreadId == null || source.ProviderFingerprint != connectedFingerprint || State.Tasks.Any(IsRunning)) throw new IOException("같은 provider의 시작된 대화를 작업 중이 아닐 때 분기하세요.");
         var project = Project(source); var root = Safety.ProjectRoot(project.Root);
         var mcp = new Dictionary<string, object>(disabledMcp);
         if (source.ThreadMcpEnabled == true) foreach (var server in McpConfiguration.BuiltIn(mcpHostExe ?? Environment.ProcessPath!, root, source.ThreadWritable == true)) mcp[server.Key] = server.Value;
@@ -200,7 +241,7 @@ public sealed class DeskController : IAsyncDisposable
     public async Task<WorkItem> StartReviewAsync(ProjectEntry project, string model)
     {
         var engine = Engine ?? throw new IOException("엔진 연결 필요");
-        if (!SubscriptionReady || connectedFingerprint != State.Provider.Fingerprint || !Models.Contains(model) || State.Tasks.Any(IsRunning)) throw new IOException("provider 연결/모델을 확인하고 진행 중 작업을 중단하세요.");
+        if (HasPendingModel || !SubscriptionReady || connectedFingerprint != State.Provider.Fingerprint || !Models.Contains(model) || State.Tasks.Any(IsRunning)) throw new IOException("provider 연결/모델을 확인하고 진행 중 작업을 중단하세요.");
         var root = Safety.ProjectRoot(project.Root); var top = await GitRunner.Run(root, "rev-parse", "--show-toplevel");
         if (top.Exit != 0 || !string.Equals(Path.GetFullPath(top.Output.Trim()), root, StringComparison.OrdinalIgnoreCase)) throw new IOException("등록한 루트 자체가 Git 저장소여야 합니다.");
         var task = NewTask(project, "AI 변경 검토 " + DateTime.Now.ToString("MM-dd HH:mm")); task.IsReview = true; task.Model = model; task.ProviderFingerprint = connectedFingerprint; task.Status = "시작 중"; task.UsageBaselineKnown = true; company?.BeginTask(task.Id, model); Save();
@@ -220,7 +261,7 @@ public sealed class DeskController : IAsyncDisposable
     {
         var engine = Engine ?? throw new IOException("엔진에 먼저 연결하세요.");
         if (task.Archived) throw new IOException("보관된 대화를 복원한 뒤 실행하세요.");
-        if (!SubscriptionReady) throw new IOException("선택한 인증/provider 설정을 완료하고 엔진에 연결하세요. 다른 공급자로 자동 전환하지 않습니다.");
+        if (HasPendingModel || !SubscriptionReady) throw new IOException("선택한 인증/provider 설정을 완료하고 엔진에 연결하세요. 다른 공급자로 자동 전환하지 않습니다.");
         if (connectedFingerprint != State.Provider.Fingerprint) throw new IOException("Provider 설정이 바뀌었습니다. 다시 연결하세요.");
         if (task.ThreadId != null && task.ProviderFingerprint.Length > 0 && task.ProviderFingerprint != connectedFingerprint) throw new IOException("기존 thread의 provider를 바꾸지 않습니다. 새 작업을 만드세요.");
         if (company != null && State.Tasks.Any(IsRunning)) throw new IOException("회사 API 집계/취소를 정확히 연결하기 위해 회사 작업은 한 번에 한 개 실행합니다. 다른 작업 완료 후 실행하세요.");

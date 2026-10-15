@@ -1,4 +1,4 @@
-# Hermes 0.8.0 기능 현황
+# Hermes 0.8.1 기능 현황
 
 기준: 설치된 Codex 데스크톱 화면 캡처 및 공개 App Server 0.162.1 stable/experimental schema. 사용자 요청은 전체 디자인/기능 일치이며 아래 미구현 항목 때문에 전체 동등성은 달성하지 않았다.
 
@@ -29,3 +29,4 @@
 공식 문서: https://learn.chatgpt.com/docs/features , https://learn.chatgpt.com/docs/app-server
 
 Windows 실행 패키지는 GitHub Release에 첨부하며 source Git history에는 대형 runtime/CLI/EXE, 계정 데이터, 브라우저 프로필, 개인 화면 캡처를 넣지 않는다.
+0.8.1: 3필드 게이트웨이 자동 연결, 저장 실패 전 모델 입력 보존, 공통/기존 프로필 재사용, 실패 단계별 진단을 추가했습니다.
