@@ -9,7 +9,7 @@
 | 채팅 스트리밍 / 완료 중복 제거 / 추가 지시 / 중단 / 재개 | 구현 | 공식 엔진 + synthetic provider round trip |
 | 모델 / 추론 수준 | 구현 | 설정 모델 실패 후 보존, 회사 models 목록 선택, 추론 수준은 서버 제공 값만 |
 | Anthropic Messages | 구현 | 텍스트/도구/이미지/SSE/usage 변환, 로컬 합성 서버 및 공식 CLI 검사 |
-| Azure 연결 예시 | 구현 | v1/구버전 예시 채우기, 자동 저장/요청 없음 |
+| 사내 중계서버 연결 예시 | 구현 | 자동/Responses/Chat Completions/Anthropic, 자동 저장/요청 없음 |
 | 회사 Responses SSE | 구현 | 최종 응답 전 첫 chunk 도착, 사용량/취소/실패 검사 |
 | 로컬 Git / 지정 git.exe / 원격 서버 / stage / commit / fetch / push | 구현 | 실제 격리 Git / bare 원격 Push/Fetch / working file 보존 |
 | 파일 / 실제 Git diff / 저장된 작업 diff / worktree / AI 검토 | 기존 구현 유지 | 회귀 검사; 실제 AI 품질은 provider 조건 필요 |

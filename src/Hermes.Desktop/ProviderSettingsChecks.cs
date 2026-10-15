@@ -14,9 +14,9 @@ public sealed partial class SettingsWindow
         void Check(bool condition, string label) { if (!condition) throw new IOException(label); checks++; }
         var before = desk.State.Provider.Endpoint;
         ApplyProviderExample(0);
-        Check(protocol.SelectedItem is ProviderProtocol.AzureV1Responses && endpoint.Text.EndsWith("/openai/v1") && version.Text == "" && authentication.SelectedItem is ProviderAuth.ApiKeyHeader, "Azure v1 example fields");
+        Check(protocol.SelectedItem is ProviderProtocol.GatewayAuto && endpoint.Text.EndsWith("/v1") && manual.IsChecked != true, "automatic relay example fields");
         Check(desk.State.Provider.Endpoint == before, "example does not save settings or connect");
-        ApplyProviderExample(2); Check(protocol.SelectedItem is ProviderProtocol.AzureLegacyChatCompletions && version.Text.Length > 0, "legacy Azure example includes api version");
+        ApplyProviderExample(2); Check(protocol.SelectedItem is ProviderProtocol.GatewayChatCompletions && manual.IsChecked == true, "relay chat example");
         ApplyProviderExample(3); Check(protocol.SelectedItem is ProviderProtocol.AnthropicMessages && authentication.SelectedItem is ProviderAuth.BearerKey, "Anthropic example selects token authentication");
         var failure = true; var hits = 0;
         await using var mock = new LoopbackHttp((request, stream, ct) =>
@@ -46,7 +46,7 @@ public partial class MainWindow
             var checks = await settings.RunProviderSettingsChecks(name =>
             {
                 if (!Model.Items.Cast<string>().Contains(name)) return false;
-                Model.SelectedItem = name; return Model.SelectedItem as string == name && !StartButton.IsEnabled;
+                Model.SelectedItem = name; return Model.SelectedItem as string == name && StartButton.IsEnabled;
             });
             var configured = desk.State.Provider.Deployment;
             // Force a normal engine connection error: no process or network can start at this nonexistent executable.
@@ -56,7 +56,7 @@ public partial class MainWindow
             if (!rejected) throw new IOException("Expected engine failure");
             await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
             if (!Model.Items.Cast<string>().Contains(configured) || desk.SubscriptionReady) throw new IOException("Engine failure lost configured model");
-            File.WriteAllText(Path.Combine(data, "provider-settings-report.json"), JsonSerializer.Serialize(new { passed = true, checks = checks + 1, configuredModelPreserved = true, serverModelsSelectable = true, azureExamples = true, realCompanyRequests = 0, realModelCalls = false }));
+            File.WriteAllText(Path.Combine(data, "provider-settings-report.json"), JsonSerializer.Serialize(new { passed = true, checks = checks + 1, configuredModelPreserved = true, serverModelsSelectable = true, relayExamples = true, realCompanyRequests = 0, realModelCalls = false }));
         }
         finally { settings.Close(); }
     }

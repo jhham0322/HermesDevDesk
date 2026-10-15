@@ -86,14 +86,12 @@ public static class GatewayConnector
         void Add(string endpoint, ProviderProtocol protocol, ProviderAuth auth = ProviderAuth.BearerKey)
         {
             var value = JsonSerializer.Deserialize<ProviderSettings>(JsonSerializer.Serialize(input))!;
-            value.Endpoint = endpoint; value.Protocol = protocol; value.Authentication = auth; value.ApiVersion = "";
+            value.Endpoint = endpoint; value.Protocol = protocol; value.Authentication = auth;
             if (!result.Any(r => r.RequestUri(false) == value.RequestUri(false) && r.Protocol == protocol)) result.Add(value);
         }
         if (url.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase)) { Add(url[..^17], ProviderProtocol.GatewayChatCompletions); return result; }
         if (url.EndsWith("/responses", StringComparison.OrdinalIgnoreCase)) { Add(url[..^10], ProviderProtocol.GatewayResponses); return result; }
         if (url.EndsWith("/messages", StringComparison.OrdinalIgnoreCase)) { Add(url, ProviderProtocol.AnthropicMessages); return result; }
-        if (uri.Host.EndsWith(".openai.azure.com", StringComparison.OrdinalIgnoreCase))
-        { Add(url, ProviderProtocol.AzureV1Responses, ProviderAuth.ApiKeyHeader); Add(url, ProviderProtocol.AzureV1ChatCompletions, ProviderAuth.ApiKeyHeader); return result; }
         var bases = uri.AbsolutePath.TrimEnd('/').EndsWith("/v1", StringComparison.OrdinalIgnoreCase) ? new[] { url } : new[] { url, url + "/v1" };
         foreach (var path in bases) Add(path, ProviderProtocol.GatewayResponses);
         foreach (var path in bases) Add(path, ProviderProtocol.GatewayChatCompletions);

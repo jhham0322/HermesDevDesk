@@ -13,7 +13,7 @@ public sealed partial class SettingsWindow
         try
         {
             await using var mock=new LoopbackHttp((request,stream,ct)=>{hits++;return LoopbackHttp.Reply(stream,200,"application/json","{\"data\":[]}",ct);});
-            manual.IsChecked=true; mode.SelectedItem=ConnectionMode.CompanyApi;protocol.SelectedItem=ProviderProtocol.GatewayResponses;authentication.SelectedItem=ProviderAuth.ApiKeyHeader;deployment.Text="owned-http-ui-model";version.Clear();
+            manual.IsChecked=true; mode.SelectedItem=ConnectionMode.CompanyApi;protocol.SelectedItem=ProviderProtocol.GatewayResponses;authentication.SelectedItem=ProviderAuth.ApiKeyHeader;deployment.Text="owned-http-ui-model";
             endpoint.Text=mock.BaseUri.Authority+"/owned/gateway/v1";endpointScheme.SelectedIndex=0;
             try{Save();Check(false,"missing scheme saved");}catch(IOException){Check(true,"settings UI requires an explicit scheme choice");}
             endpointScheme.SelectedIndex=2;key.Password="SYNTHETIC_HTTP_SETTINGS_ONLY_NOT_A_REAL_KEY";Save();

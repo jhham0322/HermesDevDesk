@@ -39,11 +39,11 @@ styles = styles.replace('FontSize" Value="14"', 'FontSize" Value="17"')
 (desktop / 'App.xaml').write_text(styles, encoding='utf-8')
 old = (desktop / 'MainWindow.xaml').read_text(encoding='utf-8')
 inspector = old[old.index('<TabControl x:Name="InspectorTabs"'):old.index('</TabControl>') + len('</TabControl>')]
-inspector = inspector.replace(' Grid.Column="4"', '').replace('{StaticResource Muted}', '{DynamicResource Muted}').replace('{StaticResource Ink}', '{DynamicResource Ink}').replace('Hermes DevDesk 0.8.1', 'Hermes DevDesk 0.8.1')
+inspector = inspector.replace(' Grid.Column="4"', '').replace('{StaticResource Muted}', '{DynamicResource Muted}').replace('{StaticResource Ink}', '{DynamicResource Ink}').replace('Hermes DevDesk 0.8.2', 'Hermes DevDesk 0.8.2')
 if 'Click="Stage_Click"' not in inspector:
     inspector = inspector.replace('<Button Content="선택 파일 열기" Click="ChangeOpen_Click"/>', '<Button Content="선택 파일 열기" Click="ChangeOpen_Click"/><Button Content="스테이징" Click="Stage_Click"/><Button Content="스테이징 취소" Click="Unstage_Click"/><Button Content="커밋" Click="Commit_Click"/>')
 
-shell = '''<Window x:Class="Hermes.Desktop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework" Title="Hermes DevDesk 0.8.1" FontFamily="Segoe UI, Malgun Gothic" FontSize="18" Foreground="{DynamicResource Ink}" Width="1280" Height="920" MinWidth="900" MinHeight="620" WindowStartupLocation="CenterScreen" WindowStyle="None" ResizeMode="CanResize" PreviewKeyDown="Window_KeyDown">
+shell = '''<Window x:Class="Hermes.Desktop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework" Title="Hermes DevDesk 0.8.2" FontFamily="Segoe UI, Malgun Gothic" FontSize="18" Foreground="{DynamicResource Ink}" Width="1280" Height="920" MinWidth="900" MinHeight="620" WindowStartupLocation="CenterScreen" WindowStyle="None" ResizeMode="CanResize" PreviewKeyDown="Window_KeyDown">
  <shell:WindowChrome.WindowChrome><shell:WindowChrome CaptionHeight="40" ResizeBorderThickness="6" CornerRadius="10" GlassFrameThickness="0"/></shell:WindowChrome.WindowChrome>
  <Border BorderBrush="{DynamicResource Line}" BorderThickness="1" Background="{DynamicResource Canvas}">
   <Grid>

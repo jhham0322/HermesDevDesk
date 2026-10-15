@@ -8,10 +8,10 @@ internal static class CompanyTests
 {
     internal static async Task Run(string baseDir, Action<bool, string> assert)
     {
-        var config = new ProviderSettings { Endpoint = "https://company-resource.openai.azure.com", Deployment = "company-deployment" };
-        assert(config.RequestUri(false).AbsoluteUri == "https://company-resource.openai.azure.com/openai/v1/responses", "Azure v1 route uses supplied deployment and no api-version");
-        config.Protocol = ProviderProtocol.AzureLegacyChatCompletions; config.ApiVersion = "2024-10-21";
-        assert(config.RequestUri(false).AbsoluteUri.Contains("/openai/deployments/company-deployment/chat/completions?api-version=2024-10-21"), "Azure legacy route separates deployment and api-version");
+        var config = new ProviderSettings { Endpoint = "https://company.invalid/v1", Deployment = "company-deployment", Protocol = ProviderProtocol.GatewayResponses, Authentication = ProviderAuth.ApiKeyHeader };
+        assert(config.RequestUri(false).AbsoluteUri == "https://company.invalid/v1/responses", "relay route preserves supplied v1 prefix");
+        config.Protocol = ProviderProtocol.GatewayChatCompletions;
+        assert(config.RequestUri(false).AbsoluteUri == "https://company.invalid/v1/chat/completions", "relay chat route has no deployment or API version additions");
         void Reject(Action a, string label) { try { a(); } catch (IOException) { assert(true, label); return; } throw new Exception(label); }
         config.Endpoint = "http://company.invalid"; assert(config.Validate().Scheme == "http", "explicit HTTP company route supported without TLS downgrade");
         config.Endpoint = "https://api.openai.com"; Reject(() => config.Validate(), "public OpenAI company fallback endpoint blocked");
@@ -19,7 +19,7 @@ internal static class CompanyTests
         var secretDir = Path.Combine(baseDir, "company-secrets"); var store = new ProtectedKeyStore(secretDir); const string key = "SYNTHETIC_ONLY_company_key_fixture_03";
         store.Save(key); assert(store.HasKey && store.ReadOwnKey() == key, "Windows DPAPI round-trip uses only synthetic test key");
         assert(!Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(secretDir, "provider-key.dpapi"))).Contains(key), "protected key file has no plaintext key");
-        assert(!Safety.Redact("server echoed " + key).Contains(key), "non-sk Azure-style key redacted by exact secret registration");
+        assert(!Safety.Redact("server echoed " + key).Contains(key), "non-sk company-style key redacted by exact secret registration");
         var state = new AppState(); var stateStore = new StateStore(Path.Combine(baseDir, "usage-history"));
         var at = new DateTimeOffset(2026, 10, 13, 0, 0, 0, TimeSpan.Zero);
         var row = new UsageEntry { Id = "unique-request", TaskId = "a", At = at, Model = "m", Deployment = "d", Source = "test", Status = "completed", Requests = 1, Tokens = new(100, 30, 40, 10, 130) };
@@ -53,10 +53,10 @@ internal static class CompanyTests
                 await stream.WriteAsync(Encoding.UTF8.GetBytes(ResponseWire.Sse(output)), ct); await stream.FlushAsync(ct); return;
             }
             if (request.Method == "GET") { await LoopbackHttp.Reply(stream, 200, "application/json", "{\"data\":[]}", ct); return; }
-            using var body = JsonDocument.Parse(request.Body); assert(body.RootElement.Text("model") == "company-deployment", "configured Azure deployment reaches company request");
+            using var body = JsonDocument.Parse(request.Body); assert(body.RootElement.Text("model") == "company-deployment", "configured relay deployment reaches company request");
             await LoopbackHttp.Reply(stream, 200, "text/event-stream", ResponseWire.Sse(output), ct);
         });
-        var settings = new ProviderSettings { Endpoint = mock.BaseUri.AbsoluteUri, Deployment = "company-deployment", Protocol = ProviderProtocol.AzureV1Responses };
+        var settings = new ProviderSettings { Endpoint = mock.BaseUri.AbsoluteUri, Deployment = "company-deployment", Protocol = ProviderProtocol.GatewayResponses, Authentication = ProviderAuth.ApiKeyHeader };
         assert(settings.Validate().Scheme == "http", "explicit loopback HTTP uses the normal validation path");
         await using var bridge = new CompanyBridge(settings, store, true); bridge.Usage += e => { var copy = JsonSerializer.Deserialize<UsageEntry>(JsonSerializer.Serialize(e))!; lock (observed) { var index = observed.FindIndex(x => x.Id == copy.Id); if (index < 0) observed.Add(copy); else observed[index] = copy; } };
         var checkResult = await bridge.CheckConnectionAsync(); Console.WriteLine("MOCK_CHECK: " + checkResult + "; hits=" + hits + "; headerMatched=" + authenticated);
@@ -67,7 +67,7 @@ internal static class CompanyTests
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, bridge.BaseUri.AbsoluteUri + "/responses"); if (authorized) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bridge.Capability); request.Content = new StringContent("{\"model\":\"not-used\",\"input\":\"mock prompt\",\"stream\":true,\"tools\":[]}", Encoding.UTF8, "application/json"); using var reply = await client.SendAsync(request); return await reply.Content.ReadAsStringAsync();
         }
-        var text = await Send(); assert(text.Contains("COMPANY_MOCK_OK") && lastPath == "/openai/v1/responses", "Azure v1 mock streaming contract forwarded to local App Server route");
+        var text = await Send(); assert(text.Contains("COMPANY_MOCK_OK") && lastPath == "/responses", "relay mock streaming contract forwarded to local App Server route");
         assert(observed[^1].Requests == 1 && observed[^1].Tokens.Cached == 40 && observed[^1].Tokens.Reasoning == 10 && observed[^1].Tokens.Total == 130, "actual response fields and request count captured");
         var beforeHits = hits; await Send(false); assert(hits == beforeHits, "unauthorized local bridge call never reaches company endpoint");
         replyMode = "redirect"; beforeHits = hits; var redirect = await Send(); assert(hits == beforeHits + 1 && redirect.Contains("no fallback"), "redirect does not forward data/key to public OpenAI");

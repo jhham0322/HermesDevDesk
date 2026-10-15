@@ -7,7 +7,7 @@ public sealed partial class SettingsWindow
     {
         manual.IsChecked = true;
         mode.SelectedItem = ConnectionMode.CompanyApi; endpoint.Text = "https://company.invalid"; deployment.Text = "fixture-deployment";
-        protocol.SelectedItem = ProviderProtocol.AzureV1Responses; version.Clear(); authentication.SelectedItem = ProviderAuth.ApiKeyHeader;
+        protocol.SelectedItem = ProviderProtocol.GatewayResponses; authentication.SelectedItem = ProviderAuth.ApiKeyHeader;
         key.Password = "SYNTHETIC_ONLY_WPF_SETTINGS_TEST"; Save();
         if (key.Password.Length != 0 || !desk.KeyStore.HasKey || !desk.KeyStore.ReadOwnKey().Contains("SYNTHETIC_ONLY")) throw new IOException("Protected settings save failed");
         var revision = desk.State.Provider.KeyRevision; key.Password = "SYNTHETIC_ONLY_WPF_SETTINGS_REPLACEMENT"; Save();

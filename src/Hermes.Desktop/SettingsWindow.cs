@@ -9,7 +9,7 @@ public sealed partial class SettingsWindow : Window
 {
     private readonly DeskController desk;
     private readonly ComboBox endpointScheme = new(), mode = new(), protocol = new(), authentication = new();
-    private readonly TextBox endpoint = new(), deployment = new(), version = new(), maxTokens = new();
+    private readonly TextBox endpoint = new(), deployment = new(), maxTokens = new();
     private readonly PasswordBox key = new() { Background = System.Windows.Media.Brushes.White, Foreground = System.Windows.Media.Brushes.Black, Padding = new Thickness(10) };
     private readonly TextBlock keyHint = new() { FontSize = 12, Margin = new Thickness(4), TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 12, 4, 8) };
@@ -38,8 +38,8 @@ public sealed partial class SettingsWindow : Window
         protocol.ItemsSource = Enum.GetValues<ProviderProtocol>(); protocol.SelectedItem = desk.State.Provider.Protocol;
         authentication.ItemsSource = Enum.GetValues<ProviderAuth>(); authentication.SelectedItem = desk.State.Provider.Authentication;
         endpointScheme.ItemsSource = new[] { "주소에 http:// 또는 https:// 직접 입력", "스킴 없는 주소에 https:// 적용", "스킴 없는 주소에 http:// 적용" }; endpointScheme.SelectedIndex = 0;
-        version.Text = desk.State.Provider.ApiVersion; maxTokens.Text = desk.State.Provider.MaxOutputTokens.ToString();
-        manual.IsChecked = desk.State.Provider.UseAdvancedSettings || desk.State.Provider.IsLegacy;
+        maxTokens.Text = desk.State.Provider.MaxOutputTokens.ToString();
+        manual.IsChecked = desk.State.Provider.UseAdvancedSettings;
         content.Children.Add(new TextBlock { Text = "기본은 사내 게이트웨이 자동 연결입니다. 같은 서버에서 지원 API와 인증 방식을 확인합니다.", FontSize = 12, Margin = new Thickness(4, 10, 4, 4), TextWrapping = TextWrapping.Wrap });
         content.Children.Add(transportNotice);
         void Transport() { try { transportNotice.Text = ProviderSettings.TransportNotice(ProviderSettings.ResolveEndpointInput(endpoint.Text, (EndpointSchemeChoice)endpointScheme.SelectedIndex)); } catch (IOException) { transportNotice.Text = "URL에 http:// 또는 https://를 포함해 입력하세요."; } }
@@ -51,7 +51,7 @@ public sealed partial class SettingsWindow : Window
         content.Children.Add(new TextBlock { Text = "연결 확인은 최대 출력 1토큰의 짧은 요청을 보냅니다. 지원하지 않는 경로만 같은 서버 안에서 확인하며 사용량이 발생할 수 있습니다.", TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(4, 0, 4, 12) });
         var details = new StackPanel { Margin = new Thickness(4) }; var advanced = new Expander { Header = "고급 설정 · 일반 연결에는 필요 없음", Content = details, IsExpanded = manual.IsChecked == true }; content.Children.Add(advanced);
         details.Children.Add(manual); var controls = new StackPanel(); details.Children.Add(controls);
-        Row(controls, "연결 방식", mode); Row(controls, "프로토콜", protocol); Row(controls, "인증 헤더", authentication); Row(controls, "Azure 구버전 api-version", version); Row(controls, "최대 출력 토큰", maxTokens); Row(controls, "스킴을 생략한 URL", endpointScheme);
+        Row(controls, "연결 방식", mode); Row(controls, "프로토콜", protocol); Row(controls, "인증 헤더", authentication); Row(controls, "최대 출력 토큰", maxTokens); Row(controls, "스킴을 생략한 URL", endpointScheme);
         void Manual() => controls.IsEnabled = manual.IsChecked == true; manual.Checked += (_, _) => Manual(); manual.Unchecked += (_, _) => Manual(); Manual();
         details.Children.Add(ProviderExamples());
         protocol.SelectionChanged += (_, _) => { if (protocol.SelectedItem is ProviderProtocol.AnthropicMessages) authentication.SelectedItem = ProviderAuth.BearerKey; };
@@ -70,7 +70,7 @@ public sealed partial class SettingsWindow : Window
     private ProviderSettings Current()
     {
         var advanced = manual.IsChecked == true;
-        return new() { UseAdvancedSettings = advanced, Mode = advanced ? (ConnectionMode)mode.SelectedItem : ConnectionMode.CompanyApi, Protocol = advanced ? (ProviderProtocol)protocol.SelectedItem : ProviderProtocol.GatewayAuto, Authentication = advanced ? (ProviderAuth)authentication.SelectedItem : ProviderAuth.BearerKey, MaxOutputTokens = advanced ? int.TryParse(maxTokens.Text, out var max) ? max : throw new IOException("최대 출력 토큰은 정수로 입력하세요.") : 8192, Endpoint = advanced && mode.SelectedItem is ConnectionMode.ExistingChatGptCli ? endpoint.Text.Trim() : ProviderSettings.ResolveEndpointInput(endpoint.Text, (EndpointSchemeChoice)endpointScheme.SelectedIndex), Deployment = deployment.Text.Trim(), ApiVersion = advanced ? version.Text.Trim() : "" };
+        return new() { UseAdvancedSettings = advanced, Mode = advanced ? (ConnectionMode)mode.SelectedItem : ConnectionMode.CompanyApi, Protocol = advanced ? (ProviderProtocol)protocol.SelectedItem : ProviderProtocol.GatewayAuto, Authentication = advanced ? (ProviderAuth)authentication.SelectedItem : ProviderAuth.BearerKey, MaxOutputTokens = advanced ? int.TryParse(maxTokens.Text, out var max) ? max : throw new IOException("최대 출력 토큰은 정수로 입력하세요.") : 8192, Endpoint = advanced && mode.SelectedItem is ConnectionMode.ExistingChatGptCli ? endpoint.Text.Trim() : ProviderSettings.ResolveEndpointInput(endpoint.Text, (EndpointSchemeChoice)endpointScheme.SelectedIndex), Deployment = deployment.Text.Trim() };
     }
     private void Save()
     {

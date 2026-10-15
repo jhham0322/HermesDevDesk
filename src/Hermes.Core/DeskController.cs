@@ -37,6 +37,9 @@ public sealed class DeskController : IAsyncDisposable
     public DeskController(string directory, Action<Action>? dispatch = null, bool allowLoopbackForTests = false)
     {
         DataDirectory = directory; Store = new(directory); State = Store.Load(); KeyStore = new(Path.Combine(directory, "secrets")); this.dispatch = dispatch ?? (a => a()); allowTestLoopback = allowLoopbackForTests;
+        var migrated = State.Provider.NormalizeRelaySettings();
+        if (State.PendingModel == State.Provider.Deployment) { State.PendingModel = ""; migrated = true; }
+        if (migrated) Store.Save(State);
         batchPersistence = dispatch != null;
         persistenceTimer = new(_ => this.dispatch(() => { if (!dirty || disposed) return; dirty = false; Store.Save(State); }), null, Timeout.Infinite, Timeout.Infinite);
     }
@@ -57,6 +60,7 @@ public sealed class DeskController : IAsyncDisposable
     {
         value = value.Trim();
         if (value.Length > 200 || value.Any(char.IsControl) || Safety.Redact(value) != value || (excludedSecret is { Length: >= 8 } && value.Contains(excludedSecret, StringComparison.Ordinal))) return;
+        if (value == State.Provider.Deployment) value = "";
         if (State.PendingModel == value) return;
         State.PendingModel = value; Changed?.Invoke();
     }
@@ -74,7 +78,7 @@ public sealed class DeskController : IAsyncDisposable
         if (connecting || State.Tasks.Any(IsRunning)) throw new IOException("진행 중인 연결/작업이 끝난 뒤 설정을 저장하세요.");
         if (settings.Mode == ConnectionMode.CompanyApi) settings.Validate(allowTestLoopback);
         var candidateKey = newKey ?? (KeyStore.HasKey ? KeyStore.ReadOwnKey() : null);
-        if (candidateKey != null && JsonSerializer.Serialize(new { settings.Endpoint, settings.Deployment, settings.ApiVersion }).Contains(candidateKey, StringComparison.Ordinal)) throw new IOException("API 키를 주소/배포명에 넣을 수 없습니다. 전용 키 입력란을 사용하세요.");
+        if (candidateKey != null && JsonSerializer.Serialize(new { settings.Endpoint, settings.Deployment }).Contains(candidateKey, StringComparison.Ordinal)) throw new IOException("API 키를 주소/배포명에 넣을 수 없습니다. 전용 키 입력란을 사용하세요.");
         settings.KeyRevision = State.Provider.KeyRevision;
         if (newKey != null) { Safety.RegisterSecret(newKey); KeyStore.Save(newKey); settings.KeyRevision++; }
         if (deleteKey) { KeyStore.DeleteOwnKey(); settings.KeyRevision++; }
@@ -83,7 +87,7 @@ public sealed class DeskController : IAsyncDisposable
     public async Task<string> CheckProviderAsync(CancellationToken ct = default)
     {
         if (State.Provider.Mode != ConnectionMode.CompanyApi) return "기존 CLI 인증은 엔진 연결로 확인합니다. 회사 서버로 전환하지 않습니다.";
-        if (State.Provider.Protocol == ProviderProtocol.GatewayAuto)
+        if (State.Provider.Protocol == ProviderProtocol.GatewayAuto || (!State.Provider.UseAdvancedSettings && !State.Provider.IsAnthropic))
         {
             try { return await ResolveGateway(ct); }
             catch (IOException ex) { ProviderCheckStatus = Safety.Redact(ex.Message); SubscriptionReady = false; AccountStatus = "모델 연결 확인 실패"; Save(); return ProviderCheckStatus; }

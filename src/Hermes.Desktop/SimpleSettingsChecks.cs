@@ -28,8 +28,8 @@ public sealed partial class SettingsWindow
         });
         endpoint.Text = server.BaseUri.AbsoluteUri;
         // Stale advanced settings must never prevent the basic three-field form from saving.
-        protocol.SelectedItem = ProviderProtocol.AzureLegacyChatCompletions; version.Text = "old-version";
-        Save(); Check(desk.State.Provider.Protocol == ProviderProtocol.GatewayAuto && desk.State.Provider.ApiVersion == "" && !desk.HasPendingModel, "three-field save ignores stale Azure details");
+        protocol.SelectedItem = ProviderProtocol.GatewayChatCompletions;
+        Save(); Check(desk.State.Provider.Protocol == ProviderProtocol.GatewayAuto && !desk.HasPendingModel, "three-field save ignores stale manual details");
         Check(hits == 0, "save alone sends no request");
         var status = await desk.CheckProviderAsync(); await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
         Check(desk.State.Provider.Protocol == ProviderProtocol.GatewayChatCompletions && status.Contains("연결 확인") && visible("gpt-6-luna"), "same-server route detection succeeds with exact configured model");

@@ -51,7 +51,7 @@ public partial class MainWindow : Window
             if (!Model.Items.Cast<string>().SequenceEqual(visibleModels)) { var selected = desk.HasPendingModel ? desk.State.PendingModel : Model.SelectedItem as string; Model.ItemsSource = visibleModels; Model.SelectedItem = visibleModels.Contains(selected!) ? selected : visibleModels.FirstOrDefault(); }
             Model.ToolTip = desk.HasPendingModel ? "입력한 모델 · URL/키를 저장하고 연결하세요" : "설정한 모델 · " + desk.AccountStatus;
             ProviderHint.Text = desk.State.Provider.Mode == ConnectionMode.CompanyApi ? desk.State.Provider.IsAnthropic ? "Anthropic Messages · " + desk.ProviderCheckStatus : "회사 API · " + desk.ProviderCheckStatus : "ChatGPT CLI · 구독 사용량 사용";
-            StartButton.IsEnabled = !connectingCompany && !desk.HasPendingModel && (desk.SubscriptionReady || desk.CanConnectCompany) && CurrentTask != null && !CurrentTask.Archived && (CurrentTask.Status == "실행 중" || !DeskController.IsRunning(CurrentTask));
+            StartButton.IsEnabled = CanSubmit();
             RenderTask();
             RenderSidebar(); UpdateShellState();
         }
@@ -67,6 +67,8 @@ public partial class MainWindow : Window
         if (CurrentTask?.ThreadId != null) Writable.IsChecked = CurrentTask.ThreadWritable == true;
         SwitchDraft(); RenderConversation(); UpdateShellState();
     }
+    private bool CanSubmit() => !connectingCompany && (CurrentTask == null || !CurrentTask.Archived)
+        && !desk.State.Tasks.Any(t => DeskController.IsRunning(t) && (t != CurrentTask || t.Status != "실행 중"));
     private async Task Guard(Func<Task> action)
     { try { await action(); } catch (Exception ex) { Footer.Text = Safety.Redact(ex.Message); MessageBox.Show(this, Safety.Redact(ex.Message), "Hermes DevDesk", MessageBoxButton.OK, MessageBoxImage.Information); } }
     private void Settings_Click(object sender, RoutedEventArgs e) { var window = new SettingsWindow(desk) { Owner = this }; window.ShowDialog(); Refresh(); }
@@ -78,7 +80,7 @@ public partial class MainWindow : Window
     }
     private void Skills_Click(object sender, RoutedEventArgs e) => _ = Guard(() =>
     {
-        var project = CurrentProject ?? throw new IOException("프로젝트 선택 필요"); var cli = desk.State.CodexPath ?? AppServerClient.FindInstalledCodex() ?? throw new IOException("공식 CLI 필요");
+        var project = CurrentProject ?? throw new IOException("프로젝트 선택 필요"); var cli = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new IOException("공식 CLI 필요");
         var window = new SkillsWindow(project.Root, cli, Path.Combine(desk.DataDirectory, "skill-inspection", project.Id)) { Owner = this };
         if (window.ShowDialog() == true) { pendingSkills.Clear(); pendingSkills.AddRange(window.Selected); SkillHint.Text = string.Join(", ", pendingSkills.Select(s => s.Name)); }
         return Task.CompletedTask;
@@ -95,7 +97,7 @@ public partial class MainWindow : Window
     private void Mcp_Click(object sender, RoutedEventArgs e) => _ = Guard(() =>
     {
         var project = CurrentProject ?? throw new IOException("프로젝트를 선택하세요.");
-        var cli = desk.State.CodexPath ?? AppServerClient.FindInstalledCodex() ?? throw new IOException("공식 CLI 필요");
+        var cli = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new IOException("공식 CLI 필요");
         new McpWindow(desk, project, cli) { Owner = this }.ShowDialog(); return Task.CompletedTask;
     });
     private async void Fork_Click(object sender, RoutedEventArgs e) => await Guard(async () => { var task = await desk.ForkAsync(CurrentTask ?? throw new IOException("시작된 작업을 선택하세요.")); Search.Clear(); Tasks.SelectedItem = task; RenderTask(); });
@@ -142,7 +144,7 @@ public partial class MainWindow : Window
     {
         var project = CurrentProject ?? throw new IOException("프로젝트를 선택하세요."); var command = CommandText.Text;
         if (MessageBox.Show(this, $"경로: {project.Root}\n모드: {(CommandWritable.IsChecked == true ? "프로젝트 쓰기" : "읽기 전용")}\n\n{Safety.Redact(command)}\n\n이 명령을 공식 sandbox 안에서 실행할까요?", "명령 일회성 확인", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
-        var exe = desk.State.CodexPath ?? AppServerClient.FindInstalledCodex() ?? throw new IOException("공식 codex.exe를 선택하세요."); CommandOutput.Clear(); CommandOutput.AppendText(await terminal.RunAsync(exe, project.Root, command, CommandWritable.IsChecked == true));
+        var exe = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new IOException("공식 codex.exe를 선택하세요."); CommandOutput.Clear(); CommandOutput.AppendText(await terminal.RunAsync(exe, project.Root, command, CommandWritable.IsChecked == true));
     });
     private async void CommandStop_Click(object sender, RoutedEventArgs e) => await Guard(() => terminal.StopAsync());
     private void Register_Click(object sender, RoutedEventArgs e)
@@ -164,13 +166,13 @@ public partial class MainWindow : Window
     });
     private void Project_Selected(object sender, SelectionChangedEventArgs e)
     { if (refreshing || desk == null) return; fileDirectory = ""; ImageClear_Click(this, new RoutedEventArgs()); SkillClear_Click(this, new RoutedEventArgs()); FilePreview.Clear(); ChangedFiles.ItemsSource = null; Diff.Clear(); Refresh(); RefreshFiles(); }
-    private void Task_Selected(object sender, SelectionChangedEventArgs e) { if (!refreshing && desk != null) { if (CurrentTask != null && CurrentTask.ProjectId != CurrentProject?.Id) Projects.SelectedItem = desk.State.Projects.First(p => p.Id == CurrentTask.ProjectId); RenderTask(); ChangedFiles.ItemsSource = null; Diff.Clear(); ReviewStatus.Text = "작업이 바뀌었습니다. 변경 목록을 조회하세요."; StartButton.IsEnabled = !connectingCompany && !desk.HasPendingModel && (desk.SubscriptionReady || desk.CanConnectCompany) && CurrentTask != null && !CurrentTask.Archived && !DeskController.IsRunning(CurrentTask); } }
+    private void Task_Selected(object sender, SelectionChangedEventArgs e) { if (!refreshing && desk != null) { if (CurrentTask != null && CurrentTask.ProjectId != CurrentProject?.Id) Projects.SelectedItem = desk.State.Projects.First(p => p.Id == CurrentTask.ProjectId); RenderTask(); ChangedFiles.ItemsSource = null; Diff.Clear(); ReviewStatus.Text = "작업이 바뀌었습니다. 변경 목록을 조회하세요."; StartButton.IsEnabled = CanSubmit(); } }
     private void ChooseCli_Click(object sender, RoutedEventArgs e)
     { var dialog = new OpenFileDialog { Filter = "Codex executable|codex.exe", Title = "공식 codex.exe 선택" }; if (dialog.ShowDialog(this) == true) { desk.State.CodexPath = dialog.FileName; desk.Save(); Footer.Text = "CLI 경로 저장됨. 엔진 연결을 누르세요."; } }
     private async void Connect_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
         if (desk.State.Tasks.Any(DeskController.IsRunning)) throw new IOException("실행 중인 작업을 먼저 중단하세요.");
-        var exe = desk.State.CodexPath ?? AppServerClient.FindInstalledCodex() ?? throw new IOException("공식 Codex CLI를 설치하고 codex.exe를 선택하세요. 자동 설치/로그인은 수행하지 않습니다.");
+        var exe = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new IOException("공식 Codex CLI를 설치하고 codex.exe를 선택하세요. 자동 설치/로그인은 수행하지 않습니다.");
         await desk.ConnectAsync(exe, CurrentProject?.Root ?? throw new IOException("엔진 연결 전에 프로젝트를 등록/선택하세요."));
         if (desk.State.Provider.Mode == ConnectionMode.CompanyApi) await desk.CheckProviderAsync();
         Refresh();
@@ -178,6 +180,14 @@ public partial class MainWindow : Window
     private async void Start_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
         if (connectingCompany) return;
+        if (string.IsNullOrWhiteSpace(Prompt.Text)) { Footer.Text = "질문을 입력하세요."; Prompt.Focus(); return; }
+        if (CurrentProject == null) { Footer.Text = "질문을 실행할 프로젝트 폴더를 선택하세요."; Register_Click(this, new RoutedEventArgs()); if (CurrentProject == null) return; }
+        if (desk.HasPendingModel || (!desk.SubscriptionReady && !desk.CanConnectCompany && desk.State.Provider.Mode == ConnectionMode.CompanyApi))
+        {
+            Footer.Text = "서버 URL, API 키, 모델명을 저장하세요.";
+            Settings_Click(this, new RoutedEventArgs());
+            if (desk.HasPendingModel || (!desk.SubscriptionReady && !desk.CanConnectCompany)) return;
+        }
         var prompt = Prompt.Text; var task = CurrentTask;
         if (task == null) { NewTask_Click(this, new RoutedEventArgs()); task = CurrentTask ?? throw new IOException("프로젝트를 선택하세요."); }
         if (!desk.SubscriptionReady && desk.CanConnectCompany)

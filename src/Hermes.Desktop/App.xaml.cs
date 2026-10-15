@@ -14,7 +14,9 @@ public partial class App : Application
             var dataIndex = Array.IndexOf(e.Args, "--data-dir");
             var data = dataIndex >= 0 && e.Args.Length > dataIndex + 1 ? e.Args[dataIndex + 1] : Hermes.Core.AppProfiles.Resolve(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HermesDevDesk"));
             var window = new MainWindow(data); MainWindow = window;
-            if (e.Args.Contains("--simple-settings-smoke"))
+            if (e.Args.Contains("--relay-send-smoke"))
+            { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunRelaySendChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "relay-send-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
+            else if (e.Args.Contains("--simple-settings-smoke"))
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunSimpleSettingsChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "simple-settings-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
             else if (e.Args.Contains("--provider-settings-smoke"))
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunProviderSettingsChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "provider-settings-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }

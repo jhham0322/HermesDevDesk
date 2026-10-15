@@ -74,7 +74,7 @@ internal static class AnthropicTests
         await using var bridge = new CompanyBridge(settings, store); var usage = new List<UsageEntry>(); bridge.Usage += e => usage.Add(e);
         check((await bridge.CheckConnectionAsync()).Contains(settings.Deployment) && minimal && bearer && version && model && hits == 1, "real local Anthropic check posts selected model with bearer and max_tokens=1");
         mode = "404"; check((await bridge.CheckConnectionAsync()).Contains("/owned/v1/messages") && !bridge.LastCheckSucceeded, "Anthropic 404 identifies actual inference path");
-        settings.Authentication = ProviderAuth.ApiKeyHeader; mode = "json"; await bridge.CheckConnectionAsync(); check(apiKey && version, "Anthropic API key uses x-api-key without Azure api-key header");
+        settings.Authentication = ProviderAuth.ApiKeyHeader; mode = "json"; await bridge.CheckConnectionAsync(); check(apiKey && version, "Anthropic API key uses x-api-key without relay api-key header");
         using var client = new HttpClient();
         async Task<string> Send()
         {
@@ -88,18 +88,18 @@ internal static class AnthropicTests
         check(desk.State.Provider.Deployment == "owned-anthropic-model[1M]" && desk.Models.Contains(settings.Deployment) && !desk.SubscriptionReady, "failed check preserves configured model without pretending engine connected");
         await using var reopened = new DeskController(desk.DataDirectory); check(reopened.State.Provider.Deployment == settings.Deployment && reopened.State.Provider.Protocol == ProviderProtocol.AnthropicMessages, "configured Anthropic model persists across restart");
         string requestedModel = "";
-        await using var azure = new LoopbackHttp(async (request, stream, ct) =>
+        await using var relay = new LoopbackHttp(async (request, stream, ct) =>
         {
-            if (request.Method == "GET") { await LoopbackHttp.Reply(stream, 200, "application/json", "{\"data\":[{\"id\":\"azure-second-deployment\"}]}", ct); return; }
+            if (request.Method == "GET") { await LoopbackHttp.Reply(stream, 200, "application/json", "{\"data\":[{\"id\":\"relay-second-deployment\"}]}", ct); return; }
             using var doc = JsonDocument.Parse(request.Body); requestedModel = doc.RootElement.Text("model");
-            await LoopbackHttp.Reply(stream, 200, "application/json", "{\"id\":\"resp_owned_azure\",\"status\":\"completed\",\"output\":[],\"model\":\"azure-second-deployment\"}", ct);
+            await LoopbackHttp.Reply(stream, 200, "application/json", "{\"id\":\"resp_owned_relay\",\"status\":\"completed\",\"output\":[],\"model\":\"relay-second-deployment\"}", ct);
         });
-        await using var azureBridge = new CompanyBridge(new() { Endpoint = azure.BaseUri.AbsoluteUri, Deployment = "azure-first-deployment", Protocol = ProviderProtocol.AzureV1Responses }, store);
-        await azureBridge.CheckConnectionAsync(); azureBridge.SetAvailableModels(azureBridge.DiscoveredModels); azureBridge.BeginTask("owned-model-choice", "azure-second-deployment");
-        using var azureRequest = new HttpRequestMessage(HttpMethod.Post, azureBridge.BaseUri.AbsoluteUri + "/responses"); azureRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", azureBridge.Capability);
-        azureRequest.Content = new StringContent("{\"model\":\"azure-first-deployment\",\"input\":\"owned fixture\",\"stream\":false}", Encoding.UTF8, "application/json");
-        using var azureReply = await client.SendAsync(azureRequest);
-        check(azureBridge.DiscoveredModels.SequenceEqual(new[] { "azure-second-deployment" }) && requestedModel == "azure-second-deployment", "selected discovered Azure model is actually sent upstream");
-        Reject(() => azureBridge.BeginTask("owned-unknown-model", "not-in-model-list"), "model outside configured or discovered list rejected");
+        await using var relayBridge = new CompanyBridge(new() { Endpoint = relay.BaseUri.AbsoluteUri, Deployment = "relay-first-deployment", Protocol = ProviderProtocol.GatewayResponses }, store);
+        await relayBridge.CheckConnectionAsync(); relayBridge.SetAvailableModels(relayBridge.DiscoveredModels); relayBridge.BeginTask("owned-model-choice", "relay-second-deployment");
+        using var relayRequest = new HttpRequestMessage(HttpMethod.Post, relayBridge.BaseUri.AbsoluteUri + "/responses"); relayRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", relayBridge.Capability);
+        relayRequest.Content = new StringContent("{\"model\":\"relay-first-deployment\",\"input\":\"owned fixture\",\"stream\":false}", Encoding.UTF8, "application/json");
+        using var relayReply = await client.SendAsync(relayRequest);
+        check(relayBridge.DiscoveredModels.SequenceEqual(new[] { "relay-second-deployment" }) && requestedModel == "relay-second-deployment", "selected discovered relay model is actually sent upstream");
+        Reject(() => relayBridge.BeginTask("owned-unknown-model", "not-in-model-list"), "model outside configured or discovered list rejected");
     }
 }
