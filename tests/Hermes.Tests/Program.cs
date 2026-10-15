@@ -27,6 +27,8 @@ if (args.Contains("app-server"))
     }
     return;
 }
+if (args.Contains("--maximize-bounds-only"))
+{ int total=0;MaximizeBoundsTests.Run((ok,label)=>{if(!ok)throw new IOException(label);total++;});Console.WriteLine("Maximize WorkArea logic checks="+total+"; no OS changes");return; }
 if (args.Contains("--http-gateway-only"))
 {
     var httpRoot=Path.GetFullPath(args[Array.IndexOf(args,"--root")+1]);Directory.CreateDirectory(httpRoot);

@@ -25,7 +25,7 @@ public partial class MainWindow : Window
     private sealed record ApprovalDisplay(ServerRequest Request) { public override string ToString() => Request.Method.Replace("item/", "") + "\n" + Request.Params.Text("threadId")[..Math.Min(8, Request.Params.Text("threadId").Length)]; }
     public MainWindow(string data)
     {
-        InitializeComponent();
+        InitializeComponent(); InitializeMaximizeBounds();
         desk = new(data, a => Dispatcher.BeginInvoke(a)); desk.Changed += Refresh; desk.StreamChanged += QueueRefresh;
         InitializeShell();
         terminal = new(Path.Combine(data, "terminal-home")); terminal.Output += text => Dispatcher.BeginInvoke(() => { CommandOutput.AppendText(text); if (CommandOutput.Text.Length > 300000) CommandOutput.Text = CommandOutput.Text[^200000..]; CommandOutput.ScrollToEnd(); });
