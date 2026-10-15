@@ -39,20 +39,20 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $payload = Join-Path $outputPath ('HermesPayload-' + [guid]::NewGuid().ToString('N') + '.zip')
 [IO.Compression.ZipFile]::CreateFromDirectory($appPath, $payload, [IO.Compression.CompressionLevel]::NoCompression, $false)
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
-$setup = Join-Path $outputPath 'HermesDevDesk-0.7.1-win-x64-Setup.exe'
+$setup = Join-Path $outputPath 'HermesDevDesk-0.7.2-win-x64-Setup.exe'
 if (Test-Path -LiteralPath $setup) { throw 'Version artifact already exists; use a fresh version/build directory instead of overwriting.' }
 $manifestFile = Join-Path $projectRoot 'src/Hermes.Desktop/app.manifest'
 $setupSource = Join-Path $projectRoot 'installer/Setup3.cs'
 & $compiler /nologo /codepage:65001 /target:winexe /platform:x64 /optimize+ "/win32manifest:$manifestFile" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll /reference:Microsoft.CSharp.dll "/resource:$payload,HermesPayload.zip" "/out:$setup" "$setupSource"
 if ($LASTEXITCODE -ne 0) { throw 'Installer compile failed' }
 if ($CompressInstaller -and (Test-Path -LiteralPath $SevenZipPath)) {
-    $installerArchive = Join-Path $outputPath 'HermesDevDesk-0.7.1-installer.7z'
+    $installerArchive = Join-Path $outputPath 'HermesDevDesk-0.7.2-installer.7z'
     & $SevenZipPath a -t7z -m0=LZMA2 -mx=9 -md=32m -mmt=2 $installerArchive $setup
     if ($LASTEXITCODE -ne 0) { throw 'Compression failed' }
     & $SevenZipPath t $installerArchive
     if ($LASTEXITCODE -ne 0) { throw 'Archive validation failed' }
 }
-$portable = Join-Path $outputPath 'HermesDevDesk-0.7.1-win-x64-Portable.zip'
+$portable = Join-Path $outputPath 'HermesDevDesk-0.7.2-win-x64-Portable.zip'
 if (Test-Path -LiteralPath $portable) { throw 'Portable artifact already exists; use a fresh build directory.' }
 [IO.Compression.ZipFile]::CreateFromDirectory($appPath, $portable, [IO.Compression.CompressionLevel]::Fastest, $false)
 Get-Item -LiteralPath $setup,$portable | Select-Object FullName,Length

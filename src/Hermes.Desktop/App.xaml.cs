@@ -12,9 +12,14 @@ public partial class App : Application
         try
         {
             var dataIndex = Array.IndexOf(e.Args, "--data-dir");
-            var data = dataIndex >= 0 && e.Args.Length > dataIndex + 1 ? e.Args[dataIndex + 1] : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HermesDevDesk", "0.7.1");
+            var data = dataIndex >= 0 && e.Args.Length > dataIndex + 1 ? e.Args[dataIndex + 1] : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HermesDevDesk", "0.7.2");
             var window = new MainWindow(data); MainWindow = window;
-            if (e.Args.Contains("--computer-panel-smoke"))
+            if (e.Args.Contains("--http-settings-smoke"))
+            {
+                window.Show();window.Dispatcher.BeginInvoke(async()=>
+                { try { var settings=new SettingsWindow(window.HttpTestController);settings.Show();await settings.RunHttpSettingsChecks(data);settings.Close();await window.ShutdownController();Shutdown(0); } catch(Exception ex) { File.WriteAllText(Path.Combine(data,"http-settings-error.txt"),ex.GetType().Name);await window.ShutdownController();Shutdown(1); } });
+            }
+            else if (e.Args.Contains("--computer-panel-smoke"))
             {
                 window.Show(); window.Dispatcher.BeginInvoke(async () =>
                 { try { await window.RunComputerPanelChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "computer-panel-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } });

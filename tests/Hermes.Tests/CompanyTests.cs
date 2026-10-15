@@ -13,7 +13,7 @@ internal static class CompanyTests
         config.Protocol = ProviderProtocol.AzureLegacyChatCompletions; config.ApiVersion = "2024-10-21";
         assert(config.RequestUri(false).AbsoluteUri.Contains("/openai/deployments/company-deployment/chat/completions?api-version=2024-10-21"), "Azure legacy route separates deployment and api-version");
         void Reject(Action a, string label) { try { a(); } catch (IOException) { assert(true, label); return; } throw new Exception(label); }
-        config.Endpoint = "http://company.invalid"; Reject(() => config.Validate(), "non-TLS company route blocked");
+        config.Endpoint = "http://company.invalid"; assert(config.Validate().Scheme == "http", "explicit HTTP company route supported without TLS downgrade");
         config.Endpoint = "https://api.openai.com"; Reject(() => config.Validate(), "public OpenAI company fallback endpoint blocked");
         config.Endpoint = "https://company.invalid/?key=unsafe"; Reject(() => config.Validate(), "credential/query in base URL blocked");
         var secretDir = Path.Combine(baseDir, "company-secrets"); var store = new ProtectedKeyStore(secretDir); const string key = "SYNTHETIC_ONLY_company_key_fixture_03";
@@ -57,7 +57,7 @@ internal static class CompanyTests
             await LoopbackHttp.Reply(stream, 200, "text/event-stream", ResponseWire.Sse(output), ct);
         });
         var settings = new ProviderSettings { Endpoint = mock.BaseUri.AbsoluteUri, Deployment = "company-deployment", Protocol = ProviderProtocol.AzureV1Responses };
-        Reject(() => settings.Validate(), "loopback HTTP is test-only, not normal settings");
+        assert(settings.Validate().Scheme == "http", "explicit loopback HTTP uses the normal validation path");
         await using var bridge = new CompanyBridge(settings, store, true); bridge.Usage += e => { var copy = JsonSerializer.Deserialize<UsageEntry>(JsonSerializer.Serialize(e))!; lock (observed) { var index = observed.FindIndex(x => x.Id == copy.Id); if (index < 0) observed.Add(copy); else observed[index] = copy; } };
         var checkResult = await bridge.CheckConnectionAsync(); Console.WriteLine("MOCK_CHECK: " + checkResult + "; hits=" + hits + "; headerMatched=" + authenticated);
         assert(checkResult.Contains("models") && authenticated, "mock connection check sends owned key only to configured server");

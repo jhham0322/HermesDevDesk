@@ -1,4 +1,6 @@
-# HermesDevDesk 0.7.1
+# HermesDevDesk 0.7.2 source
+
+Explicit HTTP/HTTPS company gateways are supported. HTTP is unencrypted; scheme-less addresses require an explicit choice. See [0.7.2 changes](CHANGELOG-0.7.2.md). Existing public downloads below are v0.7.1 until a new binary release is published.
 
 Independent Windows development desktop with selected-window Computer Use and an in-app WebView2 DOM browser.
 

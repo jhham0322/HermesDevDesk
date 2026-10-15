@@ -4,9 +4,11 @@ using System.Windows.Controls;
 using Hermes.Core;
 
 namespace Hermes.Desktop;
-public sealed class SettingsWindow : Window
+public sealed partial class SettingsWindow : Window
 {
     private readonly DeskController desk;
+    private readonly ComboBox endpointScheme = new();
+    private readonly TextBlock transportNotice = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 6, 4, 8) };
     private readonly ComboBox mode = new(); private readonly ComboBox protocol = new(); private readonly ComboBox authentication = new();
     private readonly TextBox endpoint = new(); private readonly TextBox deployment = new(); private readonly TextBox version = new();
     private readonly PasswordBox key = new() { Background = System.Windows.Media.Brushes.White, Foreground = System.Windows.Media.Brushes.Black, Padding = new Thickness(10) };
@@ -20,7 +22,16 @@ public sealed class SettingsWindow : Window
         void Row(string label, Control field) { content.Children.Add(new TextBlock { Text = label, Margin = new Thickness(4, 10, 4, 4) }); field.Margin = new Thickness(4); content.Children.Add(field); }
         mode.ItemsSource = Enum.GetValues<ConnectionMode>(); mode.SelectedItem = desk.State.Provider.Mode; Row("인증/연결 방식 · 회사 API 기본, 기존 CLI는 명시적 선택", mode);
         protocol.ItemsSource = Enum.GetValues<ProviderProtocol>(); protocol.SelectedItem = desk.State.Provider.Protocol; Row("프로토콜 · Responses 권장 / Chat Completions는 호환 어댑터", protocol);
-        endpoint.Text = desk.State.Provider.Endpoint; Row("회사 Azure resource 또는 사내 gateway API base URL (HTTPS)", endpoint);
+        endpoint.Text = desk.State.Provider.Endpoint; Row("회사 Azure resource 또는 사내 gateway API base URL (http:// 또는 https://)", endpoint);
+        endpointScheme.ItemsSource = new[] { "URL에 스킴 직접 입력 (자동 추정 없음)", "스킴 없는 주소에 https:// 적용", "스킴 없는 주소에 http:// 적용 (암호화 없음)" };
+        endpointScheme.SelectedIndex = 0; Row("스킴을 생략한 주소의 명시적 선택", endpointScheme); content.Children.Add(transportNotice);
+        void UpdateTransport()
+        {
+            try { transportNotice.Text = ProviderSettings.TransportNotice(ProviderSettings.ResolveEndpointInput(endpoint.Text, (EndpointSchemeChoice)endpointScheme.SelectedIndex)); }
+            catch (IOException) { transportNotice.Text = "스킴 없는 주소는 HTTP/HTTPS를 명시적으로 선택해야 저장됩니다. 포트와 경로는 그대로 유지됩니다."; }
+            transportNotice.Foreground = transportNotice.Text.StartsWith("HTTP:", StringComparison.Ordinal) ? System.Windows.Media.Brushes.DarkOrange : System.Windows.Media.Brushes.DimGray;
+        }
+        endpoint.TextChanged += (_, _) => UpdateTransport(); endpointScheme.SelectionChanged += (_, _) => UpdateTransport(); UpdateTransport();
         deployment.Text = desk.State.Provider.Deployment; Row("회사에서 제공한 정확한 Azure deployment / gateway model 이름", deployment);
         version.Text = desk.State.Provider.ApiVersion; Row("api-version (Azure 구버전에만 필요, v1은 비워 둠)", version);
         authentication.ItemsSource = Enum.GetValues<ProviderAuth>(); authentication.SelectedItem = desk.State.Provider.Authentication; Row("키 전달 방식 · Azure 기본 api-key / gateway BearerKey 또는 None", authentication);
@@ -37,8 +48,8 @@ public sealed class SettingsWindow : Window
         close.Click += (_, _) => Close(); status.Text = desk.KeyStore.HasKey ? "이 앱의 보호 키 저장됨 (내용 숨김)" : "이 앱의 보호 키 없음";
         Closed += (_, _) => { key.Clear(); cancellation.Cancel(); };
     }
-    private ProviderSettings Current() => new() { Mode = (ConnectionMode)mode.SelectedItem, Protocol = (ProviderProtocol)protocol.SelectedItem, Authentication = (ProviderAuth)authentication.SelectedItem, Endpoint = endpoint.Text.Trim(), Deployment = deployment.Text.Trim(), ApiVersion = version.Text.Trim() };
-    private void Save() { var value = key.Password; desk.Configure(Current(), string.IsNullOrWhiteSpace(value) ? null : value); key.Clear(); }
+    private ProviderSettings Current() => new() { Mode = (ConnectionMode)mode.SelectedItem, Protocol = (ProviderProtocol)protocol.SelectedItem, Authentication = (ProviderAuth)authentication.SelectedItem, Endpoint = (ConnectionMode)mode.SelectedItem == ConnectionMode.CompanyApi ? ProviderSettings.ResolveEndpointInput(endpoint.Text, (EndpointSchemeChoice)endpointScheme.SelectedIndex) : endpoint.Text.Trim(), Deployment = deployment.Text.Trim(), ApiVersion = version.Text.Trim() };
+    private void Save() { var value = key.Password; var settings = Current(); desk.Configure(settings, string.IsNullOrWhiteSpace(value) ? null : value); endpoint.Text = settings.Endpoint; key.Clear(); }
     private void Try(Action action) { try { action(); } catch (Exception ex) { key.Clear(); status.Text = Safety.Redact(ex.Message); } }
     internal int RunProgrammaticChecks()
     {
@@ -48,7 +59,7 @@ public sealed class SettingsWindow : Window
         if (key.Password.Length != 0 || !desk.KeyStore.HasKey || !desk.KeyStore.ReadOwnKey().Contains("SYNTHETIC_ONLY")) throw new IOException("Protected settings save failed");
         var revision = desk.State.Provider.KeyRevision; key.Password = "SYNTHETIC_ONLY_WPF_SETTINGS_REPLACEMENT"; Save();
         if (desk.State.Provider.KeyRevision != revision + 1) throw new IOException("Key replacement revision failed");
-        endpoint.Text = "http://unsafe.invalid"; var failed = false; try { Save(); } catch (IOException) { failed = true; }
+        endpoint.Text = "ftp://unsupported.invalid"; var failed = false; try { Save(); } catch (IOException) { failed = true; }
         if (!failed || desk.State.Provider.Endpoint != "https://company.invalid") throw new IOException("Invalid endpoint altered settings");
         desk.Configure(desk.State.Provider, deleteKey: true);
         if (desk.KeyStore.HasKey) throw new IOException("Own synthetic key deletion failed");

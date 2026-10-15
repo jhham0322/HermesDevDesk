@@ -27,6 +27,13 @@ if (args.Contains("app-server"))
     }
     return;
 }
+if (args.Contains("--http-gateway-only"))
+{
+    var httpRoot=Path.GetFullPath(args[Array.IndexOf(args,"--root")+1]);Directory.CreateDirectory(httpRoot);
+    await HttpGatewayTests.Run(httpRoot,Path.Combine(httpRoot,"http-gateway-report.json"));
+    int existing=0;await CompanyTests.Run(httpRoot,(ok,label)=>{if(!ok)throw new IOException(label);existing++;});
+    Console.WriteLine("HTTP gateway checks PASS; existing company contract checks="+existing+"; real company/model calls=0");return;
+}
 if (args.Contains("--computer-policy-only"))
 {
     int checks = 0; ComputerFeatureTests.Run((ok, label) => { if (!ok) throw new IOException(label); checks++; Console.WriteLine("PASS: " + label); });
