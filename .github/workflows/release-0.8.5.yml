@@ -3,6 +3,8 @@ name: Publish approved 0.8.5 Windows release
 on:
   push:
     tags: [v0.8.5]
+    branches: [main]
+    paths: [.github/workflows/release-0.8.5.yml]
 
 
 permissions:
@@ -39,8 +41,12 @@ jobs:
         run: |
           dotnet build tests/Hermes.Tests/Hermes.Tests.csproj -c Release --nologo -p:NuGetAudit=false
           if ($LASTEXITCODE -ne 0) { throw 'Policy test build failed' }
-          & ./tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe
-          if ($LASTEXITCODE -ne 0) { throw 'Policy tests failed' }
+          $testExecutable = Join-Path $PWD 'tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe'
+          Push-Location $env:RUNNER_TEMP
+          try {
+            & $testExecutable
+            if ($LASTEXITCODE -ne 0) { throw 'Policy tests failed' }
+          } finally { Pop-Location }
           & ./tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe --maximize-bounds-only
           if ($LASTEXITCODE -ne 0) { throw 'Maximize logic tests failed' }
           & ./tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe --http-gateway-only --root artifacts/http-mock
@@ -72,4 +78,3 @@ jobs:
           gh release create v0.8.5 --repo $repo --verify-tag --title 'HermesDevDesk 0.8.5 (experimental)' --notes-file RELEASE-NOTES.md artifacts/release-0.8.5/HermesDevDesk-0.8.5-win-x64-Setup.exe artifacts/release-0.8.5/HermesDevDesk-0.8.5-win-x64-Portable.zip
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
           gh release view v0.8.5 --repo $repo --json url,tagName,assets
-
