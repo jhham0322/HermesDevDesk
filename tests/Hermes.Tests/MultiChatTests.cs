@@ -39,7 +39,7 @@ internal static class MultiChatTests
         desk.AddModel("model-b");
         var loaded = new StateStore(data).Load();
         Check(loaded.SavedModels.Values.Single().SequenceEqual(new[] { "model-a", "model-b" }), "multiple models persist across restart");
-        var project = desk.Register(root);
+        var project = desk.Register(root); project.ComputerEnabled = false; project.BrowserEnabled = false; project.LocalMcpEnabled = false;
         desk.Diagnostic += s => Console.WriteLine("ENGINE " + s);
         await desk.ConnectAsync(exe, root);
         void Pump() { while (queue.TryDequeue(out var action)) action(); }
@@ -77,6 +77,6 @@ internal static class MultiChatTests
         await desk.StartAsync(a, "Continue this previous conversation with project write permission.", "model-b", true);
         await Until(() => !DeskController.IsRunning(a), "previous chat resumes after reconnect and changed settings");
         Check(a.ThreadId == originalThread && a.Status == "완료" && a.Model == "model-b", "same thread history preserved without creating a new chat after permission or provider settings change");
-        File.WriteAllText(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { version = "0.8.5", passed = true, officialEngine = true, syntheticServer = true, actualModelCalls = 0, attachments = true, simultaneousChats = 2, separateCancellation = true, separateUsage = true, resume = true }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { version = "0.8.6", passed = true, officialEngine = true, syntheticServer = true, actualModelCalls = 0, attachments = true, simultaneousChats = 2, separateCancellation = true, separateUsage = true, resume = true }, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

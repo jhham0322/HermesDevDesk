@@ -45,6 +45,11 @@ public partial class MainWindow
         first.Transcript.Add(new("에이전트", "이 화면은 UI 검증용 대화입니다. 실제 모델을 호출하지 않았습니다.\n\n일반 실행에서는 연결한 모델의 답변과 작업 결과가 이 위치에 표시됩니다.", DateTime.UtcNow));
         first.Title = "Windows 화면과 동작 검증"; Prompt.Clear(); desk.Save();
         Check(MessageStack.Children.Count == 4 && Welcome.Visibility == Visibility.Collapsed, "user, agent, code and activity render");
+        ProgressMessages.Delta(first, "ui-summary", "0", "파일과 실행 결과를 확인 중입니다.");
+        first.Transcript.Add(new("작업 진행", "명령 실행 시작", DateTime.UtcNow)); desk.Save();
+        Check(MessageStack.Children.OfType<Expander>().Count(e => e.IsExpanded) >= 2, "progress summaries and tool activity expanded by default");
+        ProgressMessages.Complete(first, "ui-summary", "0", "파일 확인 완료"); desk.Save();
+        Check(first.Transcript.Count(e => e.Kind == "진행 요약") == 1, "stream summary completion has one visible entry");
         var existingMessage = MessageStack.Children[0]; var existingSidebar = SidebarGroups.Children[0];
         first.Transcript[^1] = first.Transcript[^1] with { Text = first.Transcript[^1].Text + "\nUI 업데이트 검증." }; desk.Save();
         Check(ReferenceEquals(existingMessage, MessageStack.Children[0]), "unchanged message views reused on streaming update");

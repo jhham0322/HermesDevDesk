@@ -45,7 +45,7 @@ public partial class MainWindow
                 var shortText = entry.Text.Split('\n')[0]; if (shortText.Length > 95) shortText = shortText[..95] + "…";
                 var header = new DockPanel(); header.Children.Add(MakeIcon(entry.Kind.Contains("명령") ? "code" : entry.Kind.Contains("파일") ? "document" : "chat", 16));
                 header.Children.Add(new TextBlock { Text = entry.Kind + "  " + shortText, Foreground = Brush("Muted"), FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis });
-                var expander = new Expander { Header = header, Content = Markdown(entry.Text), Margin = new Thickness(0, 2, 0, 12), IsExpanded = entry.Kind == "오류" };
+                var expander = new Expander { Header = header, Content = Markdown(entry.Text), Margin = new Thickness(0, 2, 0, 12), IsExpanded = entry.Kind is "오류" or "진행 요약" or "작업 진행" or "계획" or "명령 출력" };
                 view = expander;
             }
             if (position < MessageStack.Children.Count) { MessageStack.Children.RemoveAt(position); MessageStack.Children.Insert(position, view); }
@@ -110,7 +110,7 @@ public sealed class CapabilitiesWindow : Window
 {
     public CapabilitiesWindow(DeskController desk)
     {
-        Title = "Hermes 0.8.5 · 기능 및 연결 상태"; Width = 740; Height = 640; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Title = "Hermes 0.8.6 · 기능 및 연결 상태"; Width = 740; Height = 640; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var panel = new StackPanel { Margin = new Thickness(24) }; Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         panel.Children.Add(new TextBlock { Text = "기능 및 연결 상태", FontSize = 24, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 16) });
         panel.Children.Add(new TextBlock { Text = desk.AccountStatus, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16) });

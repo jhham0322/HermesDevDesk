@@ -9,10 +9,10 @@ public sealed class ProjectEntry
     public string? ParentProjectId { get; set; }
     public string? WorktreeBranch { get; set; }
     public string? BaseCommit { get; set; }
-    public bool LocalMcpEnabled { get; set; }
+    public bool LocalMcpEnabled { get; set; } = true;
     public bool FullPermissions { get; set; } = true;
-    public bool BrowserEnabled { get; set; }
-    public bool ComputerEnabled { get; set; }
+    public bool BrowserEnabled { get; set; } = true;
+    public bool ComputerEnabled { get; set; } = true;
     public override string ToString() => Name;
 }
 public sealed class WorkItem

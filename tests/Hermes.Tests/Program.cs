@@ -91,6 +91,25 @@ if (args.Contains("--multi-chat-only"))
 int count = 0;
 void Assert(bool truth, string label) { if (!truth) throw new Exception("FAIL: " + label); count++; Console.WriteLine("PASS: " + label); }
 void Reject(Action act, string label) { try { act(); } catch (IOException) { Assert(true, label); return; } throw new Exception("FAIL: " + label); }
+var progressTask = new WorkItem();
+ProgressMessages.Delta(progressTask, "one", "0", "Checking ");
+ProgressMessages.Delta(progressTask, "two", "0", "Other task");
+ProgressMessages.Delta(progressTask, "one", "0", "files");
+Assert(progressTask.Transcript.Count == 2 && progressTask.Transcript[0].Text == "Checking files", "interleaved progress summaries retain item identity");
+ProgressMessages.Complete(progressTask, "one", "0", "Files checked");
+ProgressMessages.Complete(progressTask, "one", "1", "Next step");
+Assert(progressTask.Transcript.Count == 3 && progressTask.Transcript[0].Text == "Files checked", "completed summary replaces stream without duplicates");
+Assert(new ProjectEntry() is { FullPermissions: true, LocalMcpEnabled: true, BrowserEnabled: true, ComputerEnabled: true }, "all project tools default enabled");
+using (var progressJson = JsonDocument.Parse("""{"threadId":"progress-thread","itemId":"summary-one","summaryIndex":0,"delta":"Scanning files"}"""))
+{
+    await using var progressDesk = new DeskController(Path.Combine(baseDir, "progress-history"));
+    var chat = new WorkItem { ThreadId = "progress-thread" }; progressDesk.State.Tasks.Add(chat);
+    progressDesk.Handle(new("item/reasoning/summaryTextDelta", progressJson.RootElement));
+    Assert(chat.Transcript.Single().Text == "Scanning files", "public summary notification reaches persisted conversation");
+    progressDesk.Handle(new("item/reasoning/textDelta", progressJson.RootElement));
+    Assert(chat.Transcript.Count == 1, "raw reasoning events are not displayed");
+    Assert(new StateStore(progressDesk.DataDirectory).Load().Tasks.Single().Transcript.Single().Text == "Scanning files", "progress summary survives reload");
+}
 var root = Path.Combine(baseDir, "project"); Directory.CreateDirectory(root);
 File.WriteAllText(Path.Combine(root, "hello.txt"), "hello"); File.WriteAllText(Path.Combine(root, ".env"), "SECRET=value");
 Assert(Safety.ProjectRoot(root) == root, "absolute project registration");
