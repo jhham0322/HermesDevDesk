@@ -13,6 +13,7 @@ public partial class MainWindow : Window
     private readonly DeskController desk;
     private readonly LocalCommandSession terminal;
     private readonly List<ProjectImage> pendingImages = [];
+    private readonly List<ProjectFileAttachment> pendingFiles = [];
     private readonly List<ProjectSkill> pendingSkills = [];
     private readonly System.Windows.Threading.DispatcherTimer draftTimer = new() { Interval = TimeSpan.FromSeconds(15) };
     private string fileDirectory = "";
@@ -30,17 +31,7 @@ public partial class MainWindow : Window
         desk = new(data, a => Dispatcher.BeginInvoke(a)); desk.Changed += Refresh; desk.StreamChanged += QueueRefresh;
         InitializeWindowPersistence();
         InitializeShell();
-        Prompt.AllowDrop = true;
-        Prompt.PreviewDragOver += (_, e) => _ = Guard(() => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } return Task.CompletedTask; }, "image-drag");
-        Prompt.PreviewDrop += (_, e) => _ = Guard(() => { if (e.Data.GetData(DataFormats.FileDrop) is string[] files) { e.Handled = true; foreach (var file in files) AddImage(file); } return Task.CompletedTask; }, "image-drop");
-        DataObject.AddPastingHandler(Prompt, (_, e) => _ = Guard(() =>
-        {
-            if (!e.DataObject.GetDataPresent(DataFormats.Bitmap)) return Task.CompletedTask;
-            e.CancelCommand();
-            var image = e.DataObject.GetData(DataFormats.Bitmap) as System.Windows.Media.Imaging.BitmapSource ?? Clipboard.GetImage();
-            if (image == null) throw new IOException("클립보드 이미지가 없습니다. 파일 첨부로 다시 시도하세요.");
-            AddClipboardImage(image); return Task.CompletedTask;
-        }, "image-paste"));
+        InitializeAttachments();
         terminal = new(Path.Combine(data, "terminal-home")); terminal.Output += text => Dispatcher.BeginInvoke(() => { CommandOutput.AppendText(text); if (CommandOutput.Text.Length > 300000) CommandOutput.Text = CommandOutput.Text[^200000..]; CommandOutput.ScrollToEnd(); });
         UsageStart.SelectedDate = DateTime.UtcNow.Date.AddDays(-6); UsageEnd.SelectedDate = DateTime.UtcNow.Date;
         desk.Diagnostic += s => { Logs.AppendText(s + "\n"); if (Logs.Text.Length > 200_000) Logs.Text = Logs.Text[^100_000..]; Logs.ScrollToEnd(); };
@@ -143,15 +134,11 @@ public partial class MainWindow : Window
         if (MessageBox.Show(this, "현재 Git 프로젝트의 커밋하지 않은 변경을 선택한 provider로 검토합니다. 모델 사용량이 발생할 수 있습니다. 읽기 전용 새 검토 작업을 시작할까요?", "AI 변경 검토", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
         var task = await desk.StartReviewAsync(project, Model.SelectedItem as string ?? ""); Search.Clear(); Tasks.SelectedItem = task; RenderTask();
     });
-    private void ImageAdd_Click(object sender, RoutedEventArgs e) => _ = Guard(() =>
-    {
-        var project = CurrentProject ?? throw new IOException("프로젝트를 선택하세요.");
-        var dialog = new OpenFileDialog { Filter = "Project image|*.png;*.jpg;*.jpeg", Multiselect = true, InitialDirectory = project.Root, Title = "첨부 이미지 선택 · 프로젝트 외부 이미지도 가능" };
-        if (dialog.ShowDialog(this) == true) foreach (var file in dialog.FileNames) AddImage(file);
-        return Task.CompletedTask;
-    }, "image-import");
+    private void ImageAdd_Click(object sender, RoutedEventArgs e) => ChooseAttachments(true);
+    private void FileAdd_Click(object sender, RoutedEventArgs e) => ChooseAttachments(false);
     private void AddImage(string file)
     {
+        EnsureAttachmentTask();
         var project = CurrentProject ?? throw new IOException("프로젝트를 선택하세요.");
         if (pendingImages.Count >= 4) throw new IOException("이미지는 최대 4개까지 첨부할 수 있습니다.");
         var image = ImageAttachments.Import(project.Root, file);
@@ -165,12 +152,13 @@ public partial class MainWindow : Window
                 if (decoder.Frames.Count == 0 || decoder.Frames[0].PixelWidth != image.Width || decoder.Frames[0].PixelHeight != image.Height) throw new IOException("이미지 디코드/해상도 오류");
             }
             var selected = ImageAttachments.Validate(project.Root, pendingImages.Append(image));
-            pendingImages.Clear(); pendingImages.AddRange(selected); Attachments.ItemsSource = pendingImages.ToList();
-            AttachmentHint.Text = $"{pendingImages.Count}개 · 선택 이미지가 현재 모델/회사 endpoint로 전송됨";
+            pendingImages.Clear(); pendingImages.AddRange(selected); RefreshAttachments();
+            RefreshAttachments();
         }
         catch { if (imported && File.Exists(path)) File.Delete(path); throw; }
     }
-    private void ImageClear_Click(object sender, RoutedEventArgs e) { pendingImages.Clear(); Attachments.ItemsSource = null; AttachmentHint.Text = "PNG/JPEG · 최대 4개/합계 3MB · 선택 이미지가 모델로 전송됨"; }
+    private void ImageClear_Click(object sender, RoutedEventArgs e) { pendingImages.Clear(); pendingFiles.Clear(); RefreshAttachments(); }
+
     private List<UsageEntry> SelectedUsage()
     {
         var start = new DateTimeOffset(DateTime.SpecifyKind((UsageStart.SelectedDate ?? DateTime.UtcNow.Date).Date, DateTimeKind.Utc));
@@ -223,7 +211,7 @@ public partial class MainWindow : Window
     private async void Start_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
         if (connectingCompany) return;
-        if (string.IsNullOrWhiteSpace(Prompt.Text)) { Footer.Text = "질문을 입력하세요."; Prompt.Focus(); return; }
+        if (string.IsNullOrWhiteSpace(Prompt.Text)) { if (pendingImages.Count + pendingFiles.Count == 0) { Footer.Text = "질문을 입력하세요."; Prompt.Focus(); return; } Prompt.Text = "첨부한 이미지와 파일을 확인하고 내용을 설명해 주세요."; }
         if (CurrentProject == null) { Footer.Text = "질문을 실행할 프로젝트 폴더를 선택하세요."; Register_Click(this, new RoutedEventArgs()); if (CurrentProject == null) return; }
         if (desk.HasPendingModel || (!desk.SubscriptionReady && !desk.CanConnectCompany && desk.State.Provider.Mode == ConnectionMode.CompanyApi))
         {
@@ -246,19 +234,19 @@ public partial class MainWindow : Window
         }
         if (task.Status == "실행 중")
         {
-            if (pendingImages.Count > 0 || pendingSkills.Count > 0) throw new IOException("추가 지시는 텍스트로 전송하세요. 첨부는 다음 실행에서 사용할 수 있습니다.");
+            if (pendingImages.Count > 0 || pendingFiles.Count > 0 || pendingSkills.Count > 0) throw new IOException("추가 지시는 텍스트로 전송하세요. 첨부는 다음 실행에서 사용할 수 있습니다.");
             await desk.SteerAsync(task, prompt);
             if (CurrentTask == task && Prompt.Text == prompt) Prompt.Clear();
             else if (CurrentTask != task && desk.State.Desktop.Drafts.GetValueOrDefault(task.Id) == prompt) desk.State.Desktop.Drafts[task.Id] = "";
             return;
         }
         if (task.Transcript.Count == 0) task.Title = Safety.Redact(prompt.Length > 45 ? prompt[..45] + "…" : prompt);
-        await desk.StartAsync(task, prompt, Model.SelectedItem as string ?? "", Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList(), effort: Effort.SelectedIndex > 0 ? Effort.SelectedItem as string : null);
+        await desk.StartAsync(task, prompt, Model.SelectedItem as string ?? "", Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList(), effort: Effort.SelectedIndex > 0 ? Effort.SelectedItem as string : null, files: pendingFiles.ToList());
         if (CurrentTask == task && Prompt.Text == prompt) { Prompt.Clear(); ImageClear_Click(this, new RoutedEventArgs()); SkillClear_Click(this, new RoutedEventArgs()); }
         else if (CurrentTask != task)
         {
             if (desk.State.Desktop.Drafts.GetValueOrDefault(task.Id) == prompt) desk.State.Desktop.Drafts[task.Id] = "";
-            imageDrafts.Remove(task.Id); skillDrafts.Remove(task.Id);
+            imageDrafts.Remove(task.Id); fileDrafts.Remove(task.Id); skillDrafts.Remove(task.Id);
         }
     });
     private async void Stop_Click(object sender, RoutedEventArgs e) => await Guard(async () => { if (CurrentTask != null) await desk.StopAsync(CurrentTask); });

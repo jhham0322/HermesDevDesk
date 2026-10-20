@@ -5,15 +5,15 @@ public sealed record ProjectImage(string RelativePath, string Sha256, long Bytes
 public sealed record AttachmentRecord(ProjectImage Image, DateTime At);
 public static class ImageAttachments
 {
-    public const int MaxImageBytes = 2 * 1024 * 1024;
-    public const int MaxTotalBytes = 3 * 1024 * 1024;
+    public const int MaxImageBytes = 20 * 1024 * 1024;
+    public const int MaxTotalBytes = 40 * 1024 * 1024;
     public static ProjectImage Import(string root, string source)
     {
         root = Safety.ProjectRoot(root); source = Path.GetFullPath(source);
         if (Safety.Within(root, source)) return Read(root, Path.GetRelativePath(root, source));
         Safety.RejectReparseAncestors(source);
         var info = new FileInfo(source);
-        if (!info.Exists || info.Length > MaxImageBytes) throw new IOException("이미지 파일당 2MB 이하이어야 합니다.");
+        if (!info.Exists || info.Length > MaxImageBytes) throw new IOException("이미지 파일당 20MB 이하이어야 합니다.");
         var relative = Path.Combine(".hermes-attachments", Guid.NewGuid().ToString("N") + Path.GetExtension(source));
         var target = Safety.Resolve(root, relative); Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         try { File.Copy(source, target); return Read(root, relative); }
@@ -22,7 +22,7 @@ public static class ImageAttachments
     public static ProjectImage Read(string root, string relative)
     {
         var path = Safety.Resolve(root, relative); var file = new FileInfo(path);
-        if (!file.Exists || file.Length is < 24 or > MaxImageBytes) throw new IOException("유효한 PNG/JPEG 이미지가 필요합니다. 파일당 최대 2MB입니다.");
+        if (!file.Exists || file.Length is < 24 or > MaxImageBytes) throw new IOException("유효한 PNG/JPEG 이미지가 필요합니다. 파일당 최대 20MB입니다.");
         var bytes = File.ReadAllBytes(path); if (bytes.Length is < 24 or > MaxImageBytes) throw new IOException("이미지 크기가 변경되었거나 파일이 손상되었습니다.");
         int width = 0, height = 0; string mime;
         if (bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }) && bytes.AsSpan(12, 4).SequenceEqual("IHDR"u8))
@@ -69,7 +69,7 @@ public static class ImageAttachments
     public static List<ProjectImage> Validate(string root, IEnumerable<ProjectImage> selected)
     {
         var images = selected.ToList();
-        if (images.Count > 4 || images.Sum(i => i.Bytes) > MaxTotalBytes || images.Select(i => i.RelativePath).Distinct(StringComparer.OrdinalIgnoreCase).Count() != images.Count) throw new IOException("이미지 최대 4개 / 합계 3MB / 중복 없음");
+        if (images.Count > 4 || images.Sum(i => i.Bytes) > MaxTotalBytes || images.Select(i => i.RelativePath).Distinct(StringComparer.OrdinalIgnoreCase).Count() != images.Count) throw new IOException("이미지 최대 4개 / 합계 40MB / 중복 없음");
         foreach (var image in images) if (Read(root, image.RelativePath) != image) throw new IOException("선택 이후 이미지가 변경되었습니다. 다시 첨부하세요.");
         return images;
     }

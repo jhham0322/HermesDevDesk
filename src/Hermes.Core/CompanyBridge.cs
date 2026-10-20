@@ -111,7 +111,11 @@ public sealed class CompanyBridge : IAsyncDisposable
         var segments = route.Split('/', StringSplitOptions.RemoveEmptyEntries);
         string? requestTask = null; TaskContext? context = null;
         if (segments.Length == 4 && segments[0] == "tasks" && segments[2] == "v1" && segments[3] == "responses")
-        { requestTask = Uri.UnescapeDataString(segments[1]); if (tasks.TryGetValue(requestTask, out context)) route = "/v1/responses"; }
+        {
+            requestTask = Uri.UnescapeDataString(segments[1]);
+            if (tasks.TryGetValue(requestTask, out context)) route = "/v1/responses";
+            else { await LoopbackHttp.Reply(stream, 409, "application/json", JsonSerializer.Serialize(new { error = new { message = "로컬 작업 세션이 만료되었습니다. 엔진을 다시 연결하고 대화를 재개하세요.", type = "local_session_expired" } }), ct); return; }
+        }
         if (incoming.Method != "POST" || route != "/v1/responses") { await LoopbackHttp.Reply(stream, 404, "application/json", "{\"error\":{\"message\":\"Unsupported local route\"}}", ct); return; }
         var entry = StartEntry(requestTask, context); var streaming = false; using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, context?.Operation.Token ?? operation.Token);
         try
@@ -126,7 +130,14 @@ public sealed class CompanyBridge : IAsyncDisposable
             entry.Requests = 1; using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token); entry.HttpStatus = (int)response.StatusCode;
             if (!response.IsSuccessStatusCode)
             {
-                entry.Status = "failed"; entry.Note = $"HTTP {(int)response.StatusCode}; no fallback; usage not provided"; Emit(entry);
+                entry.Status = "failed"; entry.Note = $"회사 서버 HTTP {(int)response.StatusCode} · 요청 경로: {request.RequestUri!.AbsolutePath}; no fallback; usage not provided";
+                using (var errorBody = await response.Content.ReadAsStreamAsync(linked.Token))
+                {
+                    var buffer = new byte[8192]; var length = await errorBody.ReadAsync(buffer, linked.Token);
+                    try { using var errorJson = JsonDocument.Parse(buffer.AsMemory(0, length)); var detail = errorJson.RootElement.Property("error")?.Text("message") ?? errorJson.RootElement.Text("message"); if (detail.Length > 0) entry.Note += " · " + Safety.Redact(detail[..Math.Min(detail.Length, 1000)]); }
+                    catch (JsonException) { }
+                }
+                Emit(entry);
                 await LoopbackHttp.Reply(stream, (int)response.StatusCode is >= 300 and < 400 ? 502 : (int)response.StatusCode, "application/json", JsonSerializer.Serialize(new { error = new { message = entry.Note, type = "company_endpoint_error" } }), ct); return;
             }
             if (anthropic != null && response.Content.Headers.ContentType?.MediaType == "text/event-stream")
@@ -193,9 +204,9 @@ public sealed class CompanyBridge : IAsyncDisposable
             entry.Status = finalStatus; entry.Note = "응답 usage 관측. reasoning/cache는 부분집합, 별도 합산 안 함"; Emit(entry);
             await LoopbackHttp.Reply(stream, 200, contentType, output, ct);
         }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException or JsonException or InvalidOperationException)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException or JsonException or InvalidOperationException or KeyNotFoundException or FormatException or NotSupportedException or ArgumentException)
         {
-            entry.Status = ex is OperationCanceledException ? "cancelled" : "failed"; entry.Note = "요청 실패/중단 또는 호환 불가; usage 미제공; 외부 fallback 없음"; Emit(entry);
+            entry.Status = ex is OperationCanceledException ? "cancelled" : "failed"; entry.Note = "요청 실패/중단 또는 호환 불가; usage 미제공; 외부 fallback 없음 · " + ConnectionErrors.Describe(ex, context?.Operation.Token ?? operation.Token); AppLog.Write(ex, "company-bridge"); Emit(entry);
             if (!streaming && !ct.IsCancellationRequested) await LoopbackHttp.Reply(stream, 502, "application/json", JsonSerializer.Serialize(new { error = new { message = entry.Note, type = "company_adapter_error" } }), ct);
         }
     }

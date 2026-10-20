@@ -113,6 +113,7 @@ public partial class MainWindow
         desk.State.Desktop.Drafts[draftTaskId] = Safety.Redact(Prompt.Text); draftSaveTimer.Stop(); draftSaveTimer.Start();
     }
     private readonly Dictionary<string, List<ProjectImage>> imageDrafts = [];
+    private readonly Dictionary<string, List<ProjectFileAttachment>> fileDrafts = [];
     private readonly Dictionary<string, List<ProjectSkill>> skillDrafts = [];
     private readonly Dictionary<string, string> modelDrafts = [];
     private void SwitchDraft()
@@ -122,13 +123,14 @@ public partial class MainWindow
         if (draftTaskId != null)
         {
             desk.State.Desktop.Drafts[draftTaskId] = Safety.Redact(Prompt.Text);
-            imageDrafts[draftTaskId] = pendingImages.ToList(); skillDrafts[draftTaskId] = pendingSkills.ToList();
+            imageDrafts[draftTaskId] = pendingImages.ToList(); fileDrafts[draftTaskId] = pendingFiles.ToList(); skillDrafts[draftTaskId] = pendingSkills.ToList();
             modelDrafts[draftTaskId] = Model.SelectedItem as string ?? "";
         }
-        pendingImages.Clear(); pendingSkills.Clear();
+        pendingImages.Clear(); pendingFiles.Clear(); pendingSkills.Clear();
         if (id != null && imageDrafts.TryGetValue(id, out var images)) pendingImages.AddRange(images);
+        if (id != null && fileDrafts.TryGetValue(id, out var files)) pendingFiles.AddRange(files);
         if (id != null && skillDrafts.TryGetValue(id, out var skills)) pendingSkills.AddRange(skills);
-        Attachments.ItemsSource = pendingImages.ToList(); SkillHint.Text = string.Join(", ", pendingSkills.Select(s => s.Name));
+        RefreshAttachments(); SkillHint.Text = string.Join(", ", pendingSkills.Select(s => s.Name));
         var selectedModel = id != null && modelDrafts.TryGetValue(id, out var savedModel) ? savedModel : CurrentTask?.Model;
         if (selectedModel != null && Model.Items.Contains(selectedModel)) Model.SelectedItem = selectedModel;
         draftTaskId = id; switchingDraft = true;
@@ -227,9 +229,14 @@ public partial class MainWindow
         if (DeskController.IsRunning(task)) throw new IOException("삭제할 채팅을 먼저 중단하세요.");
         if (confirm && MessageBox.Show(this, "이 채팅의 대화 기록과 초안을 삭제할까요?\n프로젝트 파일, Git 이력과 사용량은 유지됩니다.", "채팅 삭제", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         openChats.Remove(task.Id); closedChats.Remove(task.Id); navigation.RemoveAll(id => id == task.Id); navigationIndex = navigation.Count - 1;
-        imageDrafts.Remove(task.Id); skillDrafts.Remove(task.Id); modelDrafts.Remove(task.Id);
-        if (draftTaskId == task.Id) { draftTaskId = null; switchingDraft = true; Prompt.Clear(); switchingDraft = false; pendingImages.Clear(); pendingSkills.Clear(); Attachments.ItemsSource = null; }
-        if (chatBrowsers.Remove(task.Id, out var view)) { if (browserHost.Content == view) browserHost.Content = browserView; view.Dispose(); }
+        imageDrafts.Remove(task.Id); fileDrafts.Remove(task.Id); skillDrafts.Remove(task.Id); modelDrafts.Remove(task.Id);
+        if (draftTaskId == task.Id) { draftTaskId = null; switchingDraft = true; Prompt.Clear(); switchingDraft = false; pendingImages.Clear(); pendingFiles.Clear(); pendingSkills.Clear(); Attachments.ItemsSource = null; }
+        if (chatBrowsers.Remove(task.Id, out var view))
+        {
+            if (ReferenceEquals(activeBrowserView, view)) activeBrowserView = null;
+            if (ReferenceEquals(browserView, view)) { browserView = null; browserInitialization = null; }
+            browserSurface.Children.Remove(view); view.Dispose(); ShowChatBrowser();
+        }
         browserLocks.Remove(task.Id);
         desk.DeleteTask(task); Footer.Text = "채팅 삭제됨 · 프로젝트 파일과 Git 이력은 유지됨";
     }
@@ -239,7 +246,7 @@ public partial class MainWindow
     {
         var menu = new ContextMenu();
         void Item(string label, RoutedEventHandler action) { var item = new MenuItem { Header = label }; item.Click += action; menu.Items.Add(item); }
-        Item("이미지 첨부", ImageAdd_Click); Item("첨부 비우기", ImageClear_Click); Item("프로젝트 스킬 선택", Skills_Click); Item("스킬 비우기", SkillClear_Click);
+        Item("이미지 첨부", ImageAdd_Click); Item("파일 첨부", FileAdd_Click); Item("클립보드 붙여넣기", PasteAttachment_Click); Item("첨부 비우기", ImageClear_Click); Item("프로젝트 스킬 선택", Skills_Click); Item("스킬 비우기", SkillClear_Click);
         menu.Items.Add(new Separator()); Item("MCP 연결", Mcp_Click); Item("격리 worktree", IsolatedTask_Click); Item("AI 변경 검토", AiReview_Click); Item("초안 예약", Schedule_Click);
         menu.PlacementTarget = (UIElement)sender; menu.IsOpen = true;
     }

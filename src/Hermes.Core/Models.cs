@@ -42,6 +42,7 @@ public sealed class WorkItem
     public string ReasoningEffort { get; set; } = "";
     public List<SkillRecord> Skills { get; set; } = [];
     public List<AttachmentRecord> Attachments { get; set; } = [];
+    public List<FileAttachmentRecord> FileAttachments { get; set; } = [];
     public override string ToString() => $"{Title} · {Status}";
 }
 public sealed record TranscriptEntry(string Kind, string Text, DateTime At, string? ItemId = null);

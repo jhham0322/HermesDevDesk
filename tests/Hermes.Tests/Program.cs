@@ -111,6 +111,8 @@ using (var progressJson = JsonDocument.Parse("""{"threadId":"progress-thread","i
     Assert(new StateStore(progressDesk.DataDirectory).Load().Tasks.Single().Transcript.Single().Text == "Scanning files", "progress summary survives reload");
 }
 var root = Path.Combine(baseDir, "project"); Directory.CreateDirectory(root);
+FileAttachmentTests.Run(Path.Combine(baseDir, "file-attachment-project"), Assert);
+await BrowserBridgeTests.Run(Path.Combine(baseDir, "browser-bridge"), Assert);
 File.WriteAllText(Path.Combine(root, "hello.txt"), "hello"); File.WriteAllText(Path.Combine(root, ".env"), "SECRET=value");
 Assert(Safety.ProjectRoot(root) == root, "absolute project registration");
 Reject(() => Safety.ProjectRoot(Path.GetPathRoot(root)!), "drive root blocked");

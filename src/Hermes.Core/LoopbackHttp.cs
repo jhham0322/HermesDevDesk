@@ -5,8 +5,11 @@ using System.Text.Json;
 
 namespace Hermes.Core;
 public sealed record LoopRequest(string Method, string Path, Dictionary<string, string> Headers, byte[] Body);
+public sealed class LoopbackRequestException(int statusCode, string message) : IOException(message)
+{ public int StatusCode { get; } = statusCode; }
 public sealed class LoopbackHttp : IAsyncDisposable
 {
+    public const int MaxBodyBytes = 96 * 1024 * 1024;
     private readonly TcpListener listener = new(IPAddress.Loopback, 0);
     private readonly CancellationTokenSource stop = new();
     private readonly Func<LoopRequest, NetworkStream, CancellationToken, Task> handler;
@@ -23,7 +26,16 @@ public sealed class LoopbackHttp : IAsyncDisposable
         {
             var stream = client.GetStream(); using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop.Token); timeout.CancelAfter(TimeSpan.FromMinutes(5));
             try { var request = await Read(stream, timeout.Token); await handler(request, stream, timeout.Token); }
-            catch (Exception ex) when (ex is IOException or OperationCanceledException or JsonException or FormatException) { }
+            catch (Exception ex) when (ex is IOException or OperationCanceledException or JsonException or FormatException or InvalidOperationException or OverflowException)
+            {
+                if (!timeout.IsCancellationRequested)
+                {
+                    var status = ex is LoopbackRequestException requestError ? requestError.StatusCode : 400;
+                    var message = ex is LoopbackRequestException ? ex.Message : "로컬 API 요청을 처리하지 못했습니다. " + Safety.Redact(ex.Message);
+                    try { await Reply(stream, status, "application/json", JsonSerializer.Serialize(new { error = new { message, type = "local_bridge_error" } }), timeout.Token); }
+                    catch (Exception sendError) when (sendError is IOException or OperationCanceledException or ObjectDisposedException) { }
+                }
+            }
         }
     }
     public static async Task<LoopRequest> Read(Stream stream, CancellationToken ct)
@@ -45,7 +57,8 @@ public sealed class LoopbackHttp : IAsyncDisposable
         else if (headers.TryGetValue("Content-Length", out var length)) await Copy(int.Parse(length, System.Globalization.CultureInfo.InvariantCulture));
         async Task Copy(int size)
         {
-            if (size < 0 || body.Length + size > 8_000_000) throw new IOException("HTTP body limit"); var block = new byte[Math.Min(65536, Math.Max(1, size))];
+            if (size < 0) throw new LoopbackRequestException(400, "로컬 API 요청 크기가 유효하지 않습니다.");
+            if (body.Length + size > MaxBodyBytes) throw new LoopbackRequestException(413, "로컬 API 요청이 96MB를 초과했습니다. 첨부를 줄이거나 새 대화에서 다시 시도하세요."); var block = new byte[Math.Min(65536, Math.Max(1, size))];
             while (size > 0) { var n = await stream.ReadAsync(block.AsMemory(0, Math.Min(size, block.Length)), ct); if (n == 0) throw new IOException("HTTP body incomplete"); await body.WriteAsync(block.AsMemory(0, n), ct); size -= n; }
         }
         return new(first[0], first[1], headers, body.ToArray());

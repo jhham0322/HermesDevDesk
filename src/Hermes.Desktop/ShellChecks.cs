@@ -58,27 +58,35 @@ public partial class MainWindow
         await using var mock = new LoopbackHttp((_, stream, ct) => LoopbackHttp.Reply(stream, 200, "text/html", "<html><head><title>Hermes Browser Fixture</title></head><body><h1>BROWSER_UI_OK</h1><button id='fixture-button' onclick=\"this.innerText='CLICK_OK'\">Click fixture</button><input id='fixture-input'></body></html>", ct));
         var ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         void Complete(object? sender, CoreWebView2NavigationCompletedEventArgs e) => ready.TrySetResult(e.IsSuccess);
-        browserView!.CoreWebView2.NavigationCompleted += Complete;
+        var manualView = await EnsureChatBrowser(first);
+        manualView.CoreWebView2.NavigationCompleted += Complete;
         try { await NavigateBrowser(mock.BaseUri.AbsoluteUri); Check(await ready.Task.WaitAsync(TimeSpan.FromSeconds(20)), "real WebView2 navigates to owned fixture"); }
-        finally { browserView.CoreWebView2.NavigationCompleted -= Complete; }
-        var text = await browserView.ExecuteScriptAsync("document.body.innerText"); Check(text.Contains("BROWSER_UI_OK"), "real browser DOM read");
-        var clicked = await browserView.ExecuteScriptAsync("document.querySelector('#fixture-button').click();document.querySelector('#fixture-button').innerText"); Check(clicked.Contains("CLICK_OK"), "real browser fixture click");
+        finally { manualView.CoreWebView2.NavigationCompleted -= Complete; }
+        var text = await manualView.ExecuteScriptAsync("document.body.innerText"); Check(text.Contains("BROWSER_UI_OK"), "real browser DOM read");
+        var clicked = await manualView.ExecuteScriptAsync("document.querySelector('#fixture-button').click();document.querySelector('#fixture-button').innerText"); Check(clicked.Contains("CLICK_OK"), "real browser fixture click");
         browserEnable.IsChecked = true; project.BrowserEnabled = true; desk.Save(); Check(browserEnable.IsChecked == true, "project browser setting reflects host state");
         await using var pages = new LoopbackHttp((request, stream, ct) => LoopbackHttp.Reply(stream, 200, "text/html", "<html><body><h1>" + request.Path + "</h1><input id='password' type='password'><input id='upload' type='file'></body></html>", ct));
         first.ThreadBrowserEnabled = true; second.ThreadBrowserEnabled = true; first.Status = second.Status = "실행 중";
+        var manualRead = await BrowserAction(first, JsonSerializer.SerializeToElement(new { action = "read" }));
+        Check(manualRead.Text.Contains("BROWSER_UI_OK") && manualRead.ImageUrl?.StartsWith("data:image/png;base64,") == true, "AI read shares manually opened page and returns a real screenshot");
         static JsonElement Args(object value) => JsonSerializer.SerializeToElement(value);
         await BrowserAction(first, Args(new { action = "navigate", url = pages.BaseUri.AbsoluteUri + "first" }));
         await BrowserAction(second, Args(new { action = "navigate", url = pages.BaseUri.AbsoluteUri + "second" }));
         var firstText = await BrowserAction(first, Args(new { action = "read" }));
         var secondText = await BrowserAction(second, Args(new { action = "read" }));
-        Check(firstText.Contains("/first") && !firstText.Contains("/second") && secondText.Contains("/second"), "background chats use isolated browser pages without approval dialogs");
+        Check(firstText.ImageUrl != null && secondText.ImageUrl != null, "foreground and background browser reads include screenshots");
+        Check(firstText.Text.Contains("/first") && !firstText.Text.Contains("/second") && secondText.Text.Contains("/second"), "background chats use isolated browser pages without approval dialogs");
         await BrowserAction(first, Args(new { action = "type", selector = "#password", text = "OWNED_FIXTURE" }));
         var typed = await BrowserAction(first, Args(new { action = "evaluate", script = "document.querySelector('#password').value" }));
-        Check(typed == "OWNED_FIXTURE", "authorized browser supports password input and page JavaScript");
+        Check(typed.Text == "OWNED_FIXTURE", "authorized browser supports password input and page JavaScript");
+        var promised = await BrowserAction(first, Args(new { action = "evaluate", script = "Promise.resolve('ASYNC_PAGE_OK')" }));
+        Check(promised.Text == "ASYNC_PAGE_OK", "async page script is awaited to a completed result");
+        try { await BrowserAction(first, Args(new { action = "evaluate", script = "(()=>{throw Error('OWNED_BROWSER_ERROR')})()" })); Check(false, "script exception was swallowed"); }
+        catch (IOException ex) { Check(ex.Message.Contains("OWNED_BROWSER_ERROR"), "page script exception returns an explicit tool error"); }
         File.WriteAllText(Path.Combine(project.Root, "upload-fixture.txt"), "LOCAL_FIXTURE");
         await BrowserAction(second, Args(new { action = "upload", selector = "#upload", path = "upload-fixture.txt" }));
         var uploaded = await BrowserAction(second, Args(new { action = "evaluate", script = "document.querySelector('#upload').files[0].name" }));
-        Check(uploaded == "upload-fixture.txt", "browser uploads selected project file without per-action approval");
+        Check(uploaded.Text == "upload-fixture.txt", "browser uploads selected project file without per-action approval");
         first.Status = second.Status = "완료";
         project.BrowserEnabled = false;
         desk.State.Desktop.InspectorVisible = false; SetInspector(false); desk.Save();
@@ -108,6 +116,7 @@ public partial class MainWindow
         _ = Dispatcher.BeginInvoke(new Action(() => throw dispatcherFault));
         var recoveryUntil = DateTime.UtcNow.AddSeconds(5); while (app.ExpectedUiTestException != null && DateTime.UtcNow < recoveryUntil) await Task.Delay(20);
         Check(app.ExpectedUiTestException == null && !Dispatcher.HasShutdownStarted, "unhandled dispatcher exception is logged and app remains open");
+        checks += await RunAttachmentChecks();
         return checks;
     }
 }

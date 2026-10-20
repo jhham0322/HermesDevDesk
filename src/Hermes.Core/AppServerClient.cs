@@ -60,7 +60,7 @@ public sealed class AppServerClient : IAsyncDisposable
         _ = ReadDiagnosticsAsync();
         try
         {
-            await RequestAsync("initialize", new { clientInfo = new { name = "hermes_devdesk", title = "Hermes DevDesk (independent client)", version = "0.8.6" }, capabilities = new { experimentalApi = true } });
+            await RequestAsync("initialize", new { clientInfo = new { name = "hermes_devdesk", title = "Hermes DevDesk (independent client)", version = "0.8.7" }, capabilities = new { experimentalApi = true } });
             await WriteAsync(new { method = "initialized", @params = new { } });
         }
         catch { await DisposeAsync(); throw; }
@@ -98,7 +98,7 @@ public sealed class AppServerClient : IAsyncDisposable
         {
             while (process != null && await process.StandardOutput.ReadLineAsync() is { } line)
             {
-                if (line.Length > 8_000_000) throw new IOException("프로토콜 메시지 크기 초과");
+                if (line.Length > 128 * 1024 * 1024) throw new IOException("프로토콜 메시지 크기 초과");
                 using var doc = JsonDocument.Parse(line);
                 var msg = doc.RootElement;
                 if (msg.TryGetProperty("method", out var method))

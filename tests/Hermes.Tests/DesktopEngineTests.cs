@@ -7,7 +7,7 @@ internal static class DesktopEngineTests
 {
     internal static async Task Run(string root, string exe, string reportPath)
     {
-        Directory.CreateDirectory(root); var actions = new ConcurrentQueue<Action>(); int requests = 0; bool toolAdvertised = false, toolResult = false, steer = false;
+        Directory.CreateDirectory(root); var actions = new ConcurrentQueue<Action>(); int requests = 0; bool toolAdvertised = false, toolResult = false, imageResult = false, steer = false;
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var mock = new LoopbackHttp(async (request, stream, ct) =>
         {
@@ -27,6 +27,7 @@ internal static class DesktopEngineTests
             else
             {
                 toolResult |= body.GetRawText().Contains("BROWSER_HOST_FIXTURE_RESULT");
+                imageResult |= body.GetRawText().Contains("input_image") && body.GetRawText().Contains("data:image/png;base64,");
                 if (count == 3) await release.Task.WaitAsync(TimeSpan.FromSeconds(15), ct);
                 output.Add(new JsonObject { ["id"] = "message_" + count, ["type"] = "message", ["role"] = "assistant", ["status"] = "completed", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = "DESKTOP_ENGINE_OK", ["annotations"] = new JsonArray() }) });
             }
@@ -34,13 +35,13 @@ internal static class DesktopEngineTests
             await LoopbackHttp.Reply(stream, 200, "text/event-stream", ResponseWire.Sse(response), ct);
         });
         await using var desk = new DeskController(Path.Combine(root, "history"), a => actions.Enqueue(a), true);
-        desk.Configure(new() { Endpoint = mock.BaseUri.AbsoluteUri, Deployment = "fixture-deployment" }, "SYNTHETIC_DESKTOP_ENGINE_KEY");
-        desk.BrowserTool = (_, arg) => Task.FromResult(arg.Text("action") == "read" ? "BROWSER_HOST_FIXTURE_RESULT" : "unsupported");
-        var project = desk.Register(root); project.BrowserEnabled = true; await desk.ConnectAsync(exe, root);
+        desk.Configure(new() { Endpoint = mock.BaseUri.AbsoluteUri, Deployment = "fixture-deployment", Protocol = ProviderProtocol.GatewayResponses, UseAdvancedSettings = true }, "SYNTHETIC_DESKTOP_ENGINE_KEY");
+        desk.BrowserTool = (_, arg) => Task.FromResult(new BrowserToolResult(arg.Text("action") == "read" ? "BROWSER_HOST_FIXTURE_RESULT" : "unsupported", "data:image/png;base64," + NativeFeatureTests.Png));
+        var project = desk.Register(root); project.BrowserEnabled = true; project.ComputerEnabled = false; project.LocalMcpEnabled = false; await desk.ConnectAsync(exe, root);
         void Pump() { while (actions.TryDequeue(out var a)) a(); }
         async Task Finish(WorkItem task) { var until = DateTime.UtcNow.AddSeconds(30); while (DeskController.IsRunning(task) && DateTime.UtcNow < until) { Pump(); await Task.Delay(20); } Pump(); if (task.Status != "완료") throw new IOException("Fixture failed: " + task.Status); }
         var chat = desk.NewTask(project, "Browser host fixture"); await desk.StartAsync(chat, "Use browser fixture", "fixture-deployment", false); await Finish(chat);
-        if (!toolAdvertised || !toolResult || requests != 2) throw new IOException("Official browser tool round trip failed");
+        if (!toolAdvertised || !toolResult || !imageResult || requests != 2) throw new IOException("Official browser tool round trip failed");
         if (chat.Transcript.Count(e => e.Kind is "에이전트" or "에이전트 스트림") != 1) throw new IOException("Official streamed final message duplicated");
         Console.WriteLine("PASS official dynamic browser tool catalog / request / response and final-message dedup");
         await desk.StartAsync(chat, "Delayed fixture", "fixture-deployment", false);
@@ -48,6 +49,6 @@ internal static class DesktopEngineTests
         await desk.SteerAsync(chat, "STEER_FIXTURE_ACCEPTED"); steer = chat.Transcript.Any(e => e.Kind == "사용자" && e.Text.Contains("STEER_FIXTURE_ACCEPTED")); release.TrySetResult(); await Finish(chat);
         if (!steer) throw new IOException("Steer transcript missing");
         Console.WriteLine("PASS official turn/steer active-turn precondition and accepted user message");
-        File.WriteAllText(reportPath, JsonSerializer.Serialize(new { toolAdvertised, toolResult, steer, requests, actualOfficialEngine = true, syntheticProviderOnly = true, noRealModelUsage = true }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(reportPath, JsonSerializer.Serialize(new { toolAdvertised, toolResult, imageResult, steer, requests, actualOfficialEngine = true, syntheticProviderOnly = true, noRealModelUsage = true }, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

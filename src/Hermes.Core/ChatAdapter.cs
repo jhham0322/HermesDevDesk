@@ -35,7 +35,24 @@ public static class ChatAdapter
                 var arguments = type == "custom_tool_call" ? new JsonObject { ["input"] = item["input"]?.DeepClone() }.ToJsonString() : item["arguments"]?.GetValue<string>() ?? "{}";
                 messages.Add(new JsonObject { ["role"] = "assistant", ["content"] = null, ["tool_calls"] = new JsonArray(new JsonObject { ["id"] = item["call_id"]?.DeepClone(), ["type"] = "function", ["function"] = new JsonObject { ["name"] = name, ["arguments"] = arguments } }) });
             }
-            else if (type is "function_call_output" or "custom_tool_call_output") messages.Add(new JsonObject { ["role"] = "tool", ["tool_call_id"] = item["call_id"]?.DeepClone(), ["content"] = item["output"] is JsonValue value ? value.DeepClone() : item["output"]?.ToJsonString() ?? "" });
+            else if (type is "function_call_output" or "custom_tool_call_output")
+            {
+                var images = new JsonArray(); var toolText = new List<string>();
+                if (item["output"] is JsonArray resultParts)
+                {
+                    foreach (var part in resultParts)
+                    {
+                        if (part?["type"]?.GetValue<string>() == "input_image")
+                            images.Add(new JsonObject { ["type"] = "image_url", ["image_url"] = new JsonObject { ["url"] = part["image_url"]?.DeepClone() } });
+                        else if (part?["text"] is JsonValue textPart) toolText.Add(textPart.GetValue<string>());
+                        else toolText.Add(part?.ToJsonString() ?? "");
+                    }
+                }
+                else toolText.Add(item["output"] is JsonValue value ? value.GetValue<string>() : item["output"]?.ToJsonString() ?? "");
+                messages.Add(new JsonObject { ["role"] = "tool", ["tool_call_id"] = item["call_id"]?.DeepClone(), ["content"] = string.Join("\n", toolText) });
+                // Chat tool messages only support text. Send raster content as a real user image, never JSON text.
+                if (images.Count > 0) messages.Add(new JsonObject { ["role"] = "user", ["content"] = images });
+            }
             else if (type != "reasoning") throw new IOException("Unsupported chat adapter input item");
         }
         void Tool(JsonObject t, string? ns)

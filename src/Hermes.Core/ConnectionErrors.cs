@@ -16,7 +16,7 @@ public static class ConnectionErrors
             OperationCanceledException => cancellation.IsCancellationRequested ? "연결 확인을 취소했습니다." : "서버 응답 시간이 초과됐습니다.",
             System.Text.Json.JsonException => "서버에 도달했지만 예상한 JSON 응답이 아닙니다. API 경로가 로그인/웹 페이지인지 확인하세요.",
             IOException io => io.Message,
-            InvalidOperationException => "서버 응답 형식이 선택한 API 방식과 다릅니다. 자동 연결 또는 회사의 API 경로를 확인하세요.",
+            KeyNotFoundException or FormatException or NotSupportedException or ArgumentException or InvalidOperationException => "서버 응답 형식이 선택한 API 방식과 다릅니다. 자동 연결 또는 회사의 API 경로를 확인하세요.",
             _ => "연결 처리 실패: " + exception.GetType().Name
         };
         return Safety.Redact(text);

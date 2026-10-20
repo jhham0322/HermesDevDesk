@@ -22,11 +22,14 @@ internal static class MultiChatTests
         var seen = new ConcurrentDictionary<string, TaskCompletionSource>();
         var release = new ConcurrentDictionary<string, TaskCompletionSource>();
         foreach (var model in new[] { "model-a", "model-b" }) { seen[model] = new(TaskCreationOptions.RunContinuationsAsynchronously); release[model] = new(TaskCreationOptions.RunContinuationsAsynchronously); }
-        var imagesSeen = false;
+        var imagesSeen = false; var fileTextSeen = false;
+        var textFile = Path.Combine(directory, "첨부 문서.txt"); File.WriteAllText(textFile, "FILE_ATTACHMENT_SENTINEL_087");
+        var attachedFile = FileAttachments.Import(root, textFile);
         await using var mock = new LoopbackHttp(async (request, stream, ct) =>
         {
             var body = JsonNode.Parse(request.Body)!.AsObject(); var model = body["model"]!.GetValue<string>();
             if (body.ToJsonString().Contains("data:image/png;base64,")) imagesSeen = true;
+            if (body.ToJsonString().Contains("FILE_ATTACHMENT_SENTINEL_087")) fileTextSeen = true;
             seen[model].TrySetResult();
             await release[model].Task.WaitAsync(TimeSpan.FromSeconds(40), ct);
             var response = new JsonObject { ["id"] = "resp_" + model, ["object"] = "response", ["created_at"] = 1, ["status"] = "completed", ["model"] = model,
@@ -50,10 +53,11 @@ internal static class MultiChatTests
             Pump(); Check(ready(), message);
         }
         var a = desk.NewTask(project, "a"); var b = desk.NewTask(project, "b");
-        await desk.StartAsync(a, "Describe this image. Do not call tools.", "model-a", false, [imported]);
+        await desk.StartAsync(a, "Describe this image. Do not call tools.", "model-a", false, [imported], files: [attachedFile]);
         await desk.StartAsync(b, "Reply OK. Do not call tools.", "model-b", false);
         await Until(() => seen.Values.All(x => x.Task.IsCompleted), "two chats in same project reach upstream concurrently with separate models");
         Check(imagesSeen, "official engine sends attached PNG to provider");
+        Check(fileTextSeen && a.FileAttachments.Count == 1 && a.Transcript.Any(x => x.Kind == "파일 첨부"), "official engine sends file text preview and persists attachment metadata");
         Check(DeskController.IsRunning(a) && DeskController.IsRunning(b), "both chat turns run simultaneously");
         await desk.StopAsync(a);
         await Until(() => !DeskController.IsRunning(a) && desk.State.Usage.Any(e => e.TaskId == a.Id && e.Status == "cancelled"), "stop cancels only first chat request");
@@ -77,6 +81,10 @@ internal static class MultiChatTests
         await desk.StartAsync(a, "Continue this previous conversation with project write permission.", "model-b", true);
         await Until(() => !DeskController.IsRunning(a), "previous chat resumes after reconnect and changed settings");
         Check(a.ThreadId == originalThread && a.Status == "완료" && a.Model == "model-b", "same thread history preserved without creating a new chat after permission or provider settings change");
-        File.WriteAllText(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { version = "0.8.6", passed = true, officialEngine = true, syntheticServer = true, actualModelCalls = 0, attachments = true, simultaneousChats = 2, separateCancellation = true, separateUsage = true, resume = true }, new JsonSerializerOptions { WriteIndented = true }));
+        var fork = await desk.ForkAsync(a);
+        await desk.StartAsync(fork, "Reply in the forked chat.", "model-a", true);
+        await Until(() => !DeskController.IsRunning(fork), "forked chat reconnects to its own current loopback route");
+        Check(fork.Status == "완료" && desk.State.Usage.Any(x => x.TaskId == fork.Id && x.Model == "model-a" && x.Status == "completed"), "fork model and usage route belong to fork rather than original session");
+        File.WriteAllText(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { version = "0.8.7", passed = true, officialEngine = true, syntheticServer = true, actualModelCalls = 0, attachments = true, simultaneousChats = 2, separateCancellation = true, separateUsage = true, resume = true }, new JsonSerializerOptions { WriteIndented = true }));
     }
 }
