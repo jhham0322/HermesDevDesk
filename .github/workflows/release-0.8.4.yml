@@ -3,6 +3,8 @@ name: Publish approved 0.8.4 Windows release
 on:
   push:
     tags: [v0.8.4]
+    branches: [main]
+    paths: [.github/workflows/release-0.8.4.yml]
 
 
 permissions:
@@ -49,7 +51,7 @@ jobs:
         shell: pwsh
         run: |
           $engine = Get-ChildItem vendor -Recurse -Filter codex.exe | Select-Object -First 1
-          & ./tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe --multi-chat-only --root artifacts/multi-chat --codex $engine.FullName
+          & ./tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe --multi-chat-only --root (Join-Path $PWD artifacts/multi-chat) --codex $engine.FullName
           if ($LASTEXITCODE -ne 0) { throw 'Concurrent chat tests failed' }
       - name: Verify installer without installing and inspect public payload
         shell: pwsh
