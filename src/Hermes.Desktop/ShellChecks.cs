@@ -77,6 +77,32 @@ public partial class MainWindow
         first.Status = second.Status = "완료";
         project.BrowserEnabled = false;
         desk.State.Desktop.InspectorVisible = false; SetInspector(false); desk.Save();
+        var removed = desk.NewTask(project, "UI 삭제 검증"); SelectTask(removed); Prompt.Text = "삭제할 초안";
+        DeleteChat(removed, false);
+        Check(!desk.State.Tasks.Contains(removed) && !openChats.Contains(removed.Id) && !desk.State.Desktop.Drafts.ContainsKey(removed.Id), "chat delete removes list tab and composer draft");
+        var commitWindow = new GitCommitWindow(project.Root) { Owner = this }; commitWindow.Show();
+        checks += await commitWindow.RunProgrammaticChecks(); commitWindow.Close();
+        first.ThreadWritable = false; first.WritablePreference = null; SelectTask(first);
+        Check(Writable.IsChecked == true, "previous read-only chat defaults to current project full permission");
+        Writable.IsChecked = false; Writable_Click(this, new()); desk.Save();
+        Check(Writable.IsChecked == false, "explicit read-only preference survives refresh");
+        Writable.IsChecked = true; Writable_Click(this, new());
+        Check(Icon != null, "window has custom application icon");
+        ImageClear_Click(this, new());
+        var badImage = Path.Combine(project.Root, "broken-image.png"); File.WriteAllBytes(badImage, new byte[20]);
+        await Guard(() => { AddImage(badImage); return Task.CompletedTask; }, "image-import-test", false);
+        Check(pendingImages.Count == 0 && Directory.GetFiles(AppLog.DirectoryPath, "errors-*.log").Any(), "invalid image is caught and logged without changing attachments");
+        await Guard(() => throw new System.Runtime.InteropServices.ExternalException("clipboard busy fixture"), "image-paste-test", false);
+        Check(File.ReadAllText(Directory.GetFiles(AppLog.DirectoryPath, "errors-*.log").Single()).Contains("clipboard busy fixture"), "clipboard exception persists in diagnostic log");
+        var tooWide = System.Windows.Media.Imaging.BitmapSource.Create(8193, 1, 96, 96, PixelFormats.Bgra32, null, new byte[8193 * 4], 8193 * 4);
+        await Guard(() => { AddClipboardImage(tooWide); return Task.CompletedTask; }, "image-size-test", false);
+        Check(pendingImages.Count == 0, "oversized clipboard image rejected before encoding");
+        var tiny = System.Windows.Media.Imaging.BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, new byte[] { 0, 0, 255, 255 }, 4);
+        AddClipboardImage(tiny); Check(pendingImages.Count == 1, "valid clipboard bitmap attaches after previous errors"); ImageClear_Click(this, new());
+        var app = (App)Application.Current; var dispatcherFault = new IOException("dispatcher recovery fixture"); app.ExpectedUiTestException = dispatcherFault;
+        _ = Dispatcher.BeginInvoke(new Action(() => throw dispatcherFault));
+        var recoveryUntil = DateTime.UtcNow.AddSeconds(5); while (app.ExpectedUiTestException != null && DateTime.UtcNow < recoveryUntil) await Task.Delay(20);
+        Check(app.ExpectedUiTestException == null && !Dispatcher.HasShutdownStarted, "unhandled dispatcher exception is logged and app remains open");
         return checks;
     }
 }

@@ -28,6 +28,7 @@ public sealed class CompanyBridge : IAsyncDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskContext> tasks = new();
     public Uri TaskBaseUri(string id) => new(server.BaseUri.AbsoluteUri.TrimEnd('/') + "/tasks/" + Uri.EscapeDataString(id) + "/v1");
     public void SetTurn(string id, string turn) { if (tasks.TryGetValue(id, out var context)) context.TurnId = turn; }
+    public void ForgetTask(string id) { if (tasks.TryRemove(id, out var context)) { context.Operation.Cancel(); context.Operation.Dispose(); } }
     public void CancelTask(string id) { if (tasks.TryGetValue(id, out var context)) context.Operation.Cancel(); }
     private readonly HashSet<string> availableModels = new(StringComparer.Ordinal);
     public List<string> DiscoveredModels { get; } = [];

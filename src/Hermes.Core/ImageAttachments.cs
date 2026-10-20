@@ -22,11 +22,11 @@ public static class ImageAttachments
     public static ProjectImage Read(string root, string relative)
     {
         var path = Safety.Resolve(root, relative); var file = new FileInfo(path);
-        if (!file.Exists || file.Length is < 20 or > MaxImageBytes) throw new IOException("PNG/JPEG 이미지는 파일당 2MB 이하이어야 합니다.");
-        var bytes = File.ReadAllBytes(path); if (bytes.Length > MaxImageBytes) throw new IOException("이미지 크기가 변경되었습니다.");
+        if (!file.Exists || file.Length is < 24 or > MaxImageBytes) throw new IOException("유효한 PNG/JPEG 이미지가 필요합니다. 파일당 최대 2MB입니다.");
+        var bytes = File.ReadAllBytes(path); if (bytes.Length is < 24 or > MaxImageBytes) throw new IOException("이미지 크기가 변경되었거나 파일이 손상되었습니다.");
         int width = 0, height = 0; string mime;
         if (bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }) && bytes.AsSpan(12, 4).SequenceEqual("IHDR"u8))
-        { ValidatePng(bytes); width = BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(16, 4)); height = BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(20, 4)); mime = "image/png"; if (!Path.GetExtension(path).Equals(".png", StringComparison.OrdinalIgnoreCase)) throw new IOException("이미지 확장자/내용 불일치"); }
+        { if (bytes.Length < 33) throw new IOException("PNG 헤더가 손상되었습니다."); ValidatePng(bytes); width = BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(16, 4)); height = BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(20, 4)); mime = "image/png"; if (!Path.GetExtension(path).Equals(".png", StringComparison.OrdinalIgnoreCase)) throw new IOException("이미지 확장자/내용 불일치"); }
         else if (bytes[0] == 255 && bytes[1] == 216)
         {
             mime = "image/jpeg"; var ext = Path.GetExtension(path); if (!ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) && !ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)) throw new IOException("이미지 확장자/내용 불일치");

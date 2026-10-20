@@ -178,6 +178,7 @@ await CompanyTests.Run(baseDir, Assert);
 await AnthropicTests.Run(baseDir, Assert);
 await SimpleGatewayTests.Run(baseDir, Assert);
 await DesktopFeatureTests.Run(baseDir, Assert);
+await ChatGitTests.Run(Path.Combine(baseDir, "chat-git"), Assert);
 ComputerFeatureTests.Run(Assert);
 Console.WriteLine($"PASS {count} total checks including synthetic company server/security/usage. No real company endpoint or key used.");
 

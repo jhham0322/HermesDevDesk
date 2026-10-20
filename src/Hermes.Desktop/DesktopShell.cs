@@ -218,8 +218,22 @@ public partial class MainWindow
         Item("대화 내보내기", () => Export(task));
         Item("대화 분기", () => { SelectTask(task); Fork_Click(this, new RoutedEventArgs()); });
         Item(task.Archived ? "복원" : "보관", () => { SelectTask(task); if (task.Archived) Restore_Click(this, new RoutedEventArgs()); else Archive_Click(this, new RoutedEventArgs()); });
+        menu.Items.Add(new Separator());
+        Item("채팅 삭제", () => _ = Guard(() => { DeleteChat(task, true); return Task.CompletedTask; }));
         return menu;
     }
+    private void DeleteChat(WorkItem task, bool confirm)
+    {
+        if (DeskController.IsRunning(task)) throw new IOException("삭제할 채팅을 먼저 중단하세요.");
+        if (confirm && MessageBox.Show(this, "이 채팅의 대화 기록과 초안을 삭제할까요?\n프로젝트 파일, Git 이력과 사용량은 유지됩니다.", "채팅 삭제", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        openChats.Remove(task.Id); closedChats.Remove(task.Id); navigation.RemoveAll(id => id == task.Id); navigationIndex = navigation.Count - 1;
+        imageDrafts.Remove(task.Id); skillDrafts.Remove(task.Id); modelDrafts.Remove(task.Id);
+        if (draftTaskId == task.Id) { draftTaskId = null; switchingDraft = true; Prompt.Clear(); switchingDraft = false; pendingImages.Clear(); pendingSkills.Clear(); Attachments.ItemsSource = null; }
+        if (chatBrowsers.Remove(task.Id, out var view)) { if (browserHost.Content == view) browserHost.Content = browserView; view.Dispose(); }
+        browserLocks.Remove(task.Id);
+        desk.DeleteTask(task); Footer.Text = "채팅 삭제됨 · 프로젝트 파일과 Git 이력은 유지됨";
+    }
+    private void DeleteChat_Click(object sender, RoutedEventArgs e) => _ = Guard(() => { if (CurrentTask is { } task) DeleteChat(task, true); return Task.CompletedTask; });
     private void ChatMenu_Click(object sender, RoutedEventArgs e) { if (CurrentTask is { } task) { var menu = ChatMenu(task); menu.PlacementTarget = (UIElement)sender; menu.IsOpen = true; } }
     private void AddMenu_Click(object sender, RoutedEventArgs e)
     {

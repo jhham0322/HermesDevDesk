@@ -69,6 +69,14 @@ internal static class MultiChatTests
         await Until(() => !DeskController.IsRunning(a), "interrupted chat resumes");
         Check(a.Status == "완료", "resumed chat completes");
         Check(a.ThreadWritable == true && desk.Approvals.Count == 0, "existing chat upgrades to project write/network access with approval never");
-        File.WriteAllText(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { version = "0.8.4", passed = true, officialEngine = true, syntheticServer = true, actualModelCalls = 0, attachments = true, simultaneousChats = 2, separateCancellation = true, separateUsage = true, resume = true }, new JsonSerializerOptions { WriteIndented = true }));
+        var originalThread = a.ThreadId;
+        project.ComputerEnabled = true; project.LocalMcpEnabled = true;
+        var changedSettings = JsonSerializer.Deserialize<ProviderSettings>(JsonSerializer.Serialize(desk.State.Provider))!;
+        changedSettings.MaxOutputTokens++;
+        desk.Configure(changedSettings); await desk.ConnectAsync(exe, root);
+        await desk.StartAsync(a, "Continue this previous conversation with project write permission.", "model-b", true);
+        await Until(() => !DeskController.IsRunning(a), "previous chat resumes after reconnect and changed settings");
+        Check(a.ThreadId == originalThread && a.Status == "완료" && a.Model == "model-b", "same thread history preserved without creating a new chat after permission or provider settings change");
+        File.WriteAllText(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { version = "0.8.5", passed = true, officialEngine = true, syntheticServer = true, actualModelCalls = 0, attachments = true, simultaneousChats = 2, separateCancellation = true, separateUsage = true, resume = true }, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

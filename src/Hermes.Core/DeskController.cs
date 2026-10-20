@@ -230,6 +230,16 @@ public sealed class DeskController : IAsyncDisposable
         }
         if (created.Count > 0) Save(); return created;
     }
+    public void DeleteTask(WorkItem task)
+    {
+        if (!State.Tasks.Contains(task)) throw new IOException("등록된 채팅이 아닙니다.");
+        if (IsRunning(task)) throw new IOException("이 채팅을 중단한 뒤 삭제하세요. 다른 채팅은 계속 실행할 수 있습니다.");
+        State.Tasks.Remove(task); State.Desktop.Drafts.Remove(task.Id);
+        if (task.ThreadId != null) { loadedThreads.Remove(task.ThreadId); State.ThreadUsageSnapshots.Remove(task.ThreadId); }
+        Approvals.RemoveAll(a => a.Params.Text("threadId") == task.ThreadId);
+        company?.ForgetTask(task.Id);
+        Save(); Store.Save(State); // Rotate the recovery snapshot to the deleted state as well.
+    }
     public async Task SetArchivedAsync(WorkItem task, bool archived, CancellationToken cancellation = default)
     {
         cancellation.ThrowIfCancellationRequested();
@@ -286,7 +296,6 @@ public sealed class DeskController : IAsyncDisposable
         if (task.Archived) throw new IOException("보관된 대화를 복원한 뒤 실행하세요.");
         if (HasPendingModel || !SubscriptionReady) throw new IOException("선택한 인증/provider 설정을 완료하고 엔진에 연결하세요. 다른 공급자로 자동 전환하지 않습니다.");
         if (connectedFingerprint != State.Provider.Fingerprint) throw new IOException("Provider 설정이 바뀌었습니다. 다시 연결하세요.");
-        if (task.ThreadId != null && task.ProviderFingerprint.Length > 0 && task.ProviderFingerprint != connectedFingerprint) throw new IOException("기존 thread의 provider를 바꾸지 않습니다. 새 작업을 만드세요.");
         if (IsRunning(task)) throw new IOException("이 채팅이 이미 실행 중입니다.");
         if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > 100_000 || !Models.Contains(model)) throw new IOException("작업 내용과 사용 가능한 모델을 선택하세요.");
         if (!string.IsNullOrEmpty(effort) && (!ModelEfforts.TryGetValue(model, out var supported) || !supported.Contains(effort))) throw new IOException("선택 모델이 제공한 추론 수준을 선택하세요.");
@@ -297,14 +306,11 @@ public sealed class DeskController : IAsyncDisposable
         var root = Safety.ProjectRoot(Project(task).Root);
         var attachments = ImageAttachments.Validate(root, images ?? []);
         var selectedSkills = ProjectSkills.Validate(root, skills ?? []);
-        var useMcp = !task.IsReview && Project(task).LocalMcpEnabled;
+        var useMcp = !task.IsReview && (task.ThreadId == null ? Project(task).LocalMcpEnabled : task.ThreadMcpEnabled == true);
         var useBrowser = !task.IsReview && (task.ThreadId == null ? Project(task).BrowserEnabled : task.ThreadBrowserEnabled == true);
-        var useComputer = !task.IsReview && Project(task).ComputerEnabled;
+        var useComputer = !task.IsReview && (task.ThreadId == null ? Project(task).ComputerEnabled : task.ThreadComputerEnabled == true);
         if (useComputer && ComputerTool == null) throw new IOException("컴퓨터 제어 호스트가 준비되지 않았습니다.");
-        if (task.ThreadId != null && (task.ThreadComputerEnabled ?? false) != useComputer) throw new IOException("시작된 thread의 컴퓨터 도구 설정은 바꾸지 않습니다. 새 채팅을 만드세요.");
         if (useBrowser && BrowserTool == null) throw new IOException("브라우저 호스트가 준비되지 않았습니다.");
-        if (task.ThreadId != null && (task.ThreadBrowserEnabled ?? false) != useBrowser) throw new IOException("시작된 thread의 브라우저 설정은 바꾸지 않습니다. 새 채팅을 만드세요.");
-        if (task.ThreadId != null && (task.ThreadMcpEnabled ?? false) != useMcp) throw new IOException("시작된 thread의 MCP 설정은 바꾸지 않습니다. 새 작업을 만드세요.");
         var mcp = new Dictionary<string, object>(disabledMcp);
         if (useMcp) foreach (var server in McpConfiguration.BuiltIn(mcpHostExe ?? Environment.ProcessPath!, root, writable)) mcp[server.Key] = server.Value;
         task.Writable = writable; task.Status = "시작 중"; task.Updated = DateTime.UtcNow; Save();

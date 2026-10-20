@@ -24,6 +24,7 @@ public sealed class WorkItem
     public string? TurnId { get; set; }
     public string Status { get; set; } = "대기";
     public DateTime Updated { get; set; } = DateTime.UtcNow;
+    public bool? WritablePreference { get; set; }
     public bool Writable { get; set; }
     public bool? ThreadWritable { get; set; }
     public List<TranscriptEntry> Transcript { get; set; } = [];
@@ -59,6 +60,8 @@ public sealed class AppState
 }
 public sealed class DesktopPreferences
 {
+    public SavedWindowBounds? WindowBounds { get; set; }
+    public bool WindowMaximized { get; set; }
     public bool DarkTheme { get; set; }
     public bool SidebarVisible { get; set; } = true;
     public bool InspectorVisible { get; set; }

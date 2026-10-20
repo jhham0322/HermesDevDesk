@@ -19,6 +19,7 @@ internal static class Program
             try { new ProjectMcpServer(args[Array.IndexOf(args, "--root") + 1], args.Contains("--allow-write")).RunAsync().GetAwaiter().GetResult(); return 0; }
             catch { return 1; }
         }
-        var app = new App(); app.InitializeComponent(); return app.Run();
+        try { var app = new App(); app.InitializeComponent(); return app.Run(); }
+        catch (Exception ex) { var path = AppLog.Write(ex, "application-main"); System.Windows.MessageBox.Show("앱 시작 오류 로그: " + path, "Hermes DevDesk"); return 1; }
     }
 }

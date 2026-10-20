@@ -110,7 +110,7 @@ public sealed class CapabilitiesWindow : Window
 {
     public CapabilitiesWindow(DeskController desk)
     {
-        Title = "Hermes 0.8.4 · 기능 및 연결 상태"; Width = 740; Height = 640; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Title = "Hermes 0.8.5 · 기능 및 연결 상태"; Width = 740; Height = 640; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var panel = new StackPanel { Margin = new Thickness(24) }; Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         panel.Children.Add(new TextBlock { Text = "기능 및 연결 상태", FontSize = 24, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 16) });
         panel.Children.Add(new TextBlock { Text = desk.AccountStatus, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16) });

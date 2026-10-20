@@ -1,6 +1,45 @@
 namespace Hermes.Core;
 public static class GitWorkbench
 {
+    public static async Task Initialize(string root)
+    {
+        root = Safety.ProjectRoot(root);
+        var existing = await GitRunner.Run(root, "rev-parse", "--show-toplevel");
+        if (existing.Exit == 0) { await GitRunner.RepositoryRoot(root); return; }
+        if (File.Exists(Path.Combine(root, ".git")) || Directory.Exists(Path.Combine(root, ".git"))) throw new IOException("기존 .git을 확인하세요. 새 저장소로 덮어쓰지 않습니다.");
+        var result = await GitRunner.Run(root, "init", "--initial-branch=main");
+        if (result.Exit != 0) throw new IOException(result.Error);
+        await GitRunner.RepositoryRoot(root);
+    }
+    public static async Task SetAuthor(string root, string name, string email)
+    {
+        await GitRunner.RepositoryRoot(root); name = name.Trim(); email = email.Trim();
+        if (name.Length is < 1 or > 200 || email.Length is < 3 or > 254 || !email.Contains('@') || name.Any(char.IsControl) || email.Any(char.IsWhiteSpace) || email.Any(char.IsControl)) throw new IOException("작성자 이름과 이메일을 확인하세요.");
+        foreach (var pair in new[] { ("user.name", name), ("user.email", email) })
+        { var result = await GitRunner.Run(root, "config", "--local", pair.Item1, pair.Item2); if (result.Exit != 0) throw new IOException(result.Error); }
+    }
+    public static async Task<string> CommitSelected(string root, string message, IEnumerable<string> selected)
+    {
+        await GitRunner.RepositoryRoot(root); message = message.Trim();
+        if (message.Length is 0 or > 5000 || message.Contains('\0')) throw new IOException("커밋 메시지를 입력하세요.");
+        var paths = selected.Distinct(StringComparer.Ordinal).ToList();
+        if (paths.Count == 0) throw new IOException("커밋할 파일을 선택하세요.");
+        var current = await Review.ChangesAsync(root); var actual = new List<string>();
+        foreach (var path in paths)
+        {
+            Safety.Resolve(root, path);
+            var change = current.FirstOrDefault(f => f.Path == path) ?? throw new IOException("파일 상태가 바뀌었습니다. 새로고침하세요: " + path);
+            if (change.Status.Contains('U') || change.Status is "AA" or "DD") throw new IOException("충돌을 해결한 뒤 커밋하세요: " + path);
+            actual.Add(path);
+            if (change.PreviousPath is { } previous) { Safety.Resolve(root, previous); actual.Add(previous); }
+        }
+        var files = actual.Distinct(StringComparer.Ordinal).ToArray();
+        var stage = await GitRunner.Run(root, new[] { "--literal-pathspecs", "add", "--" }.Concat(paths).ToArray());
+        if (stage.Exit != 0) throw new IOException(stage.Error);
+        var commit = await GitRunner.Run(root, new[] { "--literal-pathspecs", "commit", "--only", "-m", message, "--" }.Concat(files).ToArray());
+        if (commit.Exit != 0) throw new IOException(commit.Error);
+        return Safety.Redact(commit.Output);
+    }
     public static string RemoteName(string name)
     {
         if (!System.Text.RegularExpressions.Regex.IsMatch(name, @"\A[a-zA-Z][a-zA-Z0-9._-]{0,63}\z")) throw new IOException("Git 원격 이름은 영문으로 시작하는 1~64자 이름입니다.");

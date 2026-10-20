@@ -28,22 +28,19 @@ public partial class MainWindow : Window
     {
         InitializeComponent(); InitializeMaximizeBounds();
         desk = new(data, a => Dispatcher.BeginInvoke(a)); desk.Changed += Refresh; desk.StreamChanged += QueueRefresh;
+        InitializeWindowPersistence();
         InitializeShell();
-        Prompt.AllowDrop = true; Prompt.PreviewDragOver += (_, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } };
-        Prompt.PreviewDrop += (_, e) => { if (e.Data.GetData(DataFormats.FileDrop) is string[] files) { e.Handled = true; _ = Guard(() => { foreach (var file in files) AddImage(file); return Task.CompletedTask; }); } };
-        DataObject.AddPastingHandler(Prompt, (_, e) =>
+        Prompt.AllowDrop = true;
+        Prompt.PreviewDragOver += (_, e) => _ = Guard(() => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } return Task.CompletedTask; }, "image-drag");
+        Prompt.PreviewDrop += (_, e) => _ = Guard(() => { if (e.Data.GetData(DataFormats.FileDrop) is string[] files) { e.Handled = true; foreach (var file in files) AddImage(file); } return Task.CompletedTask; }, "image-drop");
+        DataObject.AddPastingHandler(Prompt, (_, e) => _ = Guard(() =>
         {
-            if (!Clipboard.ContainsImage()) return;
-            e.CancelCommand(); _ = Guard(() =>
-            {
-                var image = Clipboard.GetImage(); if (image == null) return Task.CompletedTask;
-                var directory = Path.Combine(desk.DataDirectory, "paste-images"); Directory.CreateDirectory(directory);
-                var path = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".png");
-                try { var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image)); using (var stream = File.Create(path)) encoder.Save(stream); AddImage(path); }
-                finally { if (File.Exists(path)) File.Delete(path); }
-                return Task.CompletedTask;
-            });
-        });
+            if (!e.DataObject.GetDataPresent(DataFormats.Bitmap)) return Task.CompletedTask;
+            e.CancelCommand();
+            var image = e.DataObject.GetData(DataFormats.Bitmap) as System.Windows.Media.Imaging.BitmapSource ?? Clipboard.GetImage();
+            if (image == null) throw new IOException("클립보드 이미지가 없습니다. 파일 첨부로 다시 시도하세요.");
+            AddClipboardImage(image); return Task.CompletedTask;
+        }, "image-paste"));
         terminal = new(Path.Combine(data, "terminal-home")); terminal.Output += text => Dispatcher.BeginInvoke(() => { CommandOutput.AppendText(text); if (CommandOutput.Text.Length > 300000) CommandOutput.Text = CommandOutput.Text[^200000..]; CommandOutput.ScrollToEnd(); });
         UsageStart.SelectedDate = DateTime.UtcNow.Date.AddDays(-6); UsageEnd.SelectedDate = DateTime.UtcNow.Date;
         desk.Diagnostic += s => { Logs.AppendText(s + "\n"); if (Logs.Text.Length > 200_000) Logs.Text = Logs.Text[^100_000..]; Logs.ScrollToEnd(); };
@@ -79,13 +76,37 @@ public partial class MainWindow : Window
         TaskStatus.Text = CurrentTask == null ? "" : CurrentTask.Status + "  /  " + CurrentTask.Updated.ToLocalTime().ToString("g");
         TaskDetails.Text = CurrentTask == null ? "선택한 작업 없음" : Review.Detail(desk.State, CurrentTask);
         Writable.IsEnabled = CurrentTask == null || !DeskController.IsRunning(CurrentTask);
-        Writable.IsChecked = CurrentTask?.ThreadWritable ?? true;
+        Writable.IsChecked = CurrentTask?.WritablePreference ?? CurrentTask?.IsReview != true;
         SwitchDraft(); RenderConversation(); RenderChatTabs(); ShowChatBrowser(); UpdateShellState();
     }
+    private void Writable_Click(object sender, RoutedEventArgs e)
+    { if (CurrentTask is { } task) { task.WritablePreference = Writable.IsChecked == true; desk.Save(); } }
     private bool CanSubmit() => !connectingCompany && (CurrentTask == null || !CurrentTask.Archived)
         && (CurrentTask == null || !DeskController.IsRunning(CurrentTask) || CurrentTask.Status == "실행 중");
-    private async Task Guard(Func<Task> action)
-    { try { await action(); } catch (Exception ex) { Footer.Text = Safety.Redact(ex.Message); MessageBox.Show(this, Safety.Redact(ex.Message), "Hermes DevDesk", MessageBoxButton.OK, MessageBoxImage.Information); } }
+    private async Task Guard(Func<Task> action, string operation = "ui-action", bool showDialog = true)
+    {
+        try { await action(); }
+        catch (Exception ex)
+        {
+            var path = AppLog.Write(ex, operation); var message = Safety.Redact(ex.Message);
+            Footer.Text = message + " · 오류 로그가 저장되었습니다.";
+            Logs.AppendText($"[{DateTime.Now:HH:mm:ss}] {operation}: {message}\n로그: {path}\n");
+            if (showDialog) MessageBox.Show(this, message + "\n\n오류 로그: " + path, "Hermes DevDesk", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+    }
+    private void OpenLogs_Click(object sender, RoutedEventArgs e) => _ = Guard(() =>
+    {
+        Directory.CreateDirectory(AppLog.DirectoryPath);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(AppLog.DirectoryPath) { UseShellExecute = true }); return Task.CompletedTask;
+    });
+    private void AddClipboardImage(System.Windows.Media.Imaging.BitmapSource image)
+    {
+        if (image.PixelWidth is < 1 or > 8192 || image.PixelHeight is < 1 or > 8192 || (long)image.PixelWidth * image.PixelHeight > 16_000_000) throw new IOException("클립보드 이미지가 너무 큽니다. 최대 16MP, 한 변 8192px입니다.");
+        var directory = Path.Combine(desk.DataDirectory, "paste-images"); Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".png");
+        try { var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image)); using (var stream = File.Create(path)) encoder.Save(stream); AddImage(path); }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
     private void Settings_Click(object sender, RoutedEventArgs e) { var window = new SettingsWindow(desk) { Owner = this }; window.ShowDialog(); Refresh(); }
     private void Schedule_Click(object sender, RoutedEventArgs e) { if (CurrentProject is { } project) new ScheduleWindow(desk, project) { Owner = this }.ShowDialog(); }
     private void ProcessDrafts()
@@ -128,18 +149,26 @@ public partial class MainWindow : Window
         var dialog = new OpenFileDialog { Filter = "Project image|*.png;*.jpg;*.jpeg", Multiselect = true, InitialDirectory = project.Root, Title = "첨부 이미지 선택 · 프로젝트 외부 이미지도 가능" };
         if (dialog.ShowDialog(this) == true) foreach (var file in dialog.FileNames) AddImage(file);
         return Task.CompletedTask;
-    });
+    }, "image-import");
     private void AddImage(string file)
     {
         var project = CurrentProject ?? throw new IOException("프로젝트를 선택하세요.");
+        if (pendingImages.Count >= 4) throw new IOException("이미지는 최대 4개까지 첨부할 수 있습니다.");
         var image = ImageAttachments.Import(project.Root, file);
-        using (var stream = File.OpenRead(Safety.Resolve(project.Root, image.RelativePath)))
+        var path = Safety.Resolve(project.Root, image.RelativePath);
+        var imported = !string.Equals(Path.GetFullPath(file), path, StringComparison.OrdinalIgnoreCase);
+        try
         {
-            var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream, System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-            if (decoder.Frames.Count == 0 || decoder.Frames[0].PixelWidth != image.Width || decoder.Frames[0].PixelHeight != image.Height) throw new IOException("이미지 디코드/해상도 오류");
+            using (var stream = File.OpenRead(path))
+            {
+                var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream, System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+                if (decoder.Frames.Count == 0 || decoder.Frames[0].PixelWidth != image.Width || decoder.Frames[0].PixelHeight != image.Height) throw new IOException("이미지 디코드/해상도 오류");
+            }
+            var selected = ImageAttachments.Validate(project.Root, pendingImages.Append(image));
+            pendingImages.Clear(); pendingImages.AddRange(selected); Attachments.ItemsSource = pendingImages.ToList();
+            AttachmentHint.Text = $"{pendingImages.Count}개 · 선택 이미지가 현재 모델/회사 endpoint로 전송됨";
         }
-        var selected = ImageAttachments.Validate(project.Root, pendingImages.Append(image)); pendingImages.Clear(); pendingImages.AddRange(selected); Attachments.ItemsSource = pendingImages.ToList();
-        AttachmentHint.Text = $"{pendingImages.Count}개 · 선택 이미지가 현재 모델/회사 endpoint로 전송됨 · 회사 배포의 image 지원은 미검증";
+        catch { if (imported && File.Exists(path)) File.Delete(path); throw; }
     }
     private void ImageClear_Click(object sender, RoutedEventArgs e) { pendingImages.Clear(); Attachments.ItemsSource = null; AttachmentHint.Text = "PNG/JPEG · 최대 4개/합계 3MB · 선택 이미지가 모델로 전송됨"; }
     private List<UsageEntry> SelectedUsage()
@@ -298,7 +327,7 @@ public partial class MainWindow : Window
         await desk.AnswerAsync(request, true, answers, EscalationConsent.IsChecked == true);
     });
     private async void Decline_Click(object sender, RoutedEventArgs e) => await Guard(async () => { if (CurrentApproval != null) await desk.AnswerAsync(CurrentApproval, false); });
-    public async Task ShutdownController() { DisposeBrowsers(); draftTimer.Stop(); await terminal.DisposeAsync(); await desk.DisposeAsync(); }
+    public async Task ShutdownController() { SaveWindowGeometry(); windowSaveTimer.Stop(); DisposeBrowsers(); draftTimer.Stop(); await terminal.DisposeAsync(); await desk.DisposeAsync(); }
     public async Task<string> RunProgrammaticUiChecks(string data)
     {
         var root = Path.Combine(data, "ui-project"); var other = Path.Combine(data, "ui-other");
@@ -357,10 +386,10 @@ public partial class MainWindow : Window
     {
         if (closing) return;
         if (desk.State.Tasks.Any(DeskController.IsRunning) && MessageBox.Show(this, "Hermes의 실행 작업을 중단하고 종료할까요?", "종료", MessageBoxButton.YesNo) != MessageBoxResult.Yes) { e.Cancel = true; return; }
-        e.Cancel = true; closing = true; draftTimer.Stop();
+        e.Cancel = true; SaveWindowGeometry(); windowSaveTimer.Stop(); closing = true; draftTimer.Stop();
         foreach (var task in desk.State.Tasks.Where(DeskController.IsRunning).ToList()) { try { await desk.StopAsync(task); } catch (IOException) { } }
         StopComputer(); draftSaveTimer.Stop(); DisposeBrowsers();
-        await terminal.DisposeAsync(); await desk.DisposeAsync(); desk.Save(); Close();
+        await terminal.DisposeAsync(); await desk.DisposeAsync(); desk.Save(); _ = Dispatcher.BeginInvoke(new Action(Close));
     }
 }
 public sealed class AnswerWindow : Window

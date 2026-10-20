@@ -6,6 +6,23 @@ using System.Windows.Media.Imaging;
 namespace Hermes.Desktop;
 public partial class App : Application
 {
+    private bool reportingError;
+    internal Exception? ExpectedUiTestException { get; set; }
+    public App()
+    {
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Hermes.Core.AppLog.Write(e.ExceptionObject as Exception ?? new Exception("Unhandled runtime exception"), "runtime-unhandled");
+        TaskScheduler.UnobservedTaskException += (_, e) => { Hermes.Core.AppLog.Write(e.Exception, "unobserved-task"); e.SetObserved(); };
+        DispatcherUnhandledException += (_, e) =>
+        {
+            var path = Hermes.Core.AppLog.Write(e.Exception, "dispatcher-unhandled"); e.Handled = true;
+            if (ReferenceEquals(e.Exception, ExpectedUiTestException)) { ExpectedUiTestException = null; return; }
+            if (e.Exception is OutOfMemoryException or AccessViolationException) { Shutdown(1); return; }
+            if (reportingError) return;
+            reportingError = true;
+            try { MessageBox.Show("작업 중 오류가 발생했습니다. 앱은 계속 사용할 수 있습니다.\n\n" + Hermes.Core.Safety.Redact(e.Exception.Message) + "\n\n오류 로그: " + path, "Hermes DevDesk 오류"); }
+            finally { reportingError = false; }
+        };
+    }
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -13,8 +30,13 @@ public partial class App : Application
         {
             var dataIndex = Array.IndexOf(e.Args, "--data-dir");
             var data = dataIndex >= 0 && e.Args.Length > dataIndex + 1 ? e.Args[dataIndex + 1] : Hermes.Core.AppProfiles.Resolve(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HermesDevDesk"));
+            Hermes.Core.AppLog.Configure(data);
             var window = new MainWindow(data); MainWindow = window;
-            if (e.Args.Contains("--relay-send-smoke"))
+            if (e.Args.Contains("--window-state-report"))
+            { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await Task.Delay(300); window.WriteWindowPlacementReport(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { Hermes.Core.AppLog.Write(ex, "window-report"); Shutdown(1); } }); }
+            else if (e.Args.Contains("--window-state-smoke"))
+            { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunWindowPersistenceChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "window-state-error.txt"), ex.ToString()); Shutdown(1); } }); }
+            else if (e.Args.Contains("--relay-send-smoke"))
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunRelaySendChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "relay-send-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
             else if (e.Args.Contains("--simple-settings-smoke"))
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunSimpleSettingsChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "simple-settings-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
@@ -53,6 +75,6 @@ public partial class App : Application
             }
             else window.Show();
         }
-        catch (Exception ex) { MessageBox.Show(ex.Message, "Hermes DevDesk 시작 실패"); Shutdown(1); }
+        catch (Exception ex) { var path = Hermes.Core.AppLog.Write(ex, "startup"); MessageBox.Show(Hermes.Core.Safety.Redact(ex.Message) + "\n\n오류 로그: " + path, "Hermes DevDesk 시작 실패"); Shutdown(1); }
     }
 }
