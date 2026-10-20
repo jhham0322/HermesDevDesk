@@ -42,6 +42,6 @@ internal static class SimpleGatewayEngineTests
         Console.WriteLine("PASS official engine through Anthropic: computer tool catalog, call correlation and screenshot image round trip");
         stopPhase = true; await desk.StartAsync(chat, "Pending computer fixture", "computer-fixture", false); await Wait(() => callbacks == 2); await desk.StopAsync(chat); await Wait(() => chat.Status == "중단됨");
         if (!stop) throw new IOException("Computer stop callback missing"); Console.WriteLine("PASS interrupt stops pending computer host request");
-        File.WriteAllText(reportPath, JsonSerializer.Serialize(new { version = "0.8.7", catalog, image, result, callbacks, stop, status = chat.Status, actualOfficialEngine = true, syntheticProviderOnly = true, realModelCalls = false }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(reportPath, JsonSerializer.Serialize(new { version = "0.8.8", catalog, image, result, callbacks, stop, status = chat.Status, actualOfficialEngine = true, syntheticProviderOnly = true, realModelCalls = false }, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

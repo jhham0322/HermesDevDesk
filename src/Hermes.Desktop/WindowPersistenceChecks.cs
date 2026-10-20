@@ -10,7 +10,7 @@ public partial class MainWindow
     internal void WriteWindowPlacementReport(string directory)
     {
         GetWindowRect(new WindowInteropHelper(this).Handle, out var rect);
-        File.WriteAllText(Path.Combine(directory, "placement-child.json"), JsonSerializer.Serialize(new { state = WindowState.ToString(), left = rect.Left, top = rect.Top, width = rect.Right - rect.Left, height = rect.Bottom - rect.Top }));
+        File.WriteAllText(Path.Combine(directory, "placement-child.json"), JsonSerializer.Serialize(new { state = WindowState.ToString(), left = rect.Left, top = rect.Top, width = rect.Right - rect.Left, height = rect.Bottom - rect.Top, inspectorWidth = InspectorColumn.Width.Value, inspectorActualWidth = InspectorColumn.ActualWidth, inspectorVisible = InspectorPane.Visibility == Visibility.Visible, inspectorTab = InspectorTabs.SelectedIndex }));
     }
     internal async Task RunWindowPersistenceChecks(string directory)
     {
@@ -31,9 +31,12 @@ public partial class MainWindow
         var hwnd = new WindowInteropHelper(this).Handle;
         if (!GetWorkPlacement(hwnd, out var monitor, out _)) throw new IOException("Monitor work area unavailable");
         SetWindowPos(hwnd, IntPtr.Zero, monitor.Work.Left + 70, monitor.Work.Top + 60, Math.Min(1100, monitor.Work.Pixels.Width - 140), Math.Min(760, monitor.Work.Pixels.Height - 120), 0x14);
+        OpenPanel(8); InspectorColumn.Width = new GridLength(820); UpdateLayout(); SaveInspectorWidth();
         await Task.Delay(400); SaveWindowGeometry(); windowSaveTimer.Stop();
         var saved = desk.State.Desktop.WindowBounds ?? throw new IOException("Window bounds not saved");
         var normal = await Restart();
+        Check(normal.GetProperty("inspectorVisible").GetBoolean() && Math.Abs(normal.GetProperty("inspectorActualWidth").GetDouble() - 820) < 2, "user-sized right panel restored after actual process restart");
+        Check(normal.GetProperty("inspectorTab").GetInt32() == 8, "right panel selected tab restored after restart");
         Check(normal.GetProperty("state").GetString() == "Normal", "normal state restored after process restart");
         Check(Math.Abs(normal.GetProperty("left").GetInt32() - saved.Left) <= 2 && Math.Abs(normal.GetProperty("top").GetInt32() - saved.Top) <= 2, "window location restored after process restart");
         Check(Math.Abs(normal.GetProperty("width").GetInt32() - saved.Width) <= 2 && Math.Abs(normal.GetProperty("height").GetInt32() - saved.Height) <= 2, "window size restored after process restart");

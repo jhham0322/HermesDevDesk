@@ -37,7 +37,9 @@ public partial class MainWindow
         InitializeComputerPanel();
         GitRunner.Executable = desk.State.Desktop.GitExecutable;
         refreshTimer.Tick += (_, _) => { refreshTimer.Stop(); Refresh(); };
-        SizeChanged += (_, _) => { SetSidebar(desk.State.Desktop.SidebarVisible); SetInspector(desk.State.Desktop.InspectorVisible); };
+        InspectorSplitter.DragCompleted += (_, _) => SaveInspectorWidth();
+        InspectorTabs.SelectedIndex = Math.Clamp(desk.State.Desktop.InspectorTabIndex, 0, InspectorTabs.Items.Count - 1);
+        InspectorTabs.SelectionChanged += (_, e) => { if (ReferenceEquals(e.OriginalSource, InspectorTabs) && InspectorTabs.SelectedIndex >= 0) { desk.State.Desktop.InspectorTabIndex = InspectorTabs.SelectedIndex; desk.Store.Save(desk.State); } };
         draftSaveTimer.Tick += (_, _) => { draftSaveTimer.Stop(); desk.Store.Save(desk.State); };
         Closed += (_, _) => { draftSaveTimer.Stop(); refreshTimer.Stop(); };
     }
@@ -58,10 +60,20 @@ public partial class MainWindow
     private void Sidebar_Click(object sender, RoutedEventArgs e) { desk.State.Desktop.SidebarVisible = !desk.State.Desktop.SidebarVisible; SetSidebar(desk.State.Desktop.SidebarVisible); desk.Save(); }
     private void SetInspector(bool show)
     {
+        var alreadyOpen = InspectorPane.Visibility == Visibility.Visible && InspectorColumn.Width.Value > 0;
         InspectorPane.Visibility = show ? Visibility.Visible : Visibility.Collapsed; InspectorSplitColumn.Width = new GridLength(show ? 4 : 0);
-        InspectorColumn.Width = new GridLength(show ? Math.Clamp(desk.State.Desktop.InspectorWidth, 300, 700) : 0);
+        InspectorColumn.MinWidth = show ? 200 : 0;
+        if (!show) InspectorColumn.Width = new GridLength(0);
+        else if (!alreadyOpen) InspectorColumn.Width = new GridLength(double.IsFinite(desk.State.Desktop.InspectorWidth) ? Math.Max(200, desk.State.Desktop.InspectorWidth) : 400);
         if (show && ActualWidth < 1400) SetSidebar(false);
         else SetSidebar(desk.State.Desktop.SidebarVisible);
+    }
+    private void SaveInspectorWidth()
+    {
+        if (InspectorPane.Visibility != Visibility.Visible || !double.IsFinite(InspectorColumn.ActualWidth) || InspectorColumn.ActualWidth < 200) return;
+        desk.State.Desktop.InspectorWidth = InspectorColumn.ActualWidth;
+        ContentColumn.Width = new GridLength(1, GridUnitType.Star);
+        desk.Store.Save(desk.State);
     }
     private void Inspector_Click(object sender, RoutedEventArgs e) { desk.State.Desktop.InspectorVisible = !desk.State.Desktop.InspectorVisible; SetInspector(desk.State.Desktop.InspectorVisible); desk.Save(); }
     private void OpenPanel(int index) { desk.State.Desktop.InspectorVisible = true; SetInspector(true); InspectorTabs.SelectedIndex = index; desk.Save(); }

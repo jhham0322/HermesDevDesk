@@ -59,7 +59,9 @@ public partial class MainWindow
     {
         var panel = new DockPanel(); var toolbar = new StackPanel(); DockPanel.SetDock(toolbar, Dock.Top); panel.Children.Add(toolbar);
         var address = new DockPanel(); var go = new Button { Content = "열기" }; DockPanel.SetDock(go, Dock.Right); address.Children.Add(go); address.Children.Add(browserAddress); toolbar.Children.Add(address);
-        toolbar.Children.Add(browserEnable); toolbar.Children.Add(browserStatus); panel.Children.Add(browserHost);
+        var capture = new Button { Content = "전체 캡처 · AI 첨부", ToolTip = "현재 로드된 페이지 전체를 PNG로 저장하고 AI 입력에 이미지로 첨부합니다." };
+        capture.Click += async (_, _) => await Guard(CaptureBrowserToComposerAsync, "browser-full-capture");
+        toolbar.Children.Add(capture); toolbar.Children.Add(browserEnable); toolbar.Children.Add(browserStatus); panel.Children.Add(browserHost);
         InspectorTabs.Items.Add(new TabItem { Header = "브라우저", Content = panel });
         go.Click += async (_, _) => await Guard(() => NavigateBrowser(browserAddress.Text));
         browserAddress.KeyDown += async (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; await Guard(() => NavigateBrowser(browserAddress.Text)); } };
@@ -149,6 +151,12 @@ public partial class MainWindow
                 view.CoreWebView2.NavigationCompleted += Completed;
                 try { view.CoreWebView2.Navigate(uri.AbsoluteUri); return new(await done.Task.WaitAsync(TimeSpan.FromSeconds(20), ct)); }
                 finally { view.CoreWebView2.NavigationCompleted -= Completed; }
+            }
+            if (action == "screenshot" && args.Property("fullPage")?.ValueKind != JsonValueKind.False)
+            {
+                var root = desk.State.Projects.First(p => p.Id == task.ProjectId).Root;
+                var page = await CaptureBrowserPage(view, root, ct);
+                return new(page.Description, Images: page.Tiles.Select(PngDataUrl).ToArray());
             }
             if (action == "upload")
             {

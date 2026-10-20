@@ -474,7 +474,7 @@ public sealed class DeskController : IAsyncDisposable
             if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new IOException("브라우저 요청의 대화/실행 세션이 바뀌었습니다.");
             await engine.RespondAsync(request, new { success = true, contentItems = result.ContentItems });
             var text = Safety.Redact(result.Text);
-            task.Transcript.Add(new("브라우저", (text.Length > 2000 ? text[..2000] : text) + (result.ImageUrl == null ? "" : "\n화면 이미지 전달 완료"), DateTime.UtcNow)); Save();
+            task.Transcript.Add(new("브라우저", (text.Length > 2000 ? text[..2000] : text) + (result.ImageUrl == null && result.Images is not { Count: > 0 } ? "" : "\n화면 이미지 전달 완료"), DateTime.UtcNow)); Save();
         }
         catch (Exception ex)
         {

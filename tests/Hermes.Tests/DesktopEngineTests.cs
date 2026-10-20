@@ -27,7 +27,7 @@ internal static class DesktopEngineTests
             else
             {
                 toolResult |= body.GetRawText().Contains("BROWSER_HOST_FIXTURE_RESULT");
-                imageResult |= body.GetRawText().Contains("input_image") && body.GetRawText().Contains("data:image/png;base64,");
+                imageResult |= body.GetRawText().Split("input_image").Length >= 3 && body.GetRawText().Contains("data:image/png;base64,");
                 if (count == 3) await release.Task.WaitAsync(TimeSpan.FromSeconds(15), ct);
                 output.Add(new JsonObject { ["id"] = "message_" + count, ["type"] = "message", ["role"] = "assistant", ["status"] = "completed", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = "DESKTOP_ENGINE_OK", ["annotations"] = new JsonArray() }) });
             }
@@ -36,7 +36,7 @@ internal static class DesktopEngineTests
         });
         await using var desk = new DeskController(Path.Combine(root, "history"), a => actions.Enqueue(a), true);
         desk.Configure(new() { Endpoint = mock.BaseUri.AbsoluteUri, Deployment = "fixture-deployment", Protocol = ProviderProtocol.GatewayResponses, UseAdvancedSettings = true }, "SYNTHETIC_DESKTOP_ENGINE_KEY");
-        desk.BrowserTool = (_, arg) => Task.FromResult(new BrowserToolResult(arg.Text("action") == "read" ? "BROWSER_HOST_FIXTURE_RESULT" : "unsupported", "data:image/png;base64," + NativeFeatureTests.Png));
+        desk.BrowserTool = (_, arg) => Task.FromResult(new BrowserToolResult(arg.Text("action") == "read" ? "BROWSER_HOST_FIXTURE_RESULT" : "unsupported", Images: new[] { "data:image/png;base64," + NativeFeatureTests.Png, "data:image/png;base64," + NativeFeatureTests.Png }));
         var project = desk.Register(root); project.BrowserEnabled = true; project.ComputerEnabled = false; project.LocalMcpEnabled = false; await desk.ConnectAsync(exe, root);
         void Pump() { while (actions.TryDequeue(out var a)) a(); }
         async Task Finish(WorkItem task) { var until = DateTime.UtcNow.AddSeconds(30); while (DeskController.IsRunning(task) && DateTime.UtcNow < until) { Pump(); await Task.Delay(20); } Pump(); if (task.Status != "완료") throw new IOException("Fixture failed: " + task.Status); }

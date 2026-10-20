@@ -85,6 +85,6 @@ internal static class MultiChatTests
         await desk.StartAsync(fork, "Reply in the forked chat.", "model-a", true);
         await Until(() => !DeskController.IsRunning(fork), "forked chat reconnects to its own current loopback route");
         Check(fork.Status == "완료" && desk.State.Usage.Any(x => x.TaskId == fork.Id && x.Model == "model-a" && x.Status == "completed"), "fork model and usage route belong to fork rather than original session");
-        File.WriteAllText(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { version = "0.8.7", passed = true, officialEngine = true, syntheticServer = true, actualModelCalls = 0, attachments = true, simultaneousChats = 2, separateCancellation = true, separateUsage = true, resume = true }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { version = "0.8.8", passed = true, officialEngine = true, syntheticServer = true, actualModelCalls = 0, attachments = true, simultaneousChats = 2, separateCancellation = true, separateUsage = true, resume = true }, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

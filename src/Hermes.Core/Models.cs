@@ -67,6 +67,7 @@ public sealed class DesktopPreferences
     public bool SidebarVisible { get; set; } = true;
     public bool InspectorVisible { get; set; }
     public double InspectorWidth { get; set; } = 400;
+    public int InspectorTabIndex { get; set; }
     public bool EnterToSend { get; set; } = true;
     public string GitExecutable { get; set; } = "git";
     public Dictionary<string, string> Drafts { get; set; } = [];

@@ -35,6 +35,16 @@ public partial class MainWindow
         SelectTask(first); Check(TaskTitle.Text == "고정된 UI 채팅", "renamed header renders");
         desk.State.Desktop.SidebarVisible = false; SetSidebar(false); Check(SidebarColumn.Width.Value == 0, "sidebar collapses");
         desk.State.Desktop.SidebarVisible = true; SetSidebar(true); Check(SidebarColumn.Width.Value == 358, "sidebar restores width");
+        var originalInspectorWidth = desk.State.Desktop.InspectorWidth;
+        OpenPanel(1); InspectorColumn.Width = new GridLength(820); UpdateLayout();
+        InspectorSplitter.RaiseEvent(new System.Windows.Controls.Primitives.DragCompletedEventArgs(0, 0, false) { RoutedEvent = System.Windows.Controls.Primitives.Thumb.DragCompletedEvent });
+        Check(Math.Abs(desk.State.Desktop.InspectorWidth - 820) < 2 && Math.Abs(desk.Store.Load().Desktop.InspectorWidth - 820) < 2, "splitter completion persists user-selected panel width above previous 700px cap");
+        var previousWindowWidth = Width; Width = 1160; await Task.Delay(30); Width = previousWindowWidth; UpdateLayout();
+        desk.Save(); OpenPanel(8); OpenPanel(1);
+        Check(Math.Abs(InspectorColumn.ActualWidth - 820) < 2, "panel width survives window resize refresh and repeated tool panel opening");
+        SetInspector(false); SetInspector(true); UpdateLayout();
+        Check(Math.Abs(InspectorColumn.ActualWidth - 820) < 2, "panel toggle restores user-selected width");
+        SetInspector(false); desk.State.Desktop.InspectorWidth = originalInspectorWidth; SetInspector(true);
         OpenPanel(1); Check(InspectorPane.Visibility == Visibility.Visible && InspectorTabs.SelectedIndex == 1, "review panel opens");
         desk.State.Desktop.InspectorVisible = false; SetInspector(false); Check(InspectorColumn.Width.Value == 0, "inspector collapses");
         Theme_Click(this, new()); Check(((SolidColorBrush)Application.Current.Resources["Canvas"]).Color == (Color)ColorConverter.ConvertFromString("#191919"), "dark theme applies");
@@ -87,6 +97,24 @@ public partial class MainWindow
         await BrowserAction(second, Args(new { action = "upload", selector = "#upload", path = "upload-fixture.txt" }));
         var uploaded = await BrowserAction(second, Args(new { action = "evaluate", script = "document.querySelector('#upload').files[0].name" }));
         Check(uploaded.Text == "upload-fixture.txt", "browser uploads selected project file without per-action approval");
+        await BrowserAction(first, Args(new { action = "navigate", url = pages.BaseUri.AbsoluteUri + "tall" }));
+        await BrowserAction(first, Args(new { action = "evaluate", script = "document.body.style.margin='0';document.body.innerHTML='<div style=\"height:9000px;background:#ff0000\">PAGE_TOP</div><div style=\"height:500px;background:#0000ff\">PAGE_BOTTOM</div>'; 'TALL_READY'" }));
+        var fullPage = await BrowserAction(first, Args(new { action = "screenshot" }));
+        using (var fullMetadata = JsonDocument.Parse(fullPage.Text))
+        {
+            var capturePath = fullMetadata.RootElement.Text("originalPath");
+            Check(fullMetadata.RootElement.GetProperty("originalHeight").GetInt32() >= 9500 && File.Exists(capturePath), "full page capture saves original PNG including content below viewport");
+            Check(fullPage.Images is { Count: >= 2 } && fullPage.ContentItems.Length == fullPage.Images.Count + 1, "full page browser tool delivers ordered image parts to AI");
+            using var captureStream = File.OpenRead(capturePath);
+            var frame = System.Windows.Media.Imaging.BitmapDecoder.Create(captureStream, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames[0];
+            var sample = new System.Windows.Media.Imaging.FormatConvertedBitmap(frame, PixelFormats.Bgra32, null, 0);
+            var pixel = new byte[4]; sample.CopyPixels(new Int32Rect(20, frame.PixelHeight - 20, 1, 1), pixel, 4, 0);
+            Check(pixel[0] > 200 && pixel[2] < 50, "full page PNG contains rendered bottom section pixels");
+        }
+        SelectTask(first); ImageClear_Click(this, new());
+        await CaptureBrowserToComposerAsync();
+        Check(pendingImages.Count >= 2 && pendingImages.All(x => x.Height <= 8192) && pendingImages.Sum(x => x.Height) >= 9500, "manual full-page capture attaches complete long page as AI-readable images");
+        ImageClear_Click(this, new());
         first.Status = second.Status = "완료";
         project.BrowserEnabled = false;
         desk.State.Desktop.InspectorVisible = false; SetInspector(false); desk.Save();
