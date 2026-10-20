@@ -19,6 +19,16 @@ public sealed class CompanyBridge : IAsyncDisposable
     private string taskId = "connection-check";
     private string turnId = "";
     private string activeModel = "";
+    private sealed class TaskContext(string model)
+    {
+        public string Model { get; } = model;
+        public string TurnId { get; set; } = "";
+        public CancellationTokenSource Operation { get; } = new();
+    }
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskContext> tasks = new();
+    public Uri TaskBaseUri(string id) => new(server.BaseUri.AbsoluteUri.TrimEnd('/') + "/tasks/" + Uri.EscapeDataString(id) + "/v1");
+    public void SetTurn(string id, string turn) { if (tasks.TryGetValue(id, out var context)) context.TurnId = turn; }
+    public void CancelTask(string id) { if (tasks.TryGetValue(id, out var context)) context.Operation.Cancel(); }
     private readonly HashSet<string> availableModels = new(StringComparer.Ordinal);
     public List<string> DiscoveredModels { get; } = [];
     public int? LastCheckHttpStatus { get; private set; }
@@ -33,7 +43,9 @@ public sealed class CompanyBridge : IAsyncDisposable
         server = new(Handle);
     }
     public void SetAvailableModels(IEnumerable<string> models) { availableModels.Clear(); availableModels.Add(settings.Deployment); foreach (var model in models) availableModels.Add(model); }
-    public void BeginTask(string id, string? model = null) { if (model != null) { if (!availableModels.Contains(model)) throw new IOException("설정/서버 목록에 없는 모델입니다."); activeModel = model; } operation.Dispose(); operation = new(); taskId = id; turnId = ""; }
+    public void BeginTask(string id, string? model = null) { if (model != null) { if (!availableModels.Contains(model)) throw new IOException("설정/서버 목록에 없는 모델입니다."); activeModel = model; } operation.Dispose(); operation = new(); taskId = id; turnId = "";
+        if (tasks.TryRemove(id, out var previous)) { previous.Operation.Cancel(); previous.Operation.Dispose(); }
+        tasks[id] = new(activeModel); }
     public void SetTurn(string id) => turnId = id;
     public void CancelCurrent() => operation.Cancel();
     private HttpRequestMessage Request(HttpMethod method, Uri uri)
@@ -81,21 +93,30 @@ public sealed class CompanyBridge : IAsyncDisposable
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException) { entry.Status = "failed"; entry.Note = ConnectionErrors.Describe(ex, ct) + " · 요청 경로: " + settings.RequestUri(true, testLoopback).AbsolutePath; if (entry.Requests == null) entry.Requests = 0; Emit(entry); return entry.Note; }
     }
-    private void Emit(UsageEntry entry) => Usage?.Invoke(JsonSerializer.Deserialize<UsageEntry>(JsonSerializer.Serialize(entry))!);
-    private UsageEntry StartEntry()
+    private void Emit(UsageEntry entry)
     {
-        var entry = new UsageEntry { Id = Guid.NewGuid().ToString("N"), At = DateTimeOffset.UtcNow, TaskId = taskId, TurnId = turnId, Deployment = activeModel, Model = activeModel, Source = "company-api-response", Requests = null };
+        if (tasks.TryGetValue(entry.TaskId, out var context) && context.TurnId.Length > 0) entry.TurnId = context.TurnId;
+        Usage?.Invoke(JsonSerializer.Deserialize<UsageEntry>(JsonSerializer.Serialize(entry))!);
+    }
+    private UsageEntry StartEntry(string? id = null, TaskContext? context = null)
+    {
+        var entry = new UsageEntry { Id = Guid.NewGuid().ToString("N"), At = DateTimeOffset.UtcNow, TaskId = id ?? taskId, TurnId = context?.TurnId ?? turnId, Deployment = context?.Model ?? activeModel, Model = context?.Model ?? activeModel, Source = "company-api-response", Requests = null };
         Emit(entry); return entry;
     }
     private async Task Handle(LoopRequest incoming, NetworkStream stream, CancellationToken ct)
     {
         if (!incoming.Headers.TryGetValue("Authorization", out var auth) || !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(auth), Encoding.UTF8.GetBytes("Bearer " + capability))) { await LoopbackHttp.Reply(stream, 403, "application/json", "{\"error\":{\"message\":\"Local capability required\"}}", ct); return; }
-        if (incoming.Method != "POST" || incoming.Path.Split('?')[0] != "/v1/responses") { await LoopbackHttp.Reply(stream, 404, "application/json", "{\"error\":{\"message\":\"Unsupported local route\"}}", ct); return; }
-        var entry = StartEntry(); var streaming = false; using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, operation.Token);
+        var route = incoming.Path.Split('?')[0];
+        var segments = route.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string? requestTask = null; TaskContext? context = null;
+        if (segments.Length == 4 && segments[0] == "tasks" && segments[2] == "v1" && segments[3] == "responses")
+        { requestTask = Uri.UnescapeDataString(segments[1]); if (tasks.TryGetValue(requestTask, out context)) route = "/v1/responses"; }
+        if (incoming.Method != "POST" || route != "/v1/responses") { await LoopbackHttp.Reply(stream, 404, "application/json", "{\"error\":{\"message\":\"Unsupported local route\"}}", ct); return; }
+        var entry = StartEntry(requestTask, context); var streaming = false; using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, context?.Operation.Token ?? operation.Token);
         try
         {
             if (incoming.Headers.ContainsKey("Content-Encoding")) throw new IOException("Compressed request body not supported by the local adapter");
-            var body = JsonNode.Parse(incoming.Body)?.AsObject() ?? throw new IOException("Invalid request JSON"); body["model"] = activeModel; body["store"] = false;
+            var body = JsonNode.Parse(incoming.Body)?.AsObject() ?? throw new IOException("Invalid request JSON"); body["model"] = context?.Model ?? activeModel; body["store"] = false;
             var wantsStream = body["stream"]?.GetValue<bool>() == true;
             ChatAdaptation? adaptation = settings.IsChat ? ChatAdapter.Request(body) : null;
             AnthropicAdaptation? anthropic = settings.IsAnthropic ? AnthropicAdapter.Request(body, settings.MaxOutputTokens) : null;
@@ -138,7 +159,7 @@ public sealed class CompanyBridge : IAsyncDisposable
                 }
                 await Forward();
                 entry.Tokens = final.HasValue ? TokenCounts.FromResponse(final.Value) : TokenCounts.Missing;
-                entry.Model = final?.Text("model") is { Length: > 0 } streamModel ? streamModel : settings.Deployment;
+                entry.Model = final?.Text("model") is { Length: > 0 } streamModel ? streamModel : entry.Deployment;
                 entry.Status = final?.Text("status") ?? "unknown";
                 entry.Note = "실시간 Responses SSE 전달 · 최종 서버 usage만 집계"; Emit(entry); return;
             }
@@ -152,19 +173,19 @@ public sealed class CompanyBridge : IAsyncDisposable
             }
             else if (adaptation != null)
             {
-                using var chat = JsonDocument.Parse(text); entry.Tokens = TokenCounts.FromResponse(chat.RootElement); entry.Model = chat.RootElement.Text("model") is { Length: > 0 } model ? model : settings.Deployment;
+                using var chat = JsonDocument.Parse(text); entry.Tokens = TokenCounts.FromResponse(chat.RootElement); entry.Model = chat.RootElement.Text("model") is { Length: > 0 } model ? model : entry.Deployment;
                 var converted = ChatAdapter.Response(chat.RootElement, adaptation); output = wantsStream ? ResponseWire.Sse(converted) : converted.ToJsonString(); contentType = wantsStream ? "text/event-stream" : "application/json";
             }
             else if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             {
                 JsonElement? final = ResponseWire.LastResponse(text);
-                entry.Tokens = final.HasValue ? TokenCounts.FromResponse(final.Value) : TokenCounts.Missing; entry.Model = final?.Text("model") is { Length: > 0 } model ? model : settings.Deployment;
+                entry.Tokens = final.HasValue ? TokenCounts.FromResponse(final.Value) : TokenCounts.Missing; entry.Model = final?.Text("model") is { Length: > 0 } model ? model : entry.Deployment;
                 finalStatus = final?.Text("status") ?? "unknown";
                 output = text; contentType = "text/event-stream";
             }
             else
             {
-                using var parsed = JsonDocument.Parse(text); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model") is { Length: > 0 } model ? model : settings.Deployment;
+                using var parsed = JsonDocument.Parse(text); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model") is { Length: > 0 } model ? model : entry.Deployment;
                 finalStatus = parsed.RootElement.Text("status") is { Length: > 0 } status ? status : "unknown";
                 var node = JsonNode.Parse(text)!.AsObject(); output = wantsStream ? ResponseWire.Sse(node) : text; contentType = wantsStream ? "text/event-stream" : "application/json";
             }
@@ -177,7 +198,7 @@ public sealed class CompanyBridge : IAsyncDisposable
             if (!streaming && !ct.IsCancellationRequested) await LoopbackHttp.Reply(stream, 502, "application/json", JsonSerializer.Serialize(new { error = new { message = entry.Note, type = "company_adapter_error" } }), ct);
         }
     }
-    public async ValueTask DisposeAsync() { operation.Cancel(); await server.DisposeAsync(); http.Dispose(); operation.Dispose(); }
+    public async ValueTask DisposeAsync() { operation.Cancel(); foreach (var context in tasks.Values) context.Operation.Cancel(); await server.DisposeAsync(); http.Dispose(); operation.Dispose(); foreach (var context in tasks.Values) context.Operation.Dispose(); }
 }
 public static class ResponseWire
 {

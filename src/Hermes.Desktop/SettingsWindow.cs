@@ -34,6 +34,13 @@ public sealed partial class SettingsWindow : Window
         deployment.ToolTip = "회사에서 받은 모델명을 그대로 입력하세요. 연결 실패와 별개로 표시·보존합니다.";
         void Remember() { desk.RememberModel(deployment.Text, key.Password); draftTimer.Stop(); draftTimer.Start(); }
         deployment.TextChanged += (_, _) => Remember(); draftTimer.Tick += (_, _) => { draftTimer.Stop(); desk.Save(); };
+        var savedModels = new ListBox { MaxHeight = 100, ItemsSource = desk.SavedModels.ToList() };
+        content.Children.Add(new TextBlock { Text = "저장한 모델 · 같은 서버에서 여러 모델을 추가할 수 있습니다.", Margin = new Thickness(4, 10, 4, 4) });
+        content.Children.Add(savedModels);
+        var addModel = new Button { Content = "입력한 모델 추가" }; content.Children.Add(addModel);
+        addModel.Click += (_, _) => Try(() => { if (ProviderSettings.ResolveEndpointInput(endpoint.Text, (EndpointSchemeChoice)endpointScheme.SelectedIndex).TrimEnd('/') != desk.State.Provider.Endpoint.TrimEnd('/') || !string.IsNullOrWhiteSpace(key.Password)) Save();
+            desk.AddModel(deployment.Text); desk.State.PendingModel = ""; desk.Save(); savedModels.ItemsSource = desk.SavedModels.ToList(); status.Text = "모델 추가됨 · " + deployment.Text.Trim(); });
+        savedModels.SelectionChanged += (_, _) => { if (savedModels.SelectedItem is string selected) deployment.Text = selected; };
         mode.ItemsSource = Enum.GetValues<ConnectionMode>(); mode.SelectedItem = desk.State.Provider.Mode;
         protocol.ItemsSource = Enum.GetValues<ProviderProtocol>(); protocol.SelectedItem = desk.State.Provider.Protocol;
         authentication.ItemsSource = Enum.GetValues<ProviderAuth>(); authentication.SelectedItem = desk.State.Provider.Authentication;

@@ -17,6 +17,34 @@ public partial class MainWindow
     private readonly CheckBox browserEnable = new() { Content = "새 채팅에서 브라우저 도구 사용" };
     private readonly ContentControl browserHost = new();
     private Task? browserInitialization;
+    private readonly Dictionary<string, WebView2> chatBrowsers = [];
+    private readonly Dictionary<string, SemaphoreSlim> browserLocks = [];
+    private void ConfigureBrowser(WebView2 view, Func<string?> projectRoot)
+    {
+        view.CoreWebView2.Settings.AreHostObjectsAllowed = false;
+        view.CoreWebView2.PermissionRequested += (_, args) => { args.State = CoreWebView2PermissionState.Allow; args.Handled = true; };
+        view.CoreWebView2.NewWindowRequested += (_, args) => { args.Handled = true; try { view.CoreWebView2.Navigate(BrowserTools.ValidateUrl(args.Uri).AbsoluteUri); } catch (IOException) { } };
+        view.CoreWebView2.DownloadStarting += (_, args) =>
+        {
+            try
+            {
+                var root = projectRoot() ?? throw new IOException("다운로드 프로젝트를 선택하세요.");
+                var name = Path.GetFileName(args.ResultFilePath);
+                var target = Safety.Resolve(root, Path.Combine("Downloads", Guid.NewGuid().ToString("N") + "-" + name));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!); args.ResultFilePath = target; args.Handled = true;
+            }
+            catch (IOException) { args.Cancel = true; }
+        };
+        view.CoreWebView2.NavigationStarting += (_, args) => { try { BrowserTools.ValidateUrl(args.Uri); } catch (IOException) { args.Cancel = true; } };
+        view.CoreWebView2.NavigationCompleted += (_, args) => { if (browserHost.Content == view) { browserAddress.Text = view.Source?.AbsoluteUri ?? ""; browserStatus.Text = args.IsSuccess ? view.CoreWebView2.DocumentTitle : "페이지 로드 실패: " + args.WebErrorStatus; } };
+    }
+    private void ShowChatBrowser()
+    {
+        if (CurrentTask is { } task && chatBrowsers.TryGetValue(task.Id, out var view)) browserHost.Content = view;
+        else if (browserView != null) browserHost.Content = browserView;
+    }
+    private void DisposeBrowsers() { foreach (var view in chatBrowsers.Values) view.Dispose(); browserView?.Dispose(); }
+
 
     private void InitializeBrowserPanel()
     {
@@ -31,7 +59,7 @@ public partial class MainWindow
             var project = CurrentProject;
             if (project == null) { browserEnable.IsChecked = false; browserStatus.Text = "프로젝트를 선택하세요."; return; }
             if (desk.State.Tasks.Any(t => t.ProjectId == project.Id && DeskController.IsRunning(t))) { browserEnable.IsChecked = project.BrowserEnabled; browserStatus.Text = "실행 중에는 도구 설정을 바꿀 수 없습니다."; return; }
-            project.BrowserEnabled = browserEnable.IsChecked == true; desk.Save(); browserStatus.Text = "새 채팅부터 적용됩니다. 모델 요청은 주소/동작을 검토한 뒤 실행합니다.";
+            project.BrowserEnabled = browserEnable.IsChecked == true; desk.Save(); browserStatus.Text = "새 채팅부터 적용됩니다. 모델 요청은 별도 승인 없이 실행합니다.";
         };
         desk.BrowserTool = BrowserAction;
     }
@@ -47,50 +75,75 @@ public partial class MainWindow
             browserView = new WebView2(); browserHost.Content = browserView;
             var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(desk.DataDirectory, "browser-profile"));
             await browserView.EnsureCoreWebView2Async(environment);
-            browserView.CoreWebView2.Settings.AreHostObjectsAllowed = false;
-            browserView.CoreWebView2.PermissionRequested += (_, args) => { args.State = CoreWebView2PermissionState.Deny; browserStatus.Text = "페이지의 카메라/마이크/위치 권한 요청은 차단됐습니다."; };
-            browserView.CoreWebView2.NewWindowRequested += (_, args) => { args.Handled = true; _ = Guard(() => NavigateBrowser(args.Uri)); };
-            browserView.CoreWebView2.DownloadStarting += (_, args) => { args.Cancel = true; browserStatus.Text = "앱 브라우저에서 자동 다운로드하지 않습니다."; };
-            browserView.CoreWebView2.NavigationStarting += (_, args) => { try { BrowserTools.ValidateUrl(args.Uri); } catch (IOException) { args.Cancel = true; } };
-            browserView.CoreWebView2.NavigationCompleted += (_, args) => { browserAddress.Text = browserView.Source?.AbsoluteUri ?? ""; browserStatus.Text = args.IsSuccess ? browserView.CoreWebView2.DocumentTitle : "페이지 로드 실패: " + args.WebErrorStatus; };
+            ConfigureBrowser(browserView, () => CurrentProject?.Root);
             browserStatus.Text = "브라우저 준비 완료";
         }
         catch (Exception ex) { browserInitialization = null; browserStatus.Text = "WebView2 초기화 실패. Microsoft Edge WebView2 Runtime이 필요합니다. " + Safety.Redact(ex.Message); throw new IOException(browserStatus.Text, ex); }
     }
     private async Task NavigateBrowser(string address)
     {
-        var uri = BrowserTools.ValidateUrl(address); await EnsureBrowser(); browserView!.CoreWebView2.Navigate(uri.AbsoluteUri);
+        var uri = BrowserTools.ValidateUrl(address); await EnsureBrowser(); var view = browserHost.Content as WebView2 ?? browserView!; view.CoreWebView2.Navigate(uri.AbsoluteUri);
     }
     private async Task<string> BrowserAction(WorkItem task, JsonElement args)
     {
-        if (closing || CurrentTask != task || task.ThreadBrowserEnabled != true) throw new IOException("선택한 실행 채팅에서만 브라우저를 사용할 수 있습니다.");
-        var action = args.Text("action");
-        if (action is not ("navigate" or "read" or "click" or "type")) throw new IOException("지원하지 않는 브라우저 동작입니다.");
-        if (action == "navigate") BrowserTools.ValidateUrl(args.Text("url"));
-        if (action is "click" or "type") BrowserTools.Selector(args);
-        var details = action == "navigate" ? args.Text("url") : action == "read" ? browserAddress.Text + "\n현재 페이지의 텍스트를 선택 모델로 보냅니다." : args.Text("selector") + (action == "type" ? "\n입력: " + Safety.Redact(args.Text("text")) : "");
-        if (MessageBox.Show(this, "모델의 브라우저 요청\n\n" + action + "\n" + details, "브라우저 요청 검토", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) throw new IOException("사용자가 브라우저 요청을 거절했습니다.");
-        if (CurrentTask != task || task.Status != "실행 중") throw new IOException("브라우저 요청의 작업이 더 이상 실행 중이 아닙니다.");
-        OpenPanel(8); await EnsureBrowser();
-        if (action == "navigate")
+        if (closing || task.ThreadBrowserEnabled != true || task.Status != "실행 중") throw new IOException("실행 중인 브라우저 채팅이 아닙니다.");
+        if (!browserLocks.TryGetValue(task.Id, out var gate)) browserLocks[task.Id] = gate = new(1, 1);
+        await gate.WaitAsync();
+        try
         {
-            var done = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            void Completed(object? sender, CoreWebView2NavigationCompletedEventArgs e) { if (e.IsSuccess) done.TrySetResult("페이지 로드됨: " + browserView!.Source); else done.TrySetException(new IOException("페이지 로드 실패: " + e.WebErrorStatus)); }
-            browserView!.CoreWebView2.NavigationCompleted += Completed;
-            try { await NavigateBrowser(args.Text("url")); return await done.Task.WaitAsync(TimeSpan.FromSeconds(30)); }
-            finally { browserView.CoreWebView2.NavigationCompleted -= Completed; }
+            if (closing || task.Status != "실행 중") throw new IOException("작업이 중단되었습니다.");
+            if (!chatBrowsers.TryGetValue(task.Id, out var view))
+            {
+                view = new WebView2(); browserHost.Content = view;
+                try
+                {
+                    var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(desk.DataDirectory, "browser-profile"));
+                    await view.EnsureCoreWebView2Async(environment);
+                    ConfigureBrowser(view, () => desk.State.Projects.First(p => p.Id == task.ProjectId).Root);
+                    chatBrowsers[task.Id] = view;
+                }
+                catch { view.Dispose(); throw; }
+                ShowChatBrowser();
+            }
+            if (CurrentTask == task) { browserHost.Content = view; OpenPanel(8); }
+            var action = args.Text("action");
+            if (action == "navigate")
+            {
+                var uri = BrowserTools.ValidateUrl(args.Text("url"));
+                var done = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                void Completed(object? sender, CoreWebView2NavigationCompletedEventArgs e) { if (e.IsSuccess) done.TrySetResult("페이지 로드됨: " + view.Source); else done.TrySetException(new IOException("페이지 로드 실패: " + e.WebErrorStatus)); }
+                view.CoreWebView2.NavigationCompleted += Completed;
+                try { view.CoreWebView2.Navigate(uri.AbsoluteUri); return await done.Task.WaitAsync(TimeSpan.FromSeconds(30)); }
+                finally { view.CoreWebView2.NavigationCompleted -= Completed; }
+            }
+            if (action == "upload")
+            {
+                var root = desk.State.Projects.First(p => p.Id == task.ProjectId).Root;
+                var file = Safety.Resolve(root, args.Text("path")); if (!File.Exists(file)) throw new IOException("업로드 파일이 없습니다.");
+                var document = await view.CoreWebView2.CallDevToolsProtocolMethodAsync("DOM.getDocument", "{}");
+                using var parsed = JsonDocument.Parse(document);
+                var node = await view.CoreWebView2.CallDevToolsProtocolMethodAsync("DOM.querySelector", JsonSerializer.Serialize(new { nodeId = parsed.RootElement.GetProperty("root").GetProperty("nodeId").GetInt32(), selector = args.Text("selector") }));
+                using var selected = JsonDocument.Parse(node); var nodeId = selected.RootElement.GetProperty("nodeId").GetInt32();
+                if (nodeId == 0) throw new IOException("업로드 요소가 없습니다.");
+                await view.CoreWebView2.CallDevToolsProtocolMethodAsync("DOM.setFileInputFiles", JsonSerializer.Serialize(new { nodeId, files = new[] { file } }));
+                return "파일 업로드 입력 완료";
+            }
+            string script;
+            if (action == "read") script = "JSON.stringify({url:location.href,title:document.title,text:(document.body?.innerText||'').slice(0,50000),elements:Array.from(document.querySelectorAll('a,button,input,textarea,select')).slice(0,100).map(e=>({tag:e.tagName,id:e.id,name:e.getAttribute('name'),text:e.textContent?.slice(0,100)}))})";
+            else if (action == "click") script = "(()=>{const e=document.querySelector(" + BrowserTools.Selector(args) + ");if(!e)throw Error('Element not found');e.click();return 'Clicked';})()";
+            else if (action == "type")
+            {
+                var value = args.Text("text"); if (value.Length > 100000) throw new IOException("브라우저 입력 길이 제한");
+                script = "(()=>{const e=document.querySelector(" + BrowserTools.Selector(args) + ");if(!e || !['INPUT','TEXTAREA'].includes(e.tagName)||e.type==='file')throw Error('Unsupported input');const setter=Object.getOwnPropertyDescriptor(e.tagName==='INPUT'?HTMLInputElement.prototype:HTMLTextAreaElement.prototype,'value').set;setter.call(e," + JsonSerializer.Serialize(value) + ");e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return 'Typed';})()";
+            }
+            else if (action == "evaluate") script = args.Text("script");
+            else throw new IOException("지원하지 않는 브라우저 동작입니다.");
+            var result = await view.ExecuteScriptAsync(script);
+            if (result.Length > 200000) throw new IOException("브라우저 응답 길이 제한");
+            using var output = JsonDocument.Parse(result);
+            return output.RootElement.ValueKind == JsonValueKind.String ? output.RootElement.GetString() ?? "" : result;
         }
-        string script;
-        if (action == "read") script = "JSON.stringify({url:location.href,title:document.title,text:(document.body?.innerText||'').slice(0,50000),elements:Array.from(document.querySelectorAll('a,button,input,textarea,select')).slice(0,100).map(e=>({tag:e.tagName,id:e.id,name:e.getAttribute('name'),text:e.textContent?.slice(0,100)}))})";
-        else if (action == "click") script = "(()=>{const e=document.querySelector(" + BrowserTools.Selector(args) + ");if(!e)throw Error('Element not found');e.click();return 'Clicked';})()";
-        else
-        {
-            var value = args.Text("text"); if (value.Length > 10000) throw new IOException("브라우저 입력 길이 제한");
-            script = "(()=>{const e=document.querySelector(" + BrowserTools.Selector(args) + ");if(!e || !['INPUT','TEXTAREA'].includes(e.tagName)||e.type==='password'||e.type==='file')throw Error('Unsupported input');const setter=Object.getOwnPropertyDescriptor(e.tagName==='INPUT'?HTMLInputElement.prototype:HTMLTextAreaElement.prototype,'value').set;setter.call(e," + JsonSerializer.Serialize(value) + ");e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return 'Typed';})()";
-        }
-        var result = await browserView!.ExecuteScriptAsync(script);
-        if (result == "null") throw new IOException("브라우저 동작에서 결과를 받지 못했습니다.");
-        return JsonSerializer.Deserialize<string>(result) ?? result;
+        finally { gate.Release(); }
     }
     private void BrowserPanel_Click(object sender, RoutedEventArgs e) => OpenPanel(8);
 }

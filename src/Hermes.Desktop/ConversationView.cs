@@ -110,7 +110,7 @@ public sealed class CapabilitiesWindow : Window
 {
     public CapabilitiesWindow(DeskController desk)
     {
-        Title = "Hermes 0.7.0 · 기능 및 연결 상태"; Width = 740; Height = 640; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Title = "Hermes 0.8.3 · 기능 및 연결 상태"; Width = 740; Height = 640; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var panel = new StackPanel { Margin = new Thickness(24) }; Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         panel.Children.Add(new TextBlock { Text = "기능 및 연결 상태", FontSize = 24, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 16) });
         panel.Children.Add(new TextBlock { Text = desk.AccountStatus, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16) });
@@ -124,7 +124,7 @@ public sealed class CapabilitiesWindow : Window
             ("터미널 명령", "공식 Windows sandbox · 일회성 명령 · 완료 후 출력"),
             ("MCP", "현재 프로젝트 로컬 서버 · 외부 OAuth 통합은 추가 개발 필요"),
             ("예약", "앱 실행 중 초안 생성 / 알림 · 자동 AI 실행은 추가 개발 필요"),
-            ("브라우저", "WebView2 앱 전용 프로필 · 새 채팅에서 연결 · 요청별 검토 후 탐색/읽기/클릭/입력"),
+            ("브라우저", "WebView2 앱 전용 프로필 · 새 채팅에서 연결 · 자동 허용 · 채팅별 페이지 · 탐색/읽기/클릭/입력/JavaScript/업로드"),
             ("데스크톱 컴퓨터 제어", "선택한 Windows 창 · 화면/클릭/입력/스크롤/드래그 · 요청별 승인"),
             ("음성 · 이미지 생성", "지원 provider / 장치 연결 및 추가 개발 필요"),
             ("클라우드 작업 · 원격 모바일 · 공식 프로젝트 동기화", "독립 앱용 공식 연결 계약 및 서비스 접근 미확보"),

@@ -29,6 +29,21 @@ public partial class MainWindow : Window
         InitializeComponent(); InitializeMaximizeBounds();
         desk = new(data, a => Dispatcher.BeginInvoke(a)); desk.Changed += Refresh; desk.StreamChanged += QueueRefresh;
         InitializeShell();
+        Prompt.AllowDrop = true; Prompt.PreviewDragOver += (_, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.Copy; e.Handled = true; } };
+        Prompt.PreviewDrop += (_, e) => { if (e.Data.GetData(DataFormats.FileDrop) is string[] files) { e.Handled = true; _ = Guard(() => { foreach (var file in files) AddImage(file); return Task.CompletedTask; }); } };
+        DataObject.AddPastingHandler(Prompt, (_, e) =>
+        {
+            if (!Clipboard.ContainsImage()) return;
+            e.CancelCommand(); _ = Guard(() =>
+            {
+                var image = Clipboard.GetImage(); if (image == null) return Task.CompletedTask;
+                var directory = Path.Combine(desk.DataDirectory, "paste-images"); Directory.CreateDirectory(directory);
+                var path = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".png");
+                try { var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image)); using (var stream = File.Create(path)) encoder.Save(stream); AddImage(path); }
+                finally { if (File.Exists(path)) File.Delete(path); }
+                return Task.CompletedTask;
+            });
+        });
         terminal = new(Path.Combine(data, "terminal-home")); terminal.Output += text => Dispatcher.BeginInvoke(() => { CommandOutput.AppendText(text); if (CommandOutput.Text.Length > 300000) CommandOutput.Text = CommandOutput.Text[^200000..]; CommandOutput.ScrollToEnd(); });
         UsageStart.SelectedDate = DateTime.UtcNow.Date.AddDays(-6); UsageEnd.SelectedDate = DateTime.UtcNow.Date;
         desk.Diagnostic += s => { Logs.AppendText(s + "\n"); if (Logs.Text.Length > 200_000) Logs.Text = Logs.Text[^100_000..]; Logs.ScrollToEnd(); };
@@ -63,12 +78,12 @@ public partial class MainWindow : Window
         RootLabel.Text = CurrentProject?.Root ?? "폴더 등록은 Hermes 목록에만 저장됩니다.";
         TaskStatus.Text = CurrentTask == null ? "" : CurrentTask.Status + "  /  " + CurrentTask.Updated.ToLocalTime().ToString("g");
         TaskDetails.Text = CurrentTask == null ? "선택한 작업 없음" : Review.Detail(desk.State, CurrentTask);
-        Writable.IsEnabled = CurrentTask?.ThreadId == null;
-        if (CurrentTask?.ThreadId != null) Writable.IsChecked = CurrentTask.ThreadWritable == true;
-        SwitchDraft(); RenderConversation(); UpdateShellState();
+        Writable.IsEnabled = CurrentTask == null || !DeskController.IsRunning(CurrentTask);
+        Writable.IsChecked = CurrentTask?.ThreadWritable ?? true;
+        SwitchDraft(); RenderConversation(); RenderChatTabs(); ShowChatBrowser(); UpdateShellState();
     }
     private bool CanSubmit() => !connectingCompany && (CurrentTask == null || !CurrentTask.Archived)
-        && !desk.State.Tasks.Any(t => DeskController.IsRunning(t) && (t != CurrentTask || t.Status != "실행 중"));
+        && (CurrentTask == null || !DeskController.IsRunning(CurrentTask) || CurrentTask.Status == "실행 중");
     private async Task Guard(Func<Task> action)
     { try { await action(); } catch (Exception ex) { Footer.Text = Safety.Redact(ex.Message); MessageBox.Show(this, Safety.Redact(ex.Message), "Hermes DevDesk", MessageBoxButton.OK, MessageBoxImage.Information); } }
     private void Settings_Click(object sender, RoutedEventArgs e) { var window = new SettingsWindow(desk) { Owner = this }; window.ShowDialog(); Refresh(); }
@@ -110,15 +125,14 @@ public partial class MainWindow : Window
     private void ImageAdd_Click(object sender, RoutedEventArgs e) => _ = Guard(() =>
     {
         var project = CurrentProject ?? throw new IOException("프로젝트를 선택하세요.");
-        var dialog = new OpenFileDialog { Filter = "Project image|*.png;*.jpg;*.jpeg", Multiselect = true, InitialDirectory = project.Root, Title = "선택 프로젝트의 이미지 · 모델로 전송할 파일" };
+        var dialog = new OpenFileDialog { Filter = "Project image|*.png;*.jpg;*.jpeg", Multiselect = true, InitialDirectory = project.Root, Title = "첨부 이미지 선택 · 프로젝트 외부 이미지도 가능" };
         if (dialog.ShowDialog(this) == true) foreach (var file in dialog.FileNames) AddImage(file);
         return Task.CompletedTask;
     });
     private void AddImage(string file)
     {
         var project = CurrentProject ?? throw new IOException("프로젝트를 선택하세요.");
-        if (!Safety.Within(project.Root, file)) throw new IOException("선택한 프로젝트 안의 이미지만 첨부할 수 있습니다.");
-        var image = ImageAttachments.Read(project.Root, Path.GetRelativePath(project.Root, file));
+        var image = ImageAttachments.Import(project.Root, file);
         using (var stream = File.OpenRead(Safety.Resolve(project.Root, image.RelativePath)))
         {
             var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream, System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
@@ -149,10 +163,10 @@ public partial class MainWindow : Window
     private async void CommandStop_Click(object sender, RoutedEventArgs e) => await Guard(() => terminal.StopAsync());
     private void Register_Click(object sender, RoutedEventArgs e)
     {
-        _ = Guard(() => { var dialog = new OpenFolderDialog { Title = "독립 작업 프로젝트 폴더 선택" }; if (dialog.ShowDialog(this) == true) { var project = desk.Register(dialog.FolderName); Projects.SelectedItem = project; fileDirectory = ""; Refresh(); RefreshFiles(); } return Task.CompletedTask; });
+        _ = Guard(() => { var dialog = new OpenFolderDialog { Title = "독립 작업 프로젝트 폴더 선택" }; if (dialog.ShowDialog(this) == true) { var project = desk.Register(dialog.FolderName); project.FullPermissions = true; project.BrowserEnabled = true; desk.Save(); Projects.SelectedItem = project; fileDirectory = ""; Refresh(); RefreshFiles(); } return Task.CompletedTask; });
     }
     private void NewTask_Click(object sender, RoutedEventArgs e)
-    { if (CurrentProject == null) { Footer.Text = "프로젝트를 먼저 등록하세요."; return; } ArchivedOnly.IsChecked = false; Search.Clear(); var task = desk.NewTask(CurrentProject, "작업 " + DateTime.Now.ToString("MM-dd HH:mm")); Tasks.SelectedItem = task; RenderTask(); }
+    { if (CurrentProject == null) { Footer.Text = "프로젝트를 먼저 등록하세요."; return; } ArchivedOnly.IsChecked = false; Search.Clear(); CurrentProject.BrowserEnabled = true; var task = desk.NewTask(CurrentProject, "작업 " + DateTime.Now.ToString("MM-dd HH:mm")); Tasks.SelectedItem = task; RenderTask(); }
     private void Search_Changed(object sender, TextChangedEventArgs e) { if (desk != null && !refreshing) Refresh(); }
     private void SearchScope_Changed(object sender, RoutedEventArgs e) { if (desk != null && !refreshing) Refresh(); }
     private async void IsolatedTask_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
@@ -165,7 +179,7 @@ public partial class MainWindow : Window
         Footer.Text = "새 worktree 등록됨 · 원본 미커밋 변경은 복사하지 않음 · 자동 삭제 없음";
     });
     private void Project_Selected(object sender, SelectionChangedEventArgs e)
-    { if (refreshing || desk == null) return; fileDirectory = ""; ImageClear_Click(this, new RoutedEventArgs()); SkillClear_Click(this, new RoutedEventArgs()); FilePreview.Clear(); ChangedFiles.ItemsSource = null; Diff.Clear(); Refresh(); RefreshFiles(); }
+    { if (refreshing || desk == null) return; fileDirectory = ""; FilePreview.Clear(); ChangedFiles.ItemsSource = null; Diff.Clear(); Refresh(); RefreshFiles(); }
     private void Task_Selected(object sender, SelectionChangedEventArgs e) { if (!refreshing && desk != null) { if (CurrentTask != null && CurrentTask.ProjectId != CurrentProject?.Id) Projects.SelectedItem = desk.State.Projects.First(p => p.Id == CurrentTask.ProjectId); RenderTask(); ChangedFiles.ItemsSource = null; Diff.Clear(); ReviewStatus.Text = "작업이 바뀌었습니다. 변경 목록을 조회하세요."; StartButton.IsEnabled = CanSubmit(); } }
     private void ChooseCli_Click(object sender, RoutedEventArgs e)
     { var dialog = new OpenFileDialog { Filter = "Codex executable|codex.exe", Title = "공식 codex.exe 선택" }; if (dialog.ShowDialog(this) == true) { desk.State.CodexPath = dialog.FileName; desk.Save(); Footer.Text = "CLI 경로 저장됨. 엔진 연결을 누르세요."; } }
@@ -204,10 +218,12 @@ public partial class MainWindow : Window
         if (task.Status == "실행 중")
         {
             if (pendingImages.Count > 0 || pendingSkills.Count > 0) throw new IOException("추가 지시는 텍스트로 전송하세요. 첨부는 다음 실행에서 사용할 수 있습니다.");
-            await desk.SteerAsync(task, prompt); Prompt.Clear(); return;
+            await desk.SteerAsync(task, prompt); if (CurrentTask == task) Prompt.Clear(); else desk.State.Desktop.Drafts[task.Id] = ""; return;
         }
         if (task.Transcript.Count == 0) task.Title = Safety.Redact(prompt.Length > 45 ? prompt[..45] + "…" : prompt);
-        await desk.StartAsync(task, prompt, Model.SelectedItem as string ?? "", Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList(), effort: Effort.SelectedIndex > 0 ? Effort.SelectedItem as string : null); Prompt.Clear(); ImageClear_Click(this, new RoutedEventArgs()); SkillClear_Click(this, new RoutedEventArgs());
+        await desk.StartAsync(task, prompt, Model.SelectedItem as string ?? "", Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList(), effort: Effort.SelectedIndex > 0 ? Effort.SelectedItem as string : null);
+        if (CurrentTask == task && Prompt.Text == prompt) { Prompt.Clear(); ImageClear_Click(this, new RoutedEventArgs()); SkillClear_Click(this, new RoutedEventArgs()); }
+        else { desk.State.Desktop.Drafts[task.Id] = ""; imageDrafts.Remove(task.Id); skillDrafts.Remove(task.Id); }
     });
     private async void Stop_Click(object sender, RoutedEventArgs e) => await Guard(async () => { if (CurrentTask != null) await desk.StopAsync(CurrentTask); });
     private void RefreshFiles(bool clearPreview = true)
@@ -275,7 +291,7 @@ public partial class MainWindow : Window
         await desk.AnswerAsync(request, true, answers, EscalationConsent.IsChecked == true);
     });
     private async void Decline_Click(object sender, RoutedEventArgs e) => await Guard(async () => { if (CurrentApproval != null) await desk.AnswerAsync(CurrentApproval, false); });
-    public async Task ShutdownController() { draftTimer.Stop(); await terminal.DisposeAsync(); await desk.DisposeAsync(); }
+    public async Task ShutdownController() { DisposeBrowsers(); draftTimer.Stop(); await terminal.DisposeAsync(); await desk.DisposeAsync(); }
     public async Task<string> RunProgrammaticUiChecks(string data)
     {
         var root = Path.Combine(data, "ui-project"); var other = Path.Combine(data, "ui-other");
@@ -336,7 +352,7 @@ public partial class MainWindow : Window
         if (desk.State.Tasks.Any(DeskController.IsRunning) && MessageBox.Show(this, "Hermes의 실행 작업을 중단하고 종료할까요?", "종료", MessageBoxButton.YesNo) != MessageBoxResult.Yes) { e.Cancel = true; return; }
         e.Cancel = true; closing = true; draftTimer.Stop();
         foreach (var task in desk.State.Tasks.Where(DeskController.IsRunning).ToList()) { try { await desk.StopAsync(task); } catch (IOException) { } }
-        StopComputer(); draftSaveTimer.Stop(); browserView?.Dispose();
+        StopComputer(); draftSaveTimer.Stop(); DisposeBrowsers();
         await terminal.DisposeAsync(); await desk.DisposeAsync(); desk.Save(); Close();
     }
 }

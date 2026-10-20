@@ -112,11 +112,25 @@ public partial class MainWindow
         if (desk == null || switchingDraft || draftTaskId == null) return;
         desk.State.Desktop.Drafts[draftTaskId] = Safety.Redact(Prompt.Text); draftSaveTimer.Stop(); draftSaveTimer.Start();
     }
+    private readonly Dictionary<string, List<ProjectImage>> imageDrafts = [];
+    private readonly Dictionary<string, List<ProjectSkill>> skillDrafts = [];
+    private readonly Dictionary<string, string> modelDrafts = [];
     private void SwitchDraft()
     {
         var id = CurrentTask?.Id;
         if (id == draftTaskId) return;
-        if (draftTaskId != null) desk.State.Desktop.Drafts[draftTaskId] = Safety.Redact(Prompt.Text);
+        if (draftTaskId != null)
+        {
+            desk.State.Desktop.Drafts[draftTaskId] = Safety.Redact(Prompt.Text);
+            imageDrafts[draftTaskId] = pendingImages.ToList(); skillDrafts[draftTaskId] = pendingSkills.ToList();
+            modelDrafts[draftTaskId] = Model.SelectedItem as string ?? "";
+        }
+        pendingImages.Clear(); pendingSkills.Clear();
+        if (id != null && imageDrafts.TryGetValue(id, out var images)) pendingImages.AddRange(images);
+        if (id != null && skillDrafts.TryGetValue(id, out var skills)) pendingSkills.AddRange(skills);
+        Attachments.ItemsSource = pendingImages.ToList(); SkillHint.Text = string.Join(", ", pendingSkills.Select(s => s.Name));
+        var selectedModel = id != null && modelDrafts.TryGetValue(id, out var savedModel) ? savedModel : CurrentTask?.Model;
+        if (selectedModel != null && Model.Items.Contains(selectedModel)) Model.SelectedItem = selectedModel;
         draftTaskId = id; switchingDraft = true;
         Prompt.Text = id != null && desk.State.Desktop.Drafts.TryGetValue(id, out var text) ? text : "";
         switchingDraft = false;
@@ -162,6 +176,23 @@ public partial class MainWindow
             SidebarGroups.Children.Add(group);
         }
         if (desk.State.Projects.Count == 0) SidebarGroups.Children.Add(new TextBlock { Text = "프로젝트를 추가하여 시작하세요", Foreground = Brush("Muted"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(10, 20, 10, 0) });
+    }
+    private readonly List<string> openChats = [];
+    private void RenderChatTabs()
+    {
+        if (CurrentTask is { } current && !openChats.Contains(current.Id)) openChats.Add(current.Id);
+        ChatTabs.Children.Clear();
+        foreach (var id in openChats.ToList())
+        {
+            var task = desk.State.Tasks.FirstOrDefault(t => t.Id == id); if (task == null || task.Archived) { openChats.Remove(id); continue; }
+            var tab = new StackPanel { Orientation = Orientation.Horizontal };
+            var select = new Button { Content = (DeskController.IsRunning(task) ? "● " : "") + (task.Title.Length > 18 ? task.Title[..18] + "…" : task.Title), ToolTip = task.Title + " · " + task.Status, Background = task == CurrentTask ? Brush("Selected") : Brushes.Transparent };
+            select.Click += (_, _) => SelectTask(task); tab.Children.Add(select);
+            var close = new Button { Content = "×", ToolTip = "탭 닫기 · 작업은 계속 실행됩니다" };
+            close.Click += (_, _) => { openChats.Remove(id); if (CurrentTask == task && openChats.LastOrDefault() is { } next) SelectTask(desk.State.Tasks.First(t => t.Id == next)); else if (CurrentTask == task) NewTask_Click(this, new RoutedEventArgs()); RenderChatTabs(); };
+            tab.Children.Add(close); ChatTabs.Children.Add(tab);
+        }
+        var add = new Button { Content = "+", ToolTip = "새 채팅" }; add.Click += NewTask_Click; ChatTabs.Children.Add(add);
     }
     private Button TaskButton(WorkItem task)
     {

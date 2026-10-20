@@ -84,6 +84,10 @@ if (args.Contains("--lifecycle-smoke"))
 {
     await LifecycleTests.Run(Path.Combine(baseDir, "lifecycle-project"), args[Array.IndexOf(args, "--codex") + 1], args[Array.IndexOf(args, "--report") + 1]); return;
 }
+if (args.Contains("--multi-chat-only"))
+{
+    await MultiChatTests.Run(args[Array.IndexOf(args, "--root") + 1], args[Array.IndexOf(args, "--codex") + 1]); return;
+}
 int count = 0;
 void Assert(bool truth, string label) { if (!truth) throw new Exception("FAIL: " + label); count++; Console.WriteLine("PASS: " + label); }
 void Reject(Action act, string label) { try { act(); } catch (IOException) { Assert(true, label); return; } throw new Exception("FAIL: " + label); }

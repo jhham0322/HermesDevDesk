@@ -10,6 +10,7 @@ public sealed class ProjectEntry
     public string? WorktreeBranch { get; set; }
     public string? BaseCommit { get; set; }
     public bool LocalMcpEnabled { get; set; }
+    public bool FullPermissions { get; set; } = true;
     public bool BrowserEnabled { get; set; }
     public bool ComputerEnabled { get; set; }
     public override string ToString() => Name;
@@ -46,6 +47,7 @@ public sealed record TranscriptEntry(string Kind, string Text, DateTime At, stri
 public sealed class AppState
 {
     public string PendingModel { get; set; } = "";
+    public Dictionary<string, List<string>> SavedModels { get; set; } = [];
     public string? CodexPath { get; set; }
     public List<ProjectEntry> Projects { get; set; } = [];
     public List<WorkItem> Tasks { get; set; } = [];

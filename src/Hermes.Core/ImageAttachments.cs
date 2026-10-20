@@ -7,6 +7,18 @@ public static class ImageAttachments
 {
     public const int MaxImageBytes = 2 * 1024 * 1024;
     public const int MaxTotalBytes = 3 * 1024 * 1024;
+    public static ProjectImage Import(string root, string source)
+    {
+        root = Safety.ProjectRoot(root); source = Path.GetFullPath(source);
+        if (Safety.Within(root, source)) return Read(root, Path.GetRelativePath(root, source));
+        Safety.RejectReparseAncestors(source);
+        var info = new FileInfo(source);
+        if (!info.Exists || info.Length > MaxImageBytes) throw new IOException("이미지 파일당 2MB 이하이어야 합니다.");
+        var relative = Path.Combine(".hermes-attachments", Guid.NewGuid().ToString("N") + Path.GetExtension(source));
+        var target = Safety.Resolve(root, relative); Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        try { File.Copy(source, target); return Read(root, relative); }
+        catch { if (File.Exists(target)) File.Delete(target); throw; }
+    }
     public static ProjectImage Read(string root, string relative)
     {
         var path = Safety.Resolve(root, relative); var file = new FileInfo(path);
