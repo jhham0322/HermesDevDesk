@@ -150,6 +150,7 @@ public partial class MainWindow
     private void Forward_Click(object sender, RoutedEventArgs e) => Navigate(1);
     private void SelectTask(WorkItem task)
     {
+        closedChats.Remove(task.Id);
         ArchivedOnly.IsChecked = task.Archived; Search.Clear();
         Projects.SelectedItem = desk.State.Projects.First(p => p.Id == task.ProjectId); Refresh(); Tasks.SelectedItem = task;
         RenderTask(); RenderSidebar(); Prompt.Focus();
@@ -178,9 +179,14 @@ public partial class MainWindow
         if (desk.State.Projects.Count == 0) SidebarGroups.Children.Add(new TextBlock { Text = "프로젝트를 추가하여 시작하세요", Foreground = Brush("Muted"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(10, 20, 10, 0) });
     }
     private readonly List<string> openChats = [];
+    private readonly HashSet<string> closedChats = [];
+    private string chatTabsStamp = "";
     private void RenderChatTabs()
     {
-        if (CurrentTask is { } current && !openChats.Contains(current.Id)) openChats.Add(current.Id);
+        if (CurrentTask is { } current && !openChats.Contains(current.Id) && !closedChats.Contains(current.Id)) openChats.Add(current.Id);
+        var stamp = CurrentTask?.Id + "|" + string.Join('|', openChats.Select(id => { var task = desk.State.Tasks.FirstOrDefault(t => t.Id == id); return id + task?.Title + task?.Status + task?.Archived; }));
+        if (stamp == chatTabsStamp) return;
+        chatTabsStamp = stamp;
         ChatTabs.Children.Clear();
         foreach (var id in openChats.ToList())
         {
@@ -189,7 +195,7 @@ public partial class MainWindow
             var select = new Button { Content = (DeskController.IsRunning(task) ? "● " : "") + (task.Title.Length > 18 ? task.Title[..18] + "…" : task.Title), ToolTip = task.Title + " · " + task.Status, Background = task == CurrentTask ? Brush("Selected") : Brushes.Transparent };
             select.Click += (_, _) => SelectTask(task); tab.Children.Add(select);
             var close = new Button { Content = "×", ToolTip = "탭 닫기 · 작업은 계속 실행됩니다" };
-            close.Click += (_, _) => { openChats.Remove(id); if (CurrentTask == task && openChats.LastOrDefault() is { } next) SelectTask(desk.State.Tasks.First(t => t.Id == next)); else if (CurrentTask == task) NewTask_Click(this, new RoutedEventArgs()); RenderChatTabs(); };
+            close.Click += (_, _) => { closedChats.Add(id); openChats.Remove(id); if (CurrentTask == task && openChats.LastOrDefault() is { } next) SelectTask(desk.State.Tasks.First(t => t.Id == next)); else if (CurrentTask == task) NewTask_Click(this, new RoutedEventArgs()); RenderChatTabs(); };
             tab.Children.Add(close); ChatTabs.Children.Add(tab);
         }
         var add = new Button { Content = "+", ToolTip = "새 채팅" }; add.Click += NewTask_Click; ChatTabs.Children.Add(add);

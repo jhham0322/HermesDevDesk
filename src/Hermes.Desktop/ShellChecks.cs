@@ -25,6 +25,11 @@ public partial class MainWindow
         SelectTask(second); Check(pendingImages.Count == 1, "second chat attachment restored");
         first.Status = "실행 중"; desk.Save(); Check(CanSubmit(), "another running chat does not disable send");
         first.Status = "대기"; ImageClear_Click(this, new());
+        SelectTask(second); first.Status = "실행 중"; desk.Save();
+        var tab = ChatTabs.Children.OfType<StackPanel>().First(row => row.Children.OfType<Button>().First().ToolTip?.ToString() == second.Title + " · " + second.Status);
+        tab.Children.OfType<Button>().Last().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(!openChats.Contains(second.Id) && first.Status == "실행 중", "closing selected tab keeps it closed while other chat continues");
+        SelectTask(second); Check(openChats.Contains(second.Id), "sidebar can reopen a closed chat tab"); first.Status = "대기";
         first.Pinned = true; ChatMessages.Rename(desk.State, first, "고정된 UI 채팅"); desk.Save();
         Check(SidebarGroups.Children.OfType<TextBlock>().Any(t => t.Text == "고정됨"), "pinned section renders");
         SelectTask(first); Check(TaskTitle.Text == "고정된 UI 채팅", "renamed header renders");

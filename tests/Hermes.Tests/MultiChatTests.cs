@@ -69,6 +69,6 @@ internal static class MultiChatTests
         await Until(() => !DeskController.IsRunning(a), "interrupted chat resumes");
         Check(a.Status == "완료", "resumed chat completes");
         Check(a.ThreadWritable == true && desk.Approvals.Count == 0, "existing chat upgrades to project write/network access with approval never");
-        File.WriteAllText(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { version = "0.8.3", passed = true, officialEngine = true, syntheticServer = true, actualModelCalls = 0, attachments = true, simultaneousChats = 2, separateCancellation = true, separateUsage = true, resume = true }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { version = "0.8.4", passed = true, officialEngine = true, syntheticServer = true, actualModelCalls = 0, attachments = true, simultaneousChats = 2, separateCancellation = true, separateUsage = true, resume = true }, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

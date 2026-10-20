@@ -1,6 +1,6 @@
-# Hermes DevDesk 0.8.3
+# Hermes DevDesk 0.8.4
 
-[Windows 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.8.3)
+[Windows 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.8.4)
 
 - 이미지: PNG/JPEG 파일 선택, Ctrl+V 붙여넣기, 드래그 앤 드롭. 외부 이미지는 프로젝트 `.hermes-attachments`로 복사합니다. 파일당 2MB, 최대 4개·합계 3MB. 이미지 지원 모델이 필요합니다.
 - 모델: 설정에서 모델명을 입력하고 **입력한 모델 추가**를 누르세요. 같은 서버의 여러 모델을 저장하고 채팅별로 선택합니다.

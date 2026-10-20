@@ -218,12 +218,19 @@ public partial class MainWindow : Window
         if (task.Status == "실행 중")
         {
             if (pendingImages.Count > 0 || pendingSkills.Count > 0) throw new IOException("추가 지시는 텍스트로 전송하세요. 첨부는 다음 실행에서 사용할 수 있습니다.");
-            await desk.SteerAsync(task, prompt); if (CurrentTask == task) Prompt.Clear(); else desk.State.Desktop.Drafts[task.Id] = ""; return;
+            await desk.SteerAsync(task, prompt);
+            if (CurrentTask == task && Prompt.Text == prompt) Prompt.Clear();
+            else if (CurrentTask != task && desk.State.Desktop.Drafts.GetValueOrDefault(task.Id) == prompt) desk.State.Desktop.Drafts[task.Id] = "";
+            return;
         }
         if (task.Transcript.Count == 0) task.Title = Safety.Redact(prompt.Length > 45 ? prompt[..45] + "…" : prompt);
         await desk.StartAsync(task, prompt, Model.SelectedItem as string ?? "", Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList(), effort: Effort.SelectedIndex > 0 ? Effort.SelectedItem as string : null);
         if (CurrentTask == task && Prompt.Text == prompt) { Prompt.Clear(); ImageClear_Click(this, new RoutedEventArgs()); SkillClear_Click(this, new RoutedEventArgs()); }
-        else { desk.State.Desktop.Drafts[task.Id] = ""; imageDrafts.Remove(task.Id); skillDrafts.Remove(task.Id); }
+        else if (CurrentTask != task)
+        {
+            if (desk.State.Desktop.Drafts.GetValueOrDefault(task.Id) == prompt) desk.State.Desktop.Drafts[task.Id] = "";
+            imageDrafts.Remove(task.Id); skillDrafts.Remove(task.Id);
+        }
     });
     private async void Stop_Click(object sender, RoutedEventArgs e) => await Guard(async () => { if (CurrentTask != null) await desk.StopAsync(CurrentTask); });
     private void RefreshFiles(bool clearPreview = true)
