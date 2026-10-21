@@ -212,6 +212,7 @@ await using (var rpc = new AppServerClient())
 }
 Console.WriteLine($"PASS {count} checks. Fixture transport is unit testing, not engine verification. Scratch: {baseDir}");
 await ChatCompatibilityTests.Run(Assert);
+await ResponseWaitingTests.Run(baseDir, Assert);
 BrowserLibraryTests.Run(Assert);
 ExecutionMemoryTests.Run(baseDir, Assert);
 await McpMemoryTests.Run(baseDir, Assert);

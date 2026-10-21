@@ -41,9 +41,9 @@ internal static class ComputerChangeWait
         try
         {
             using var input = new StreamReader(Console.OpenStandardInput(), Encoding.UTF8);
-            var wire = input.ReadToEnd(); if (wire.Length > 8_000_000) throw new IOException("Change-wait input size limit");
-            var request = JsonSerializer.Deserialize<ComputerWaitRequest>(wire) ?? throw new IOException("Missing change-wait request");
-            if (request.TimeoutMs is < 300 or > 30000 || request.Options.IntervalMs != 300) throw new IOException("Change-wait requires 300ms local cadence and 300..30000ms timeout");
+            var wire = input.ReadToEnd(); if (wire.Length > 8_000_000) throw new Hermes.Core.HermesException("Change-wait input size limit");
+            var request = JsonSerializer.Deserialize<ComputerWaitRequest>(wire) ?? throw new Hermes.Core.HermesException("Missing change-wait request");
+            if (request.TimeoutMs is < 300 or > 30000 || request.Options.IntervalMs != 300) throw new Hermes.Core.HermesException("Change-wait requires 300ms local cadence and 300..30000ms timeout");
             var gate = new ComputerChangeGate(request.Options); interval = request.Options.IntervalMs;
             if (request.BaselineImageUrl != null) gate.SetDelivered(Sample(request.BaselineImageUrl), request.BaselineCursor, request.LastDeliveryUtc);
             while (clock.ElapsedMilliseconds < request.TimeoutMs)
@@ -82,14 +82,14 @@ internal sealed class ComputerChangeWaitClient : IDisposable
     internal ComputerWaitMetrics Latest { get; private set; } = new(0, 0, 0, 0, 0, 0, 300);
     internal async Task<ComputerWaitReply> Execute(ComputerWaitRequest request, CancellationToken cancellation)
     {
-        if (process != null) throw new IOException("A change-wait is already running");
+        if (process != null) throw new Hermes.Core.HermesException("A change-wait is already running");
         Latest = new(0, 0, 0, 0, 0, 0, 300);
         var info = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
         info.ArgumentList.Add("--computer-change-wait");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation); deadline.CancelAfter(request.TimeoutMs + 15000);
-        var child = Process.Start(info) ?? throw new IOException("Change-wait worker failed to start"); process = child;
+        var child = Process.Start(info) ?? throw new Hermes.Core.HermesException("Change-wait worker failed to start"); process = child;
         using var cancel = deadline.Token.Register(Stop);
         try
         {
@@ -99,13 +99,13 @@ internal sealed class ComputerChangeWaitClient : IDisposable
             ComputerWaitReply? result = null;
             while (await child.StandardOutput.ReadLineAsync(deadline.Token) is { } line)
             {
-                if (line.Length > 8_000_000) throw new IOException("Change-wait result size limit");
+                if (line.Length > 8_000_000) throw new Hermes.Core.HermesException("Change-wait result size limit");
                 using var doc = JsonDocument.Parse(line);
                 if (doc.RootElement.TryGetProperty("progress", out var progress)) Latest = progress.Deserialize<ComputerWaitMetrics>()!;
                 else { result = doc.RootElement.Deserialize<ComputerWaitReply>(); if (result != null) Latest = result.Metrics; }
             }
             await child.WaitForExitAsync(deadline.Token); await errors;
-            return result ?? throw new IOException("Change-wait worker ended without a result");
+            return result ?? throw new Hermes.Core.HermesException("Change-wait worker ended without a result");
         }
         finally { Stop(); child.Dispose(); process = null; }
     }

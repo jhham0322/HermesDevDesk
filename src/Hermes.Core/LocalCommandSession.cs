@@ -10,11 +10,11 @@ public sealed class LocalCommandSession : IAsyncDisposable
     public LocalCommandSession(string home) => this.home = home;
     public async Task<string> RunAsync(string exe, string root, string command, bool writable)
     {
-        if (Interlocked.CompareExchange(ref active, 1, 0) != 0) throw new IOException("명령이 이미 실행 중입니다.");
+        if (Interlocked.CompareExchange(ref active, 1, 0) != 0) throw new HermesException("명령이 이미 실행 중입니다.");
         try
         {
             root = Safety.ProjectRoot(root);
-            if (string.IsNullOrWhiteSpace(command) || command.Length > 20000) throw new IOException("명령 내용을 확인하세요.");
+            if (string.IsNullOrWhiteSpace(command) || command.Length > 20000) throw new HermesException("명령 내용을 확인하세요.");
             if (client != null) await client.DisposeAsync();
             client = new(); client.Approval += request => _ = client.RejectUnsupportedAsync(request);
             await client.ConnectAsync(exe, root, home);

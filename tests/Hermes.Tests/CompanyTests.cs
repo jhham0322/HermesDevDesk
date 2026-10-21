@@ -70,7 +70,7 @@ internal static class CompanyTests
         var text = await Send(); assert(text.Contains("COMPANY_MOCK_OK") && lastPath == "/responses", "relay mock streaming contract forwarded to local App Server route");
         assert(observed[^1].Requests == 1 && observed[^1].Tokens.Cached == 40 && observed[^1].Tokens.Reasoning == 10 && observed[^1].Tokens.Total == 130, "actual response fields and request count captured");
         var beforeHits = hits; await Send(false); assert(hits == beforeHits, "unauthorized local bridge call never reaches company endpoint");
-        replyMode = "redirect"; beforeHits = hits; var redirect = await Send(); assert(hits == beforeHits + 1 && redirect.Contains("no fallback"), "redirect does not forward data/key to public OpenAI");
+        replyMode = "redirect"; beforeHits = hits; var redirect = await Send(); assert(hits == beforeHits + 1 && redirect == "{}" && observed[^1].HttpStatus == 302, "redirect does not forward data/key to public OpenAI");
         replyMode = "fail"; var failed = await Send(); assert(!failed.Contains(key) && observed[^1].Status == "failed" && observed[^1].Tokens.Input == null, "upstream failure does not leak key or invent usage");
         replyMode = "failed-response"; await Send(); assert(observed[^1].Status == "failed" && observed[^1].Tokens.Total == 130, "HTTP 200 failed Responses status and supplied usage retained");
         replyMode = "missing-final"; await Send(); assert(observed[^1].Status == "unknown" && observed[^1].Tokens.Total == null, "unfinished SSE stays unknown with no invented usage");
@@ -81,7 +81,8 @@ internal static class CompanyTests
             streamingRequest.Content = new StringContent("{\"model\":\"unused\",\"input\":\"stream fixture\",\"stream\":true}", Encoding.UTF8, "application/json");
             using var streamingReply = await client.SendAsync(streamingRequest, HttpCompletionOption.ResponseHeadersRead);
             using var reader = new StreamReader(await streamingReply.Content.ReadAsStreamAsync());
-            var firstLine = await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            string? firstLine; using var firstChunkDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            do { firstLine = await reader.ReadLineAsync(firstChunkDeadline.Token); } while (firstLine != null && !firstLine.Contains("FIRST_CHUNK"));
             assert(firstLine?.Contains("FIRST_CHUNK") == true && !releaseFinal.Task.IsCompleted, "Responses SSE first chunk reaches client before final response");
             releaseFinal.TrySetResult(); var remaining = await reader.ReadToEndAsync();
             assert(remaining.Contains("response.completed") && observed[^1].Tokens.Total == 130, "stream completion retains final actual usage");

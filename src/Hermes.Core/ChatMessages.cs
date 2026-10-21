@@ -21,8 +21,8 @@ public static class ChatMessages
     }
     public static void Rename(AppState state, WorkItem task, string title)
     {
-        if (!state.Tasks.Contains(task)) throw new IOException("등록한 대화가 아닙니다.");
-        title = title.Trim(); if (title.Length is 0 or > 200) throw new IOException("대화 이름은 1~200자입니다.");
+        if (!state.Tasks.Contains(task)) throw new HermesException("등록한 대화가 아닙니다.");
+        title = title.Trim(); if (title.Length is 0 or > 200) throw new HermesException("대화 이름은 1~200자입니다.");
         task.Title = Safety.Redact(title);
     }
 }

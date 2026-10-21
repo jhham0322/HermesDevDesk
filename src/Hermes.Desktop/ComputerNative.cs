@@ -85,20 +85,20 @@ internal static class ComputerNative
     private static IntPtr Validate(ComputerWindow window)
     {
         var handle = new IntPtr(window.Handle);
-        if (!IsWindow(handle)) throw new IOException("선택한 창이 닫혔습니다.");
+        if (!IsWindow(handle)) throw new Hermes.Core.HermesException("선택한 창이 닫혔습니다.");
         GetWindowThreadProcessId(handle, out var pid);
-        if (pid != window.ProcessId) throw new IOException("창의 프로세스가 바뀌었습니다. 대상 창을 다시 선택하세요.");
+        if (pid != window.ProcessId) throw new Hermes.Core.HermesException("창의 프로세스가 바뀌었습니다. 대상 창을 다시 선택하세요.");
         using var process = Process.GetProcessById(window.ProcessId);
         using var self = Process.GetCurrentProcess();
-        if (process.SessionId != self.SessionId || self.SessionId == 0) throw new IOException("Computer input requires a target in the current interactive Windows session.");
-        if (process.StartTime.ToUniversalTime().Ticks != window.StartTicks) throw new IOException("대상 프로세스가 재시작됐습니다.");
-        if (IsHungAppWindow(handle)) throw new IOException("대상 창이 응답하지 않습니다.");
+        if (process.SessionId != self.SessionId || self.SessionId == 0) throw new Hermes.Core.HermesException("Computer input requires a target in the current interactive Windows session.");
+        if (process.StartTime.ToUniversalTime().Ticks != window.StartTicks) throw new Hermes.Core.HermesException("대상 프로세스가 재시작됐습니다.");
+        if (IsHungAppWindow(handle)) throw new Hermes.Core.HermesException("대상 창이 응답하지 않습니다.");
         return handle;
     }
     private static Rect Client(IntPtr handle)
     {
-        if (IsIconic(handle)) throw new IOException("최소화된 창입니다. activate로 복원하세요.");
-        if (!GetClientRect(handle, out var rect) || rect.Width <= 0 || rect.Height <= 0 || rect.Width > 12000 || rect.Height > 12000 || (long)rect.Width * rect.Height > 40_000_000) throw new IOException("대상 창 크기를 지원하지 않습니다.");
+        if (IsIconic(handle)) throw new Hermes.Core.HermesException("최소화된 창입니다. activate로 복원하세요.");
+        if (!GetClientRect(handle, out var rect) || rect.Width <= 0 || rect.Height <= 0 || rect.Width > 12000 || rect.Height > 12000 || (long)rect.Width * rect.Height > 40_000_000) throw new Hermes.Core.HermesException("대상 창 크기를 지원하지 않습니다.");
         return rect;
     }
     internal static string InputDesktopStatus()
@@ -122,25 +122,25 @@ internal static class ComputerNative
     private static void Focus(IntPtr handle)
     {
         var desktop = InputDesktopStatus();
-        if (desktop != "same-input-desktop") throw new IOException("InputDesktopDenied: " + desktop + "; no desktop switch, elevation or security bypass attempted.");
+        if (desktop != "same-input-desktop") throw new Hermes.Core.HermesException("InputDesktopDenied: " + desktop + "; no desktop switch, elevation or security bypass attempted.");
         if (IsIconic(handle)) ShowWindow(handle, 9);
         var requested = SetForegroundWindow(handle);
         for (var i = 0; i < 20 && GetForegroundWindow() != handle; i++) Thread.Sleep(25);
-        if (GetForegroundWindow() != handle) throw new IOException($"ForegroundDenied: SetForegroundWindow={requested}; target is not foreground. No input sent. Use the normal foreground app approval path; do not bypass Windows restrictions.");
+        if (GetForegroundWindow() != handle) throw new Hermes.Core.HermesException($"ForegroundDenied: SetForegroundWindow={requested}; target is not foreground. No input sent. Use the normal foreground app approval path; do not bypass Windows restrictions.");
     }
     private static void GuardInput(ComputerWindow window, IntPtr handle)
     {
         Validate(window);
-        if (GetForegroundWindow() != handle) throw new IOException("사용자가 다른 창으로 전환하여 입력을 중단했습니다.");
+        if (GetForegroundWindow() != handle) throw new Hermes.Core.HermesException("사용자가 다른 창으로 전환하여 입력을 중단했습니다.");
     }
     private static void CheckPhysicalKeys()
     {
-        foreach (var key in new[] { 0x10, 0x11, 0x12, 0x5B, 0x5C }) if ((GetAsyncKeyState(key) & 0x8000) != 0) throw new IOException("사용자가 보조 키를 누르고 있습니다. 키를 놓은 뒤 다시 시도하세요.");
+        foreach (var key in new[] { 0x10, 0x11, 0x12, 0x5B, 0x5C }) if ((GetAsyncKeyState(key) & 0x8000) != 0) throw new Hermes.Core.HermesException("사용자가 보조 키를 누르고 있습니다. 키를 놓은 뒤 다시 시도하세요.");
     }
     private static void Send(params Input[] inputs)
     {
         var sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>()); nativeInputEvents += (int)sent;
-        if (sent != inputs.Length) throw new IOException("Windows 입력이 차단됐습니다. 관리자 권한/UAC/보안 화면을 우회하지 않습니다.");
+        if (sent != inputs.Length) throw new Hermes.Core.HermesException("Windows 입력이 차단됐습니다. 관리자 권한/UAC/보안 화면을 우회하지 않습니다.");
     }
     private static Input Mouse(uint flags, uint data = 0) => new() { Type = 0, Data = new() { Mouse = new() { Flags = flags, Data = data } } };
     private static Input Key(ushort key, bool up = false, ushort scan = 0, bool unicode = false) => new() { Type = 1, Data = new() { Key = new() { VirtualKey = key, Scan = scan, Flags = (up ? 2u : 0) | (unicode ? 4u : 0) | (!unicode && key is >= 0x21 and <= 0x2E ? 1u : 0) } } };
@@ -148,11 +148,11 @@ internal static class ComputerNative
     {
         var scale = Math.Min(1.0, Math.Min(1600.0 / rect.Width, 1000.0 / rect.Height));
         var width = observedWidth > 0 ? observedWidth : Math.Max(1, (int)Math.Round(rect.Width * scale)); var height = observedHeight > 0 ? observedHeight : Math.Max(1, (int)Math.Round(rect.Height * scale));
-        if (x < 0 || y < 0 || x >= width || y >= height) throw new IOException("좌표가 선택한 창의 이미지 범위를 벗어납니다.");
+        if (x < 0 || y < 0 || x >= width || y >= height) throw new Hermes.Core.HermesException("좌표가 선택한 창의 이미지 범위를 벗어납니다.");
         var client = ComputerImageCoordinates.ToClient(x, y, width, height, rect.Width, rect.Height);
         var point = new Point(client.X, client.Y);
-        if (!ClientToScreen(handle, ref point)) throw new IOException("창 좌표 변환에 실패했습니다.");
-        if (GetAncestor(WindowFromPoint(point), 2) != handle) throw new IOException("다른 창이 입력 위치를 가리고 있어 조작을 취소했습니다.");
+        if (!ClientToScreen(handle, ref point)) throw new Hermes.Core.HermesException("창 좌표 변환에 실패했습니다.");
+        if (GetAncestor(WindowFromPoint(point), 2) != handle) throw new Hermes.Core.HermesException("다른 창이 입력 위치를 가리고 있어 조작을 취소했습니다.");
         return point;
     }
     private static Input Move(Point point)
@@ -177,7 +177,7 @@ internal static class ComputerNative
     private static void CheckPassword(ComputerWindow window)
     {
         var focused = AutomationElement.FocusedElement;
-        if (focused == null || focused.Current.IsPassword || !BelongsToClient(focused, new IntPtr(window.Handle))) throw new IOException("선택한 앱의 일반 입력 필드에서만 키보드 입력을 허용합니다. 비밀번호 입력은 직접 수행하세요.");
+        if (focused == null || focused.Current.IsPassword || !BelongsToClient(focused, new IntPtr(window.Handle))) throw new Hermes.Core.HermesException("선택한 앱의 일반 입력 필드에서만 키보드 입력을 허용합니다. 비밀번호 입력은 직접 수행하세요.");
     }
     internal static void ReleaseDrag() { try { Send(Mouse(0x0004)); } catch (IOException) { } }
 
@@ -193,7 +193,7 @@ internal static class ComputerNative
             {
                 // Protection/blank check before input. Never retry with an alternate capture API.
                 Capture(request.Window, handle, rect, false);
-                if (rect.Width != request.ExpectedWidth || rect.Height != request.ExpectedHeight) throw new IOException("화면 크기가 바뀌었습니다. inspect를 다시 실행하세요.");
+                if (rect.Width != request.ExpectedWidth || rect.Height != request.ExpectedHeight) throw new Hermes.Core.HermesException("화면 크기가 바뀌었습니다. inspect를 다시 실행하세요.");
                 GuardInput(request.Window, handle); CheckPhysicalKeys();
                 if (action.Action == "click")
                 {
@@ -226,7 +226,7 @@ internal static class ComputerNative
                     try
                     {
                         Send(Move(start), Mouse(0x0002));
-                        for (var i = 1; i <= 16; i++) { GuardInput(request.Window, handle); var point = new Point(start.X + (end.X - start.X) * i / 16, start.Y + (end.Y - start.Y) * i / 16); if (GetAncestor(WindowFromPoint(point), 2) != handle) throw new IOException("드래그 경로가 대상 창에서 벗어났습니다."); Send(Move(point)); Thread.Sleep(12); }
+                        for (var i = 1; i <= 16; i++) { GuardInput(request.Window, handle); var point = new Point(start.X + (end.X - start.X) * i / 16, start.Y + (end.Y - start.Y) * i / 16); if (GetAncestor(WindowFromPoint(point), 2) != handle) throw new Hermes.Core.HermesException("드래그 경로가 대상 창에서 벗어났습니다."); Send(Move(point)); Thread.Sleep(12); }
                     }
                     finally { ReleaseDrag(); }
                 }
@@ -245,18 +245,18 @@ internal static class ComputerNative
     }
     private static ComputerFrame Capture(ComputerWindow window, IntPtr handle, Rect rect, bool includeElements = true)
     {
-        if (GetWindowDisplayAffinity(handle, out var affinity) && affinity != 0) throw new IOException("CaptureProtected: window explicitly excludes capture. No alternate capture attempted.");
-        var dc = GetDC(handle); if (dc == IntPtr.Zero) throw new IOException("대상 창 캡처 DC를 얻지 못했습니다.");
+        if (GetWindowDisplayAffinity(handle, out var affinity) && affinity != 0) throw new Hermes.Core.HermesException("CaptureProtected: window explicitly excludes capture. No alternate capture attempted.");
+        var dc = GetDC(handle); if (dc == IntPtr.Zero) throw new Hermes.Core.HermesException("대상 창 캡처 DC를 얻지 못했습니다.");
         var memory = CreateCompatibleDC(dc); var bitmap = CreateCompatibleBitmap(dc, rect.Width, rect.Height); var previous = SelectObject(memory, bitmap);
         try
         {
-            if (memory == IntPtr.Zero || bitmap == IntPtr.Zero || !PrintWindow(handle, memory, 3)) throw new IOException("이 앱은 창 캡처를 지원하지 않습니다. 다른 창을 선택하세요.");
+            if (memory == IntPtr.Zero || bitmap == IntPtr.Zero || !PrintWindow(handle, memory, 3)) throw new Hermes.Core.HermesException("이 앱은 창 캡처를 지원하지 않습니다. 다른 창을 선택하세요.");
             var source = Imaging.CreateBitmapSourceFromHBitmap(bitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions()); source.Freeze();
             var scale = Math.Min(1.0, Math.Min(1600.0 / source.PixelWidth, 1000.0 / source.PixelHeight));
             BitmapSource image = scale == 1 ? source : new TransformedBitmap(source, new ScaleTransform(scale, scale)); image.Freeze();
             var encoder = new JpegBitmapEncoder { QualityLevel = 86 }; encoder.Frames.Add(BitmapFrame.Create(image)); using var bytes = new MemoryStream(); encoder.Save(bytes);
             var imageUrl = "data:image/jpeg;base64," + Convert.ToBase64String(bytes.ToArray());
-            if (ComputerCaptureGuard.IsBlackOrBlank(ComputerChangeWait.Sample(imageUrl))) throw new IOException("CaptureBlockedOrBlank: client image is black/blank. Protection cannot be distinguished from legitimate dark content; no retry/fallback.");
+            if (ComputerCaptureGuard.IsBlackOrBlank(ComputerChangeWait.Sample(imageUrl))) throw new Hermes.Core.HermesException("CaptureBlockedOrBlank: client image is black/blank. Protection cannot be distinguished from legitimate dark content; no retry/fallback.");
             var note = "Local comparison capture; no UI text collected";
             var elements = includeElements ? ReadElements(window, handle, rect, image.PixelWidth, image.PixelHeight, out note) : [];
             ComputerCursor? cursor = null; var origin = new Point(0, 0);
@@ -302,8 +302,8 @@ internal static class ComputerNative
         using var output = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true };
         try
         {
-            using var input = new StreamReader(Console.OpenStandardInput(), Encoding.UTF8); var text = input.ReadToEnd(); if (text.Length > 50000) throw new IOException("컴퓨터 요청 크기 제한");
-            var request = JsonSerializer.Deserialize<ComputerWorkerRequest>(text) ?? throw new IOException("컴퓨터 요청 없음");
+            using var input = new StreamReader(Console.OpenStandardInput(), Encoding.UTF8); var text = input.ReadToEnd(); if (text.Length > 50000) throw new Hermes.Core.HermesException("컴퓨터 요청 크기 제한");
+            var request = JsonSerializer.Deserialize<ComputerWorkerRequest>(text) ?? throw new Hermes.Core.HermesException("컴퓨터 요청 없음");
             // Validate again at the worker boundary; model fields never select arbitrary native methods.
             using var arguments = JsonDocument.Parse(JsonSerializer.Serialize(new { action = request.Action.Action, windowId = request.Action.WindowId, snapshotId = request.Action.SnapshotId, x = request.Action.X, y = request.Action.Y, toX = request.Action.ToX, toY = request.Action.ToY, text = request.Action.Text, key = request.Action.Key, button = request.Action.Button, clicks = request.Action.Clicks, steps = request.Action.Steps, horizontal = request.Action.Horizontal }));
             ComputerTools.Parse(arguments.RootElement);

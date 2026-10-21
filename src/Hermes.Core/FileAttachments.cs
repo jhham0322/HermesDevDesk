@@ -19,8 +19,8 @@ public static class FileAttachments
     {
         source = Path.GetFullPath(source); Safety.RejectReparseAncestors(source);
         var info = new FileInfo(source);
-        if (!info.Exists || info.Length > MaxFileBytes) throw new IOException("첨부 파일은 파일당 최대 25MB입니다. 폴더 대신 파일을 선택하세요.");
-        if (Safety.IsSecret(info.Name)) throw new IOException("인증/비밀 파일은 첨부할 수 없습니다.");
+        if (!info.Exists || info.Length > MaxFileBytes) throw new HermesException("첨부 파일은 파일당 최대 25MB입니다. 폴더 대신 파일을 선택하세요.");
+        if (Safety.IsSecret(info.Name)) throw new HermesException("인증/비밀 파일은 첨부할 수 없습니다.");
         var relative = Path.Combine(".hermes-attachments", Guid.NewGuid().ToString("N"), info.Name);
         var target = Safety.Resolve(root, relative); Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         try { File.Copy(source, target); return Read(root, relative); }
@@ -29,7 +29,7 @@ public static class FileAttachments
     private static ProjectFileAttachment Read(string root, string relative)
     {
         var path = Safety.Resolve(root, relative); var info = new FileInfo(path);
-        if (!info.Exists || info.Length > MaxFileBytes) throw new IOException("첨부 파일을 찾지 못했거나 25MB를 초과합니다. 다시 첨부하세요.");
+        if (!info.Exists || info.Length > MaxFileBytes) throw new HermesException("첨부 파일을 찾지 못했거나 25MB를 초과합니다. 다시 첨부하세요.");
         using var stream = File.OpenRead(path);
         return new(relative, info.Name, Convert.ToHexString(SHA256.HashData(stream)), info.Length);
     }
@@ -37,8 +37,8 @@ public static class FileAttachments
     {
         var files = selected.ToList();
         if (files.Count > MaxFiles || files.Sum(f => f.Bytes) > MaxTotalBytes || files.Select(f => f.RelativePath).Distinct(StringComparer.OrdinalIgnoreCase).Count() != files.Count)
-            throw new IOException("파일은 최대 10개, 합계 50MB까지 첨부할 수 있습니다.");
-        foreach (var file in files) if (Read(root, file.RelativePath) != file) throw new IOException("첨부 파일이 변경되었습니다. 다시 첨부하세요.");
+            throw new HermesException("파일은 최대 10개, 합계 50MB까지 첨부할 수 있습니다.");
+        foreach (var file in files) if (Read(root, file.RelativePath) != file) throw new HermesException("첨부 파일이 변경되었습니다. 다시 첨부하세요.");
         return files;
     }
     public static string ModelContext(string root, IEnumerable<ProjectFileAttachment> selected)

@@ -24,17 +24,17 @@ public sealed partial class DeskController
         var gate = LearningLock(task); await gate.WaitAsync();
         try
         {
-            if (engine != Engine || task.TurnId != turnId || task.Status != "실행 중") throw new IOException("도구 요청의 실행이 중단되었거나 변경되었습니다.");
+            if (engine != Engine || task.TurnId != turnId || task.Status != "실행 중") throw new HermesException("도구 요청의 실행이 중단되었거나 변경되었습니다.");
             string text;
             if (tool == "hermes_memory")
             {
                 if (args.Text("action") == "search") text = Memory.Context(MemoryScope(task), args.Text("query"));
                 else if (args.Text("action") == "improve")
                 {
-                    if (args.Text("notes").Length is < 10 or > 4000) throw new IOException("개선 방법 설명은 10..4000자여야 합니다.");
+                    if (args.Text("notes").Length is < 10 or > 4000) throw new HermesException("개선 방법 설명은 10..4000자여야 합니다.");
                     Memory.Improve(MemoryScope(task), args.GetProperty("methodId").GetInt64(), args.GetProperty("evidenceId").GetInt64(), args.Text("notes")); text = "실행 근거가 확인된 방법의 설명과 개정 이력을 갱신했습니다.";
                 }
-                else throw new IOException("지원하지 않는 실행 기록 동작입니다.");
+                else throw new HermesException("지원하지 않는 실행 기록 동작입니다.");
             }
             else text = await RunLearnedCommand(task, engine, args, request.Params.Text("turnId") + "/" + request.Id, turnId);
             await engine.RespondAsync(request, new { success = true, contentItems = new[] { new { type = "inputText", text } } });
@@ -48,15 +48,15 @@ public sealed partial class DeskController
     private async Task<string> RunLearnedCommand(WorkItem task, AppServerClient engine, JsonElement args, string eventId, string? turnId)
     {
         var command = args.Text("command"); var purpose = args.Text("purpose");
-        if (command.Length is < 1 or > 20000 || purpose.Length is < 3 or > 1000) throw new IOException("명령과 구체적인 작업 목적을 입력하세요.");
+        if (command.Length is < 1 or > 20000 || purpose.Length is < 3 or > 1000) throw new HermesException("명령과 구체적인 작업 목적을 입력하세요.");
         if (Memory.BlockReason(MemoryScope(task), task.Id, "command", command) is { } blocked)
         {
-            task.Transcript.Add(new("반복 실행 차단", blocked, DateTime.UtcNow)); Save(); throw new IOException(blocked);
+            task.Transcript.Add(new("반복 실행 차단", blocked, DateTime.UtcNow)); Save(); throw new HermesException(blocked);
         }
         var root = Safety.ProjectRoot(Project(task).Root);
         var automatic = task.Writable && !task.IsReview && Project(task).FullPermissions;
         var policy = automatic ? (object)new { type = "dangerFullAccess" } : task.Writable ? (object)new { type = "workspaceWrite", writableRoots = new[] { root }, networkAccess = false, excludeTmpdirEnvVar = true, excludeSlashTmp = true } : new { type = "readOnly", networkAccess = false };
-        var timeout = args.Property("timeoutMs")?.GetInt32() ?? 30000; if (timeout is < 1000 or > 120000) throw new IOException("명령 제한은 1..120초입니다.");
+        var timeout = args.Property("timeoutMs")?.GetInt32() ?? 30000; if (timeout is < 1000 or > 120000) throw new HermesException("명령 제한은 1..120초입니다.");
         task.Transcript.Add(new("작업 진행", "명령 실행 · " + ExecutionMemory.Clean(purpose, 300) + "\n" + ExecutionMemory.Clean(command), DateTime.UtcNow)); Save();
         var processId = "learning-" + Guid.NewGuid().ToString("N"); commandProcesses[task.Id] = processId;
         try

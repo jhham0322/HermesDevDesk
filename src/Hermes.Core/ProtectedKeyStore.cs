@@ -10,15 +10,15 @@ public sealed class ProtectedKeyStore
     public bool HasKey => File.Exists(path);
     public void Save(string key)
     {
-        key = key.Trim(); if (key.Length is < 8 or > 4096 || key.Any(char.IsControl)) throw new IOException("키 형식/길이를 확인하세요. 키 내용은 오류에 표시하지 않습니다.");
+        key = key.Trim(); if (key.Length is < 8 or > 4096 || key.Any(char.IsControl)) throw new HermesException("키 형식/길이를 확인하세요. 키 내용은 오류에 표시하지 않습니다.");
         var bytes = Encoding.UTF8.GetBytes(key);
         try { Safety.RejectReparseAncestors(path); var protectedData = Transform(bytes, false); var temp = path + "." + Guid.NewGuid().ToString("N"); using (var output = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None)) output.Write(protectedData); File.Move(temp, path, true); }
         finally { CryptographicOperations.ZeroMemory(bytes); }
     }
     public string ReadOwnKey()
     {
-        if (!HasKey) throw new IOException("이 앱에 저장된 회사 키가 없습니다.");
-        Safety.RejectReparseAncestors(path); if (new FileInfo(path).Length > 65536) throw new IOException("키 보호 파일 크기 제한");
+        if (!HasKey) throw new HermesException("이 앱에 저장된 회사 키가 없습니다.");
+        Safety.RejectReparseAncestors(path); if (new FileInfo(path).Length > 65536) throw new HermesException("키 보호 파일 크기 제한");
         var clear = Transform(File.ReadAllBytes(path), true);
         try { var key = Encoding.UTF8.GetString(clear); Safety.RegisterSecret(key); return key; }
         finally { CryptographicOperations.ZeroMemory(clear); }
@@ -26,13 +26,13 @@ public sealed class ProtectedKeyStore
     public void DeleteOwnKey() { if (File.Exists(path)) { Safety.RejectReparseAncestors(path); File.Delete(path); } }
     private static byte[] Transform(byte[] input, bool decrypt)
     {
-        if (!OperatingSystem.IsWindows()) throw new IOException("Windows 사용자 DPAPI 보호가 필요합니다.");
+        if (!OperatingSystem.IsWindows()) throw new HermesException("Windows 사용자 DPAPI 보호가 필요합니다.");
         var data = new Blob { Size = input.Length, Data = Marshal.AllocHGlobal(input.Length) }; Blob output = default;
         try
         {
             Marshal.Copy(input, 0, data.Data, input.Length);
             bool ok = decrypt ? CryptUnprotectData(ref data, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 1, out output) : CryptProtectData(ref data, "Hermes DevDesk company API key", IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 1, out output);
-            if (!ok) throw new IOException("Windows 키 보호 저장소 처리에 실패했습니다. 키 내용은 표시하지 않습니다.");
+            if (!ok) throw new HermesException("Windows 키 보호 저장소 처리에 실패했습니다. 키 내용은 표시하지 않습니다.");
             var bytes = new byte[output.Size]; Marshal.Copy(output.Data, bytes, 0, bytes.Length); return bytes;
         }
         finally

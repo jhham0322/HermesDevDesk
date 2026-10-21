@@ -11,7 +11,7 @@ public static class Review
     {
         await GitRunner.RepositoryRoot(root);
         var status = await GitRunner.Run(root, "status", "--porcelain=v1", "-z", "--untracked-files=all");
-        if (status.Exit != 0) throw new IOException(status.Error);
+        if (status.Exit != 0) throw new HermesException(status.Error);
         return ParseStatus(root, status.Output);
     }
     public static List<ChangedFile> ParseStatus(string root, string output)
@@ -19,9 +19,9 @@ public static class Review
         var records = output.Split('\0', StringSplitOptions.RemoveEmptyEntries); var result = new List<ChangedFile>();
         for (int i = 0; i < records.Length; i++)
         {
-            if (records[i].Length < 4) throw new IOException("Git 변경 목록 형식을 확인할 수 없습니다.");
+            if (records[i].Length < 4) throw new HermesException("Git 변경 목록 형식을 확인할 수 없습니다.");
             var code = records[i][..2]; var path = records[i][3..]; string? previous = null;
-            if (code.Contains('R') || code.Contains('C')) { if (++i >= records.Length) throw new IOException("불완전한 이름 변경 목록입니다."); previous = records[i]; }
+            if (code.Contains('R') || code.Contains('C')) { if (++i >= records.Length) throw new HermesException("불완전한 이름 변경 목록입니다."); previous = records[i]; }
             try { Safety.Resolve(root, path); if (previous != null) Safety.Resolve(root, previous); }
             catch (IOException) { continue; }
             result.Add(new(path, code, previous)); if (result.Count >= 1000) break;
@@ -41,7 +41,7 @@ public static class Review
         {
             var staged = await GitRunner.Run(root, new[] { "diff", "--cached", "--no-ext-diff", "--no-textconv", "--" }.Concat(paths).ToArray());
             var working = await GitRunner.Run(root, new[] { "diff", "--no-ext-diff", "--no-textconv", "--" }.Concat(paths).ToArray());
-            if (staged.Exit != 0 || working.Exit != 0) throw new IOException(staged.Error + working.Error);
+            if (staged.Exit != 0 || working.Exit != 0) throw new HermesException(staged.Error + working.Error);
             return Safety.Redact(staged.Output + working.Output);
         }
         return Safety.Redact(diff.Output);

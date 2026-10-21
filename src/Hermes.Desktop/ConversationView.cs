@@ -136,7 +136,7 @@ public partial class MainWindow
     private void OpenLink(string target)
     {
         if (Uri.TryCreate(target, UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http") { Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); return; }
-        var root = CurrentProject?.Root ?? throw new IOException("파일 링크를 열 프로젝트가 없습니다.");
+        var root = CurrentProject?.Root ?? throw new Hermes.Core.HermesException("파일 링크를 열 프로젝트가 없습니다.");
         var path = target; var colon = path.LastIndexOf(':'); if (colon > 2 && int.TryParse(path[(colon + 1)..], out _)) path = path[..colon];
         path = Safety.Resolve(root, System.IO.Path.IsPathFullyQualified(path) ? System.IO.Path.GetRelativePath(root, path) : path);
         FilePreview.Text = WorkspaceFiles.Read(root, System.IO.Path.GetRelativePath(root, path)); OpenPanel(0);

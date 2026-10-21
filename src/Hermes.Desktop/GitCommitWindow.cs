@@ -67,12 +67,12 @@ public sealed class GitCommitWindow : Window
         await RefreshAsync();
         var name = "ui-commit-selected.txt"; File.WriteAllText(Path.Combine(root, name), "UI_COMMIT_FIXTURE"); await RefreshAsync();
         var selected = files.Items.Cast<ChangedFile>().Single(f => f.Path == name); files.SelectedItem = selected; message.Text = "UI selected local commit";
-        if (!commit.IsEnabled) throw new IOException("Commit button unavailable after file selection");
+        if (!commit.IsEnabled) throw new Hermes.Core.HermesException("Commit button unavailable after file selection");
         commit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         var until = DateTime.UtcNow.AddSeconds(15); while (!Committed && DateTime.UtcNow < until) await Task.Delay(25);
-        if (!Committed) throw new IOException("UI local commit failed: " + status.Text);
+        if (!Committed) throw new Hermes.Core.HermesException("UI local commit failed: " + status.Text);
         var output = await GitRunner.Run(root, "show", "--format=", "--name-only", "HEAD");
-        if (output.Output.Trim() != name) throw new IOException("UI commit included unexpected files");
+        if (output.Output.Trim() != name) throw new Hermes.Core.HermesException("UI commit included unexpected files");
         return 2;
     }
 

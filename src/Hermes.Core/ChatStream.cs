@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 namespace Hermes.Core;
 public static class ChatStream
 {
-    public static async Task<JsonObject> Translate(Stream upstream, Stream downstream, ChatAdaptation adaptation, CancellationToken ct, TimeSpan? idleTimeout = null)
+    public static async Task<JsonObject> Translate(Stream upstream, Stream downstream, ChatAdaptation adaptation, CancellationToken ct)
     {
         using var reader = new StreamReader(upstream, Encoding.UTF8);
         var responseId = "resp_" + Guid.NewGuid().ToString("N"); var messageId = "msg_" + Guid.NewGuid().ToString("N");
@@ -23,7 +23,7 @@ public static class ChatStream
             if (data.Length == 0) return;
             if (data == "[DONE]") { done = true; return; }
             using var parsed = JsonDocument.Parse(data); var root = parsed.RootElement;
-            if (root.Property("error") != null) throw new IOException(ProviderErrors.Detail(root));
+            if (root.Property("error") != null) throw new ModelServerException(ProviderErrors.ReadableMessage(root.GetRawText()));
             if (root.Text("model").Length > 0) model = root.Text("model");
             if (root.Property("usage") is { ValueKind: JsonValueKind.Object } counts) usage = JsonNode.Parse(counts.GetRawText());
             if (root.Property("choices") is not { ValueKind: JsonValueKind.Array } choices) return;
@@ -47,7 +47,7 @@ public static class ChatStream
                 if (delta.Property("tool_calls") is not { ValueKind: JsonValueKind.Array } calls) continue;
                 foreach (var call in calls.EnumerateArray())
                 {
-                    var position = call.GetProperty("index").GetInt32(); if (position is < 0 or > 1000) throw new IOException("Chat tool stream index limit");
+                    var position = call.GetProperty("index").GetInt32(); if (position is < 0 or > 1000) throw new HermesException("Chat tool stream index limit");
                     if (!tools.TryGetValue(position, out var item)) tools[position] = item = new JsonObject { ["id"] = "", ["type"] = "function", ["function"] = new JsonObject { ["name"] = "", ["arguments"] = "" } };
                     if (call.Text("id").Length > 0) item["id"] = call.Text("id");
                     if (call.Property("function") is { ValueKind: JsonValueKind.Object } function)
@@ -57,14 +57,12 @@ public static class ChatStream
         }
         while (!done)
         {
-            string? line;
-            try { line = await reader.ReadLineAsync(ct).AsTask().WaitAsync(idleTimeout ?? TimeSpan.FromMinutes(2), ct); }
-            catch (TimeoutException) { throw new IOException("Chat API 스트림에서 2분 동안 새 데이터가 오지 않았습니다. 서버 생성 상태와 게이트웨이 SSE 전달을 확인하세요."); }
+            var line = await reader.ReadLineAsync(ct);
             if (line == null) { await Frame(); break; }
-            bytes += line.Length; if (bytes > 64_000_000) throw new IOException("Chat stream size limit");
-            if (line.Length == 0) await Frame(); else { frame.AppendLine(line); if (frame.Length > 2_000_000) throw new IOException("Chat event size limit"); }
+            bytes += line.Length; if (bytes > 64_000_000) throw new HermesException("Chat stream size limit");
+            if (line.Length == 0) await Frame(); else { frame.AppendLine(line); if (frame.Length > 2_000_000) throw new HermesException("Chat event size limit"); }
         }
-        if (finish.Length == 0) throw new IOException("Chat 스트림이 finish_reason 없이 종료되었습니다. 완료 응답으로 처리하지 않았습니다.");
+        if (finish.Length == 0) throw new HermesException("Chat 스트림이 finish_reason 없이 종료되었습니다. 완료 응답으로 처리하지 않았습니다.");
         var message = new JsonObject { ["role"] = "assistant", ["content"] = Safety.Redact(text.ToString()) };
         if (tools.Count > 0) message["tool_calls"] = new JsonArray(tools.Values.Select(v => (JsonNode)v).ToArray());
         var chat = new JsonObject { ["id"] = responseId, ["model"] = model, ["choices"] = new JsonArray(new JsonObject { ["message"] = message, ["finish_reason"] = finish }), ["usage"] = usage };

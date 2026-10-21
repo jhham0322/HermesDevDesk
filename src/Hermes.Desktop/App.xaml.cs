@@ -19,7 +19,7 @@ public partial class App : Application
             if (e.Exception is OutOfMemoryException or AccessViolationException) { Shutdown(1); return; }
             if (reportingError) return;
             reportingError = true;
-            try { MessageBox.Show("작업 중 오류가 발생했습니다. 앱은 계속 사용할 수 있습니다.\n\n" + Hermes.Core.Safety.Redact(e.Exception.Message) + "\n\n오류 로그: " + path, "Hermes DevDesk 오류"); }
+            try { MessageBox.Show("작업 중 오류가 발생했습니다. 앱은 계속 사용할 수 있습니다.\n\n" + Hermes.Core.ConnectionErrors.Describe(e.Exception) + "\n\n오류 로그: " + path, "Hermes DevDesk 오류"); }
             finally { reportingError = false; }
         };
     }
@@ -83,6 +83,6 @@ public partial class App : Application
             }
             else window.Show();
         }
-        catch (Exception ex) { var path = Hermes.Core.AppLog.Write(ex, "startup"); MessageBox.Show(Hermes.Core.Safety.Redact(ex.Message) + "\n\n오류 로그: " + path, "Hermes DevDesk 시작 실패"); Shutdown(1); }
+        catch (Exception ex) { var path = Hermes.Core.AppLog.Write(ex, "startup"); MessageBox.Show(Hermes.Core.ConnectionErrors.Describe(ex) + "\n\n오류 로그: " + path, "Hermes DevDesk 시작 실패"); Shutdown(1); }
     }
 }

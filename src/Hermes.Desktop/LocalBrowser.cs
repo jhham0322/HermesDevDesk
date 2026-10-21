@@ -19,7 +19,7 @@ public partial class MainWindow
         http.Click += async (_, _) => await Guard(async () => {
             var current = activeBrowserView?.Source;
             var alternative = current == null ? null : BrowserTools.LocalHttpAlternative(current);
-            if (alternative == null) throw new IOException("HTTPS localhost 주소에서 사용할 수 있습니다. 개발 서버 예: http://localhost:3020");
+            if (alternative == null) throw new Hermes.Core.HermesException("HTTPS localhost 주소에서 사용할 수 있습니다. 개발 서버 예: http://localhost:3020");
             await NavigateBrowser(alternative.AbsoluteUri);
         });
         toolbar.Children.Add(http);

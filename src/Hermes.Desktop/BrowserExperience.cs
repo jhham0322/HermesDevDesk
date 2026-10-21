@@ -75,8 +75,8 @@ public partial class MainWindow
     }
     private void ToggleCurrentBookmark()
     {
-        var view = activeBrowserView ?? throw new IOException("북마크할 페이지를 먼저 여세요.");
-        var url = view.Source?.AbsoluteUri ?? throw new IOException("열린 페이지가 없습니다.");
+        var view = activeBrowserView ?? throw new Hermes.Core.HermesException("북마크할 페이지를 먼저 여세요.");
+        var url = view.Source?.AbsoluteUri ?? throw new Hermes.Core.HermesException("열린 페이지가 없습니다.");
         var added = BrowserLibrary.ToggleBookmark(desk.State.Browser, url, view.CoreWebView2.DocumentTitle);
         desk.Save(); UpdateBrowserBookmark(view); browserStatus.Text = added ? "북마크 저장됨" : "북마크 삭제됨";
     }
@@ -113,7 +113,7 @@ public partial class MainWindow
     }
     private async Task PickBrowserSource()
     {
-        if (CurrentTask == null) { if (CurrentProject == null) throw new IOException("소스를 표시할 채팅의 프로젝트를 선택하세요."); NewTask_Click(this, new RoutedEventArgs()); }
+        if (CurrentTask == null) { if (CurrentProject == null) throw new Hermes.Core.HermesException("소스를 표시할 채팅의 프로젝트를 선택하세요."); NewTask_Click(this, new RoutedEventArgs()); }
         await OpenSavedBrowser(); var view = activeBrowserView!; var token = Guid.NewGuid().ToString("N");
         sourcePickers[view] = (token, CurrentTask!.Id);
         var script = """

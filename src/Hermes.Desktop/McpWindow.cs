@@ -35,7 +35,7 @@ public sealed class McpWindow : Window
         tools.SelectionChanged += (_, _) => { if (tools.SelectedItem is McpToolView tool) detail.Text = tool.Description + "\n\n" + tool.InputSchema.GetRawText(); };
         panel.Children.Add(new TextBlock { Text = "선택 도구의 인수 (JSON object)" }); panel.Children.Add(arguments); var call = new Button { Content = "선택한 로컬 도구 호출" }; panel.Children.Add(call);
         callControl = call;
-        call.Click += async (_, _) => await Guard(async () => { if (session == null || tools.SelectedItem is not McpToolView tool) throw new IOException("연결 후 도구를 선택하세요."); using var args = JsonDocument.Parse(arguments.Text); call.IsEnabled = false; try { var result = await session.CallAsync(tool.Name, args.RootElement.Clone()); output.Text = Safety.Redact(result.GetRawText()); } finally { call.IsEnabled = true; Render(); } });
+        call.Click += async (_, _) => await Guard(async () => { if (session == null || tools.SelectedItem is not McpToolView tool) throw new Hermes.Core.HermesException("연결 후 도구를 선택하세요."); using var args = JsonDocument.Parse(arguments.Text); call.IsEnabled = false; try { var result = await session.CallAsync(tool.Name, args.RootElement.Clone()); output.Text = Safety.Redact(result.GetRawText()); } finally { call.IsEnabled = true; Render(); } });
         panel.Children.Add(new TextBlock { Text = "MCP 사용자 확인 · 이 요청 한 번에 승인 / 거절" }); requests.Height = 90; panel.Children.Add(requests);
         var approve = new Button { Content = "선택 요청 승인" }; var decline = new Button { Content = "선택 요청 거절" }; var confirmation = new TextBox { IsReadOnly = true, TextWrapping = TextWrapping.Wrap, MinHeight = 70 }; panel.Children.Add(confirmation);
         acceptControl = approve; declineControl = decline;
@@ -55,7 +55,7 @@ public sealed class McpWindow : Window
     internal async Task<int> RunProgrammaticChecks()
     {
         int count = 0;
-        void Check(bool condition, string message) { if (!condition) throw new IOException("MCP UI: " + message + " / " + status.Text); count++; }
+        void Check(bool condition, string message) { if (!condition) throw new Hermes.Core.HermesException("MCP UI: " + message + " / " + status.Text); count++; }
         async Task Wait(Func<bool> condition) { var until = DateTime.UtcNow.AddSeconds(20); while (!condition() && DateTime.UtcNow < until) await Task.Delay(25); Check(condition(), "control event completed"); }
         writes.IsChecked = true; connectControl.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await Wait(() => session?.Connected == true && tools.Items.Count == 5); Check(status.Text.Contains("connected"), "connected inventory visible");

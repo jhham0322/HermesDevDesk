@@ -79,7 +79,7 @@ public partial class MainWindow : Window
         try { await action(); }
         catch (Exception ex)
         {
-            var path = AppLog.Write(ex, operation); var message = Safety.Redact(ex.Message);
+            var path = AppLog.Write(ex, operation); var message = ConnectionErrors.Describe(ex);
             Footer.Text = message + " · 오류 로그가 저장되었습니다.";
             Logs.AppendText($"[{DateTime.Now:HH:mm:ss}] {operation}: {message}\n로그: {path}\n");
             if (showDialog) MessageBox.Show(this, message + "\n\n오류 로그: " + path, "Hermes DevDesk", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -92,7 +92,7 @@ public partial class MainWindow : Window
     });
     private void AddClipboardImage(System.Windows.Media.Imaging.BitmapSource image)
     {
-        if (image.PixelWidth is < 1 or > 8192 || image.PixelHeight is < 1 or > 8192 || (long)image.PixelWidth * image.PixelHeight > 16_000_000) throw new IOException("클립보드 이미지가 너무 큽니다. 최대 16MP, 한 변 8192px입니다.");
+        if (image.PixelWidth is < 1 or > 8192 || image.PixelHeight is < 1 or > 8192 || (long)image.PixelWidth * image.PixelHeight > 16_000_000) throw new Hermes.Core.HermesException("클립보드 이미지가 너무 큽니다. 최대 16MP, 한 변 8192px입니다.");
         var directory = Path.Combine(desk.DataDirectory, "paste-images"); Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".png");
         try { var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image)); using (var stream = File.Create(path)) encoder.Save(stream); AddImage(path); }
@@ -107,7 +107,7 @@ public partial class MainWindow : Window
     }
     private void Skills_Click(object sender, RoutedEventArgs e) => _ = Guard(() =>
     {
-        var project = CurrentProject ?? throw new IOException("프로젝트 선택 필요"); var cli = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new IOException("공식 CLI 필요");
+        var project = CurrentProject ?? throw new Hermes.Core.HermesException("프로젝트 선택 필요"); var cli = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new Hermes.Core.HermesException("공식 CLI 필요");
         var window = new SkillsWindow(project.Root, cli, Path.Combine(desk.DataDirectory, "skill-inspection", project.Id)) { Owner = this };
         if (window.ShowDialog() == true) { pendingSkills.Clear(); pendingSkills.AddRange(window.Selected); SkillHint.Text = string.Join(", ", pendingSkills.Select(s => s.Name)); }
         return Task.CompletedTask;
@@ -117,20 +117,20 @@ public partial class MainWindow : Window
     private async void Restore_Click(object sender, RoutedEventArgs e) => await Guard(async () => { await ArchiveCurrentAsync(false, true); });
     private async Task ArchiveCurrentAsync(bool archived, bool confirm)
     {
-        var task = CurrentTask ?? throw new IOException("대화를 선택하세요.");
+        var task = CurrentTask ?? throw new Hermes.Core.HermesException("대화를 선택하세요.");
         if (confirm && MessageBox.Show(this, archived ? "선택 대화를 보관할까요? 대화·파일·사용량은 보존합니다." : "선택 대화를 복원할까요?", "대화 보관/복원", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
         await desk.SetArchivedAsync(task, archived); ArchivedOnly.IsChecked = archived; Refresh(); Tasks.SelectedItem = task;
     }
     private void Mcp_Click(object sender, RoutedEventArgs e) => _ = Guard(() =>
     {
-        var project = CurrentProject ?? throw new IOException("프로젝트를 선택하세요.");
-        var cli = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new IOException("공식 CLI 필요");
+        var project = CurrentProject ?? throw new Hermes.Core.HermesException("프로젝트를 선택하세요.");
+        var cli = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new Hermes.Core.HermesException("공식 CLI 필요");
         new McpWindow(desk, project, cli) { Owner = this }.ShowDialog(); return Task.CompletedTask;
     });
-    private async void Fork_Click(object sender, RoutedEventArgs e) => await Guard(async () => { var task = await desk.ForkAsync(CurrentTask ?? throw new IOException("시작된 작업을 선택하세요.")); Search.Clear(); Tasks.SelectedItem = task; RenderTask(); });
+    private async void Fork_Click(object sender, RoutedEventArgs e) => await Guard(async () => { var task = await desk.ForkAsync(CurrentTask ?? throw new Hermes.Core.HermesException("시작된 작업을 선택하세요.")); Search.Clear(); Tasks.SelectedItem = task; RenderTask(); });
     private async void AiReview_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
-        var project = CurrentProject ?? throw new IOException("Git 프로젝트를 선택하세요.");
+        var project = CurrentProject ?? throw new Hermes.Core.HermesException("Git 프로젝트를 선택하세요.");
         if (MessageBox.Show(this, "현재 Git 프로젝트의 커밋하지 않은 변경을 선택한 provider로 검토합니다. 모델 사용량이 발생할 수 있습니다. 읽기 전용 새 검토 작업을 시작할까요?", "AI 변경 검토", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
         var task = await desk.StartReviewAsync(project, Model.SelectedItem as string ?? ""); Search.Clear(); Tasks.SelectedItem = task; RenderTask();
     });
@@ -139,8 +139,8 @@ public partial class MainWindow : Window
     private void AddImage(string file)
     {
         EnsureAttachmentTask();
-        var project = CurrentProject ?? throw new IOException("프로젝트를 선택하세요.");
-        if (pendingImages.Count >= 4) throw new IOException("이미지는 최대 4개까지 첨부할 수 있습니다.");
+        var project = CurrentProject ?? throw new Hermes.Core.HermesException("프로젝트를 선택하세요.");
+        if (pendingImages.Count >= 4) throw new Hermes.Core.HermesException("이미지는 최대 4개까지 첨부할 수 있습니다.");
         var image = ImageAttachments.Import(project.Root, file);
         var path = Safety.Resolve(project.Root, image.RelativePath);
         var imported = !string.Equals(Path.GetFullPath(file), path, StringComparison.OrdinalIgnoreCase);
@@ -149,7 +149,7 @@ public partial class MainWindow : Window
             using (var stream = File.OpenRead(path))
             {
                 var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream, System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-                if (decoder.Frames.Count == 0 || decoder.Frames[0].PixelWidth != image.Width || decoder.Frames[0].PixelHeight != image.Height) throw new IOException("이미지 디코드/해상도 오류");
+                if (decoder.Frames.Count == 0 || decoder.Frames[0].PixelWidth != image.Width || decoder.Frames[0].PixelHeight != image.Height) throw new Hermes.Core.HermesException("이미지 디코드/해상도 오류");
             }
             var selected = ImageAttachments.Validate(project.Root, pendingImages.Append(image));
             pendingImages.Clear(); pendingImages.AddRange(selected); RefreshAttachments();
@@ -163,7 +163,7 @@ public partial class MainWindow : Window
     {
         var start = new DateTimeOffset(DateTime.SpecifyKind((UsageStart.SelectedDate ?? DateTime.UtcNow.Date).Date, DateTimeKind.Utc));
         var end = new DateTimeOffset(DateTime.SpecifyKind((UsageEnd.SelectedDate ?? DateTime.UtcNow.Date).Date.AddDays(1), DateTimeKind.Utc));
-        if (end <= start) throw new IOException("날짜 구간을 확인하세요.");
+        if (end <= start) throw new Hermes.Core.HermesException("날짜 구간을 확인하세요.");
         return UsageLedger.Select(desk.State, start, end, UsageTaskOnly.IsChecked == true ? CurrentTask?.Id : null, string.IsNullOrWhiteSpace(UsageModel.Text) ? null : UsageModel.Text.Trim());
     }
     private void Usage_Click(object sender, RoutedEventArgs e) => _ = Guard(() => { UsageView.Text = UsageLedger.Summary(SelectedUsage()); return Task.CompletedTask; });
@@ -173,9 +173,9 @@ public partial class MainWindow : Window
     });
     private async void CommandRun_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
-        var project = CurrentProject ?? throw new IOException("프로젝트를 선택하세요."); var command = CommandText.Text;
+        var project = CurrentProject ?? throw new Hermes.Core.HermesException("프로젝트를 선택하세요."); var command = CommandText.Text;
         if (MessageBox.Show(this, $"경로: {project.Root}\n모드: {(CommandWritable.IsChecked == true ? "프로젝트 쓰기" : "읽기 전용")}\n\n{Safety.Redact(command)}\n\n이 명령을 공식 sandbox 안에서 실행할까요?", "명령 일회성 확인", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
-        var exe = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new IOException("공식 codex.exe를 선택하세요."); CommandOutput.Clear(); CommandOutput.AppendText(await terminal.RunAsync(exe, project.Root, command, CommandWritable.IsChecked == true));
+        var exe = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new Hermes.Core.HermesException("공식 codex.exe를 선택하세요."); CommandOutput.Clear(); CommandOutput.AppendText(await terminal.RunAsync(exe, project.Root, command, CommandWritable.IsChecked == true));
     });
     private async void CommandStop_Click(object sender, RoutedEventArgs e) => await Guard(() => terminal.StopAsync());
     private void Register_Click(object sender, RoutedEventArgs e)
@@ -188,7 +188,7 @@ public partial class MainWindow : Window
     private void SearchScope_Changed(object sender, RoutedEventArgs e) { if (desk != null && !refreshing) Refresh(); }
     private async void IsolatedTask_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
-        var project = CurrentProject ?? throw new IOException("원본 Git 프로젝트를 선택하세요.");
+        var project = CurrentProject ?? throw new Hermes.Core.HermesException("원본 Git 프로젝트를 선택하세요.");
         var picker = new OpenFolderDialog { Title = "등록 프로젝트와 겹치지 않는 빈 worktree 보관 폴더 선택" };
         if (picker.ShowDialog(this) != true) return;
         var result = await desk.NewIsolatedTaskAsync(project, picker.FolderName, "격리 작업 " + DateTime.Now.ToString("MM-dd HH:mm"));
@@ -202,9 +202,9 @@ public partial class MainWindow : Window
     { var dialog = new OpenFileDialog { Filter = "Codex executable|codex.exe", Title = "공식 codex.exe 선택" }; if (dialog.ShowDialog(this) == true) { desk.State.CodexPath = dialog.FileName; desk.Save(); Footer.Text = "CLI 경로 저장됨. 엔진 연결을 누르세요."; } }
     private async void Connect_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
-        if (desk.State.Tasks.Any(DeskController.IsRunning)) throw new IOException("실행 중인 작업을 먼저 중단하세요.");
-        var exe = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new IOException("공식 Codex CLI를 설치하고 codex.exe를 선택하세요. 자동 설치/로그인은 수행하지 않습니다.");
-        await desk.ConnectAsync(exe, CurrentProject?.Root ?? throw new IOException("엔진 연결 전에 프로젝트를 등록/선택하세요."));
+        if (desk.State.Tasks.Any(DeskController.IsRunning)) throw new Hermes.Core.HermesException("실행 중인 작업을 먼저 중단하세요.");
+        var exe = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new Hermes.Core.HermesException("공식 Codex CLI를 설치하고 codex.exe를 선택하세요. 자동 설치/로그인은 수행하지 않습니다.");
+        await desk.ConnectAsync(exe, CurrentProject?.Root ?? throw new Hermes.Core.HermesException("엔진 연결 전에 프로젝트를 등록/선택하세요."));
         if (desk.State.Provider.Mode == ConnectionMode.CompanyApi) await desk.CheckProviderAsync();
         Refresh();
     });
@@ -214,7 +214,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(Prompt.Text)) { if (pendingImages.Count + pendingFiles.Count == 0) { Footer.Text = "질문을 입력하세요."; Prompt.Focus(); return; } Prompt.Text = "첨부한 이미지와 파일을 확인하고 내용을 설명해 주세요."; }
         if (CurrentProject == null) { Footer.Text = "질문을 실행할 프로젝트 폴더를 선택하세요."; Register_Click(this, new RoutedEventArgs()); if (CurrentProject == null) return; }
         var chosenModel = Model.SelectedItem as string ?? "";
-        if (CurrentTask?.Status == "실행 중" && chosenModel != CurrentTask.Model) throw new IOException("모델을 바꾸려면 실행을 중단한 뒤 다시 전송하세요.");
+        if (CurrentTask?.Status == "실행 중" && chosenModel != CurrentTask.Model) throw new Hermes.Core.HermesException("모델을 바꾸려면 실행을 중단한 뒤 다시 전송하세요.");
         if (CurrentTask?.Status != "실행 중") desk.SelectModelConnection(chosenModel);
         if (desk.HasPendingModel || (!desk.SubscriptionReady && !desk.CanConnectCompany && desk.State.Provider.Mode == ConnectionMode.CompanyApi))
         {
@@ -225,21 +225,21 @@ public partial class MainWindow : Window
             if (desk.HasPendingModel || (!desk.SubscriptionReady && !desk.CanConnectCompany)) return;
         }
         var prompt = Prompt.Text; var task = CurrentTask;
-        if (task == null) { NewTask_Click(this, new RoutedEventArgs()); task = CurrentTask ?? throw new IOException("프로젝트를 선택하세요."); }
+        if (task == null) { NewTask_Click(this, new RoutedEventArgs()); task = CurrentTask ?? throw new Hermes.Core.HermesException("프로젝트를 선택하세요."); }
         if (!desk.SubscriptionReady && desk.CanConnectCompany)
         {
             connectingCompany = true; Refresh();
             try
             {
                 var configured = desk.State.CodexPath;
-                var exe = configured != null && File.Exists(configured) ? configured : AppServerClient.FindInstalledCodex() ?? throw new IOException("동봉한 엔진을 찾지 못했습니다. 설치 폴더의 engine을 확인하세요.");
+                var exe = configured != null && File.Exists(configured) ? configured : AppServerClient.FindInstalledCodex() ?? throw new Hermes.Core.HermesException("동봉한 엔진을 찾지 못했습니다. 설치 폴더의 engine을 확인하세요.");
                 await desk.ConnectAsync(exe, CurrentProject!.Root);
             }
             finally { connectingCompany = false; Refresh(); }
         }
         if (task.Status == "실행 중")
         {
-            if (pendingImages.Count > 0 || pendingFiles.Count > 0 || pendingSkills.Count > 0) throw new IOException("추가 지시는 텍스트로 전송하세요. 첨부는 다음 실행에서 사용할 수 있습니다.");
+            if (pendingImages.Count > 0 || pendingFiles.Count > 0 || pendingSkills.Count > 0) throw new Hermes.Core.HermesException("추가 지시는 텍스트로 전송하세요. 첨부는 다음 실행에서 사용할 수 있습니다.");
             await desk.SteerAsync(task, prompt);
             if (CurrentTask == task && Prompt.Text == prompt) Prompt.Clear();
             else if (CurrentTask != task && desk.State.Desktop.Drafts.GetValueOrDefault(task.Id) == prompt) desk.State.Desktop.Drafts[task.Id] = "";
@@ -259,7 +259,7 @@ public partial class MainWindow : Window
     {
         if (clearPreview) FilePreview.Clear();
         try { Files.ItemsSource = CurrentProject == null ? null : WorkspaceFiles.List(CurrentProject.Root, fileDirectory); FileDirectory.Text = "/" + fileDirectory; }
-        catch (Exception ex) { Footer.Text = Safety.Redact(ex.Message); }
+        catch (Exception ex) { Footer.Text = ConnectionErrors.Describe(ex); }
     }
     private void FilesRefresh_Click(object sender, RoutedEventArgs e) => RefreshFiles();
     private void FilesUp_Click(object sender, RoutedEventArgs e) { fileDirectory = Path.GetDirectoryName(fileDirectory) ?? ""; RefreshFiles(); }
@@ -277,7 +277,7 @@ public partial class MainWindow : Window
             savedChanges = false; ChangedFiles.ItemsSource = changes; ReviewStatus.Text = $"현재 Git 변경 {changes.Count}개 · 비밀/링크 경로 제외";
             if (changes.Count > 0) ChangedFiles.SelectedIndex = 0; else Diff.Text = "변경 없음";
         }
-        catch (Exception ex) { if (CurrentProject?.Id == project.Id) { ChangedFiles.ItemsSource = null; ReviewStatus.Text = Safety.Redact(ex.Message); } throw; }
+        catch (Exception ex) { if (CurrentProject?.Id == project.Id) { ChangedFiles.ItemsSource = null; ReviewStatus.Text = ConnectionErrors.Describe(ex); } throw; }
     }
     private void TurnDiff_Click(object sender, RoutedEventArgs e)
     { savedChanges = true; ChangedFiles.ItemsSource = CurrentTask?.ChangedFiles.ToList(); ReviewStatus.Text = "저장된 엔진 변경 · 현재 파일 상태와 다를 수 있음"; Diff.Text = CurrentTask?.Diff ?? ""; }
@@ -294,7 +294,7 @@ public partial class MainWindow : Window
         {
             var path = Safety.Resolve(project.Root, change.Path);
             if (!File.Exists(path)) { FilePreview.Text = "현재 파일이 없습니다 (삭제/이름 변경). diff에서 검토하세요."; }
-            else { try { FilePreview.Text = WorkspaceFiles.Read(project.Root, change.Path); } catch (Exception ex) when (ex is IOException or DecoderFallbackException) { FilePreview.Text = Safety.Redact(ex.Message); } }
+            else { try { FilePreview.Text = WorkspaceFiles.Read(project.Root, change.Path); } catch (Exception ex) when (ex is IOException or DecoderFallbackException) { FilePreview.Text = ConnectionErrors.Describe(ex); } }
             fileDirectory = Path.GetDirectoryName(change.Path) ?? ""; RefreshFiles(false); InspectorTabs.SelectedIndex = 0;
         }
         return Task.CompletedTask;
@@ -306,7 +306,7 @@ public partial class MainWindow : Window
     }
     private async void Accept_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
-        var request = CurrentApproval ?? throw new IOException("대기 요청이 없습니다.");
+        var request = CurrentApproval ?? throw new Hermes.Core.HermesException("대기 요청이 없습니다.");
         Dictionary<string, object>? answers = null;
         if (request.Method == "item/tool/requestUserInput")
         {
@@ -324,20 +324,20 @@ public partial class MainWindow : Window
     public async Task<string> RunProgrammaticUiChecks(string data)
     {
         var root = Path.Combine(data, "ui-project"); var other = Path.Combine(data, "ui-other");
-        if (Directory.Exists(root) || Directory.Exists(other)) throw new IOException("UI 검사에는 새 데이터 경로가 필요합니다.");
+        if (Directory.Exists(root) || Directory.Exists(other)) throw new Hermes.Core.HermesException("UI 검사에는 새 데이터 경로가 필요합니다.");
         Directory.CreateDirectory(root); Directory.CreateDirectory(other);
         File.WriteAllText(Path.Combine(root, "review.txt"), "initial\n");
         var project = desk.Register(root); var project2 = desk.Register(other);
         var task = desk.NewTask(project, "Alpha UI fixture"); task.Transcript.Add(new("UI 검사", "fixture-needle", DateTime.UtcNow));
         desk.NewTask(project2, "Alpha second fixture"); desk.Save(); Projects.SelectedItem = project; Tasks.SelectedItem = task;
         int checks = 0;
-        void Check(bool condition, string label) { if (!condition) throw new IOException("UI check failed: " + label); checks++; }
+        void Check(bool condition, string label) { if (!condition) throw new Hermes.Core.HermesException("UI check failed: " + label); checks++; }
         Search.Text = "fixture-needle"; Check(Tasks.Items.Count == 1 && CurrentTask == task, "conversation search control");
         SearchAll.IsChecked = true; Search.Text = "Alpha"; Check(Tasks.Items.Count == 2, "all-project search control");
         Tasks.SelectedItem = task; Check(CurrentProject == project && TaskDetails.Text.Contains(root), "search result execution root");
         Search.Clear();
         foreach (var args in new[] { new[] { "init" }, new[] { "add", "review.txt" }, new[] { "-c", "user.name=Hermes UI Test", "-c", "user.email=hermes@example.invalid", "commit", "-m", "isolated UI fixture" } })
-        { var result = await GitRunner.Run(root, args); if (result.Exit != 0) throw new IOException(result.Error); }
+        { var result = await GitRunner.Run(root, args); if (result.Exit != 0) throw new Hermes.Core.HermesException(result.Error); }
         File.WriteAllText(Path.Combine(root, "review.txt"), "initial\nupdated\n"); await RefreshGitChanges();
         Check(ChangedFiles.Items.Count == 1, "changed-file list control");
         var until = DateTime.UtcNow.AddSeconds(5); while (!Diff.Text.Contains("+updated") && DateTime.UtcNow < until) await Task.Delay(25);
@@ -360,7 +360,7 @@ public partial class MainWindow : Window
         File.WriteAllBytes(png, Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"));
         AddImage(png); Check(Attachments.Items.Count == 1 && pendingImages.Single().Width == 1, "image selection/decode/list controls");
         ImageClear_Click(this, new RoutedEventArgs()); Check(Attachments.Items.Count == 0, "image clear control");
-        var cli = AppServerClient.FindInstalledCodex() ?? throw new IOException("MCP UI smoke requires bundled official CLI");
+        var cli = AppServerClient.FindInstalledCodex() ?? throw new Hermes.Core.HermesException("MCP UI smoke requires bundled official CLI");
         var mcp = new McpWindow(desk, project, cli) { Owner = this }; mcp.Show();
         checks += await mcp.RunProgrammaticChecks(); mcp.Close();
         var skillFolder = Path.Combine(root, ".agents", "skills", "ui-skill"); Directory.CreateDirectory(skillFolder);

@@ -41,7 +41,7 @@ internal static class BrowserBridgeTests
             invalid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", chatBridge.Capability);
             using var invalidResponse = await settings.SendAsync(invalid);
             using var errorPayload = JsonDocument.Parse(await invalidResponse.Content.ReadAsStringAsync());
-            check(invalidResponse.StatusCode == HttpStatusCode.BadGateway && errorPayload.RootElement.GetProperty("error").Text("message").Contains("응답 형식"), "missing provider fields return a clear 502 rather than dropping local connection");
+            check(invalidResponse.StatusCode == HttpStatusCode.InternalServerError && errorPayload.RootElement.GetProperty("error").Text("message").StartsWith("[HERMES_ERROR]"), "adapter format failure is marked HERMES_ERROR and never disguised as upstream 502");
         }
         using var expired = await settings.PostAsync(new Uri(bridge.TaskBaseUri("missing-task").AbsoluteUri + "/responses"), new StringContent("{}", Encoding.UTF8, "application/json"));
         check(expired.StatusCode == HttpStatusCode.Conflict && (await expired.Content.ReadAsStringAsync()).Contains("local_session_expired"), "expired local task returns a specific reconnect error");

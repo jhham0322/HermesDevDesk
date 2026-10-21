@@ -23,7 +23,7 @@ public sealed class AppServerClient : IAsyncDisposable
     {
         if (process != null) throw new InvalidOperationException("이미 연결되었습니다.");
         exe = Path.GetFullPath(exe);
-        if (!File.Exists(exe) || !exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) throw new IOException("공식 codex.exe 경로를 선택하세요.");
+        if (!File.Exists(exe) || !exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) throw new HermesException("공식 codex.exe 경로를 선택하세요.");
         var info = new ProcessStartInfo(exe) { WorkingDirectory = Safety.ProjectRoot(cwd), RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
         foreach (var arg in new[] { "app-server", "--listen", "stdio://", "-c", "approval_policy=\"on-request\"", "-c", "approvals_reviewer=\"user\"", "-c", "sandbox_mode=\"read-only\"", "-c", "windows.sandbox=\"unelevated\"", "-c", "web_search=\"disabled\"", "-c", "analytics.enabled=false", "-c", "features.apps=false", "-c", "features.multi_agent=false", "-c", "mcp_servers={}" }) info.ArgumentList.Add(arg);
         // Existing official login is resolved by Codex itself. Never open credential files.
@@ -38,7 +38,7 @@ public sealed class AppServerClient : IAsyncDisposable
         }
         if (companyBridge != null)
         {
-            if (!companyBridge.IsLoopback || string.IsNullOrEmpty(bridgeKey) || string.IsNullOrEmpty(deployment)) throw new IOException("회사 bridge 설정 오류");
+            if (!companyBridge.IsLoopback || string.IsNullOrEmpty(bridgeKey) || string.IsNullOrEmpty(deployment)) throw new HermesException("회사 bridge 설정 오류");
             info.Environment["HERMES_BRIDGE_KEY"] = bridgeKey; Safety.RegisterSecret(bridgeKey);
             var config = new Dictionary<string, string>
             {
@@ -55,19 +55,19 @@ public sealed class AppServerClient : IAsyncDisposable
         }
         info.Environment["RUST_LOG"] = "warn";
         if (mcpServers != null) { info.ArgumentList.Add("-c"); info.ArgumentList.Add("mcp_servers=" + McpConfiguration.Toml(mcpServers)); }
-        process = Process.Start(info) ?? throw new IOException("App Server 실행 실패");
+        process = Process.Start(info) ?? throw new HermesException("App Server 실행 실패");
         _ = ReadMessagesAsync();
         _ = ReadDiagnosticsAsync();
         try
         {
-            await RequestAsync("initialize", new { clientInfo = new { name = "hermes_devdesk", title = "Hermes DevDesk (independent client)", version = "0.8.16" }, capabilities = new { experimentalApi = true } });
+            await RequestAsync("initialize", new { clientInfo = new { name = "hermes_devdesk", title = "Hermes DevDesk (independent client)", version = "0.8.17" }, capabilities = new { experimentalApi = true } });
             await WriteAsync(new { method = "initialized", @params = new { } });
         }
         catch { await DisposeAsync(); throw; }
     }
     public async Task<JsonElement> RequestAsync(string method, object parameters, int timeoutSeconds = 45)
     {
-        if (!Connected) throw new IOException("App Server 연결이 끊겼습니다.");
+        if (!Connected) throw new HermesException("App Server 연결이 끊겼습니다.");
         var id = Interlocked.Increment(ref nextId);
         var key = id.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -80,13 +80,13 @@ public sealed class AppServerClient : IAsyncDisposable
         finally { pending.TryRemove(key, out _); }
     }
     public Task RespondAsync(ServerRequest request, object result) => WriteAsync(new { id = request.Id, result });
-    public Task RejectUnsupportedAsync(ServerRequest request) => WriteAsync(new { id = request.Id, error = new { code = -32601, message = "Unsupported or denied by Hermes DevDesk safety policy" } });
+    public Task RejectUnsupportedAsync(ServerRequest request) => WriteAsync(new { id = request.Id, error = new { code = -32601, message = "[HERMES_ERROR] Unsupported or denied by Hermes DevDesk safety policy" } });
     private async Task WriteAsync(object message)
     {
         await writer.WaitAsync();
         try
         {
-            var stream = process?.StandardInput ?? throw new IOException("엔진 없음");
+            var stream = process?.StandardInput ?? throw new HermesException("엔진 없음");
             await stream.WriteLineAsync(JsonSerializer.Serialize(message));
             await stream.FlushAsync();
         }
@@ -98,7 +98,7 @@ public sealed class AppServerClient : IAsyncDisposable
         {
             while (process != null && await process.StandardOutput.ReadLineAsync() is { } line)
             {
-                if (line.Length > 128 * 1024 * 1024) throw new IOException("프로토콜 메시지 크기 초과");
+                if (line.Length > 128 * 1024 * 1024) throw new HermesException("프로토콜 메시지 크기 초과");
                 using var doc = JsonDocument.Parse(line);
                 var msg = doc.RootElement;
                 if (msg.TryGetProperty("method", out var method))
@@ -113,16 +113,16 @@ public sealed class AppServerClient : IAsyncDisposable
                 }
                 else if (msg.TryGetProperty("id", out var id) && pending.TryRemove(id.ToString(), out var c))
                 {
-                    if (msg.TryGetProperty("error", out var error)) c.TrySetException(new IOException(Safety.Redact(error.Text("message"))));
+                    if (msg.TryGetProperty("error", out var error)) c.TrySetException(new ModelServerException(Safety.Redact(error.Text("message"))));
                     else if (msg.TryGetProperty("result", out var result)) c.TrySetResult(result.Clone());
-                    else c.TrySetException(new IOException("잘못된 프로토콜 응답"));
+                    else c.TrySetException(new HermesException("잘못된 프로토콜 응답"));
                 }
             }
         }
-        catch (Exception ex) { if (!closing) Diagnostic?.Invoke(Safety.Redact(ex.Message)); }
+        catch (Exception ex) { if (!closing) Diagnostic?.Invoke(ConnectionErrors.Describe(ex)); }
         finally
         {
-            foreach (var c in pending.Values) c.TrySetException(new IOException("App Server 연결 종료"));
+            foreach (var c in pending.Values) c.TrySetException(new HermesException("App Server 연결 종료"));
             pending.Clear();
             if (!closing) Disconnected?.Invoke();
         }

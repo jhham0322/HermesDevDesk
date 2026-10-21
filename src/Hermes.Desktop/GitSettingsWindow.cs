@@ -21,11 +21,11 @@ public sealed class GitSettingsWindow : Window
         foreach (var button in new[] { set, fetch, push, refresh }) button.IsEnabled = project != null;
         var status = new TextBox { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 100 }; panel.Children.Add(status);
         async Task Run(Func<Task<string>> action) { try { actions.IsEnabled = false; status.Text = "로컬 Git 실행 중…"; status.Text = await action(); } catch (Exception ex) { status.Text = Safety.Redact(ex.Message); } finally { actions.IsEnabled = true; } }
-        string Root() => project?.Root ?? throw new IOException("프로젝트를 선택하세요.");
+        string Root() => project?.Root ?? throw new Hermes.Core.HermesException("프로젝트를 선택하세요.");
         pick.Click += (_, _) => { var dialog = new OpenFileDialog { Filter = "Git executable|git.exe" }; if (dialog.ShowDialog(this) == true) executable.Text = dialog.FileName; };
         save.Click += (_, _) =>
         {
-            try { var path = executable.Text.Trim(); if (path != "git" && (!Path.IsPathFullyQualified(path) || !File.Exists(path) || !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))) throw new IOException("git 또는 설치된 git.exe의 절대 경로를 입력하세요."); GitRunner.Executable = path; desk.State.Desktop.GitExecutable = path; desk.Save(); status.Text = "로컬 Git 실행 경로 저장됨"; }
+            try { var path = executable.Text.Trim(); if (path != "git" && (!Path.IsPathFullyQualified(path) || !File.Exists(path) || !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))) throw new Hermes.Core.HermesException("git 또는 설치된 git.exe의 절대 경로를 입력하세요."); GitRunner.Executable = path; desk.State.Desktop.GitExecutable = path; desk.Save(); status.Text = "로컬 Git 실행 경로 저장됨"; }
             catch (Exception ex) { status.Text = Safety.Redact(ex.Message); }
         };
         set.Click += async (_, _) => await Run(async () => { await GitWorkbench.ConfigureRemote(Root(), name.Text, url.Text); return "저장소 원격 설정 저장됨"; });

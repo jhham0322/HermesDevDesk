@@ -47,8 +47,8 @@ internal static class SimpleGatewayTests
         check(AppProfiles.Resolve(profiles) == Path.Combine(profiles, "0.8.0"), "patch update reuses prior app profile without copying credentials");
         Directory.CreateDirectory(Path.Combine(profiles, "data")); File.WriteAllText(Path.Combine(profiles, "data", "state.json"), "{}");
         check(AppProfiles.Resolve(profiles) == Path.Combine(profiles, "data"), "stable profile takes precedence once present");
-        check(ConnectionErrors.Describe(new HttpRequestException(HttpRequestError.NameResolutionError, "owned" )).Contains("서버 이름"), "DNS failure has a specific diagnostic");
-        check(ConnectionErrors.Describe(new System.Text.Json.JsonException()).Contains("JSON") && !ConnectionErrors.Describe(new IOException("saved key missing")).Contains("usage"), "response parsing and local key failures are not mislabeled as missing usage");
+        check(ConnectionErrors.Describe(new HttpRequestException(HttpRequestError.NameResolutionError, "owned" )) == "owned", "DNS failure preserves the network exception message");
+        check(ConnectionErrors.Describe(new System.Text.Json.JsonException()).StartsWith("[HERMES_ERROR]") && !ConnectionErrors.Describe(new IOException("saved key missing")).Contains("usage"), "response parsing and local key failures are not mislabeled as missing usage");
         foreach (var oldProtocol in new[] { 0, 1, 3, 4 })
         {
             var previous = new ProviderSettings { Endpoint = "http://company.invalid/v1", Deployment = "gpt-6-luna", Protocol = (ProviderProtocol)oldProtocol, UseAdvancedSettings = true };

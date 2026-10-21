@@ -16,7 +16,7 @@ public static class BrowserTools
     {
         value = value.Trim();
         if (!value.Contains("://", StringComparison.Ordinal) && Uri.TryCreate("http://" + value, UriKind.Absolute, out var local) && IsLocalDevelopmentUrl(local)) value = local.AbsoluteUri;
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || uri.UserInfo.Length != 0) throw new IOException("브라우저는 인증정보가 없는 HTTP/HTTPS 주소를 지원합니다.");
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || uri.UserInfo.Length != 0) throw new HermesException("브라우저는 인증정보가 없는 HTTP/HTTPS 주소를 지원합니다.");
         return uri;
     }
     public static bool IsLocalDevelopmentUrl(Uri uri)
@@ -32,7 +32,7 @@ public static class BrowserTools
     public static string Selector(JsonElement arguments)
     {
         var selector = arguments.Text("selector");
-        if (selector.Length is 0 or > 1000) throw new IOException("유효한 요소 selector가 필요합니다.");
+        if (selector.Length is 0 or > 1000) throw new HermesException("유효한 요소 selector가 필요합니다.");
         return JsonSerializer.Serialize(selector);
     }
 }

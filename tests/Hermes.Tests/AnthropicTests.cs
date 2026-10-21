@@ -73,7 +73,7 @@ internal static class AnthropicTests
         settings.Endpoint = mock.BaseUri.AbsoluteUri.TrimEnd('/') + "/owned";
         await using var bridge = new CompanyBridge(settings, store); var usage = new List<UsageEntry>(); bridge.Usage += e => usage.Add(e);
         check((await bridge.CheckConnectionAsync()).Contains(settings.Deployment) && minimal && bearer && version && model && hits == 1, "real local Anthropic check posts selected model with bearer and max_tokens=1");
-        mode = "404"; check((await bridge.CheckConnectionAsync()).Contains("/owned/v1/messages") && !bridge.LastCheckSucceeded, "Anthropic 404 identifies actual inference path");
+        mode = "404"; check((await bridge.CheckConnectionAsync()) == "{}" && bridge.LastCheckHttpStatus == 404 && !bridge.LastCheckSucceeded, "Anthropic connection failure preserves original body and HTTP status");
         settings.Authentication = ProviderAuth.ApiKeyHeader; mode = "json"; await bridge.CheckConnectionAsync(); check(apiKey && version, "Anthropic API key uses x-api-key without relay api-key header");
         using var client = new HttpClient();
         async Task<string> Send()
@@ -83,7 +83,7 @@ internal static class AnthropicTests
         }
         mode = "sse"; var streamedWire = await Send(); check(ResponseWire.LastResponse(streamedWire)?.Text("status") == "completed", "HTTP bridge serves native Anthropic SSE to Responses client");
         check(usage[^1].Tokens.Total == 20 && !streamedWire.Contains(secret), "bridge records real server usage without auth token exposure");
-        mode = "redirect"; var before = hits; var rejected = await Send(); check(hits == before + 1 && rejected.Contains("no fallback"), "Anthropic redirect is never followed");
+        mode = "redirect"; var before = hits; var rejected = await Send(); check(hits == before + 1 && rejected == "{}" && usage[^1].HttpStatus == 302, "Anthropic redirect is never followed");
         await using var desk = new DeskController(Path.Combine(root, "anthropic-state")); desk.Configure(settings, secret); mode = "401"; await desk.CheckProviderAsync();
         check(desk.State.Provider.Deployment == "owned-anthropic-model[1M]" && desk.Models.Contains(settings.Deployment) && !desk.SubscriptionReady, "failed check preserves configured model without pretending engine connected");
         await using var reopened = new DeskController(desk.DataDirectory); check(reopened.State.Provider.Deployment == settings.Deployment && reopened.State.Provider.Protocol == ProviderProtocol.AnthropicMessages, "configured Anthropic model persists across restart");

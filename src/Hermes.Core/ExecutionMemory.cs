@@ -151,7 +151,7 @@ public sealed class ExecutionMemory
             try
             {
                 using var proof = Command(db, "SELECT COUNT(*) FROM methods m JOIN attempts a ON a.id=$e AND a.scope=m.scope AND a.tool=m.tool AND a.method=m.method AND a.succeeded=1 WHERE m.id=$id AND m.scope=$s", ("$s", scope), ("$id", methodId), ("$e", evidenceId));
-                if (Convert.ToInt32(proof.ExecuteScalar()) != 1) throw new IOException("현재 프로젝트의 해당 방법과 일치하는 성공 실행 근거가 필요합니다.");
+                if (Convert.ToInt32(proof.ExecuteScalar()) != 1) throw new HermesException("현재 프로젝트의 해당 방법과 일치하는 성공 실행 근거가 필요합니다.");
                 Execute(db, "UPDATE methods SET notes=$n,revision=revision+1,evidence_id=$e,updated=$at WHERE id=$id", ("$n", Clean(notes, 4000)), ("$e", evidenceId), ("$at", DateTimeOffset.UtcNow.ToString("O")), ("$id", methodId)); Index(db, methodId); Snapshot(db, methodId); Execute(db, "COMMIT");
             }
             catch { Execute(db, "ROLLBACK"); throw; }

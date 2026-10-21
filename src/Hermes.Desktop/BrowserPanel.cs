@@ -63,7 +63,7 @@ public partial class MainWindow
         {
             try
             {
-                var root = projectRoot() ?? throw new IOException("다운로드 프로젝트를 선택하세요.");
+                var root = projectRoot() ?? throw new Hermes.Core.HermesException("다운로드 프로젝트를 선택하세요.");
                 var name = Path.GetFileName(args.ResultFilePath);
                 var target = Safety.Resolve(root, Path.Combine("Downloads", Guid.NewGuid().ToString("N") + "-" + name));
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!); args.ResultFilePath = target; args.Handled = true;
@@ -122,7 +122,7 @@ public partial class MainWindow
             ConfigureBrowser(browserView, () => CurrentProject?.Root);
             browserStatus.Text = "브라우저 준비 완료";
         }
-        catch (Exception ex) { if (browserView != null) RemoveBrowserTab(browserView); browserInitialization = null; browserStatus.Text = "WebView2 초기화 실패. Microsoft Edge WebView2 Runtime이 필요합니다. " + Safety.Redact(ex.Message); throw new IOException(browserStatus.Text, ex); }
+        catch (Exception ex) { if (browserView != null) RemoveBrowserTab(browserView); browserInitialization = null; browserStatus.Text = "WebView2 초기화 실패. Microsoft Edge WebView2 Runtime이 필요합니다. " + Safety.Redact(ex.Message); throw new Hermes.Core.HermesException(browserStatus.Text, ex); }
     }
     private async Task<WebView2> EnsureChatBrowser(WorkItem task, CancellationToken ct = default)
     {
@@ -163,7 +163,7 @@ public partial class MainWindow
     }
     private async Task<BrowserToolResult> BrowserAction(WorkItem task, JsonElement args)
     {
-        if (closing || task.ThreadBrowserEnabled != true || task.Status != "실행 중") throw new IOException("실행 중인 브라우저 채팅이 아닙니다.");
+        if (closing || task.ThreadBrowserEnabled != true || task.Status != "실행 중") throw new Hermes.Core.HermesException("실행 중인 브라우저 채팅이 아닙니다.");
         if (!browserLocks.TryGetValue(task.Id, out var gate)) browserLocks[task.Id] = gate = new(1, 1);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
         var ct = timeout.Token;
@@ -171,7 +171,7 @@ public partial class MainWindow
         WebView2? operationView = null;
         try
         {
-            if (closing || task.Status != "실행 중") throw new IOException("작업이 중단되었습니다.");
+            if (closing || task.Status != "실행 중") throw new Hermes.Core.HermesException("작업이 중단되었습니다.");
             var view = await EnsureChatBrowser(task, ct);
             operationView = view;
             OpenPanel(8);
@@ -183,7 +183,7 @@ public partial class MainWindow
                 ResetLocalBrowserAttempts(view);
                 var uri = BrowserTools.ValidateUrl(args.Text("url"));
                 var done = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-                void Completed(object? sender, CoreWebView2NavigationCompletedEventArgs e) { if (e.IsSuccess) done.TrySetResult("페이지 로드됨: " + view.Source); else if (!LocalBrowserRecoveryInProgress(view, e)) done.TrySetException(new IOException("페이지 로드 실패: " + e.WebErrorStatus)); }
+                void Completed(object? sender, CoreWebView2NavigationCompletedEventArgs e) { if (e.IsSuccess) done.TrySetResult("페이지 로드됨: " + view.Source); else if (!LocalBrowserRecoveryInProgress(view, e)) done.TrySetException(new Hermes.Core.HermesException("페이지 로드 실패: " + e.WebErrorStatus)); }
                 view.CoreWebView2.NavigationCompleted += Completed;
                 try { view.CoreWebView2.Navigate(uri.AbsoluteUri); return new(await done.Task.WaitAsync(TimeSpan.FromSeconds(20), ct)); }
                 finally { view.CoreWebView2.NavigationCompleted -= Completed; }
@@ -197,12 +197,12 @@ public partial class MainWindow
             if (action == "upload")
             {
                 var root = desk.State.Projects.First(p => p.Id == task.ProjectId).Root;
-                var file = Safety.Resolve(root, args.Text("path")); if (!File.Exists(file)) throw new IOException("업로드 파일이 없습니다.");
+                var file = Safety.Resolve(root, args.Text("path")); if (!File.Exists(file)) throw new Hermes.Core.HermesException("업로드 파일이 없습니다.");
                 var document = await view.CoreWebView2.CallDevToolsProtocolMethodAsync("DOM.getDocument", "{}").WaitAsync(ct);
                 using var parsed = JsonDocument.Parse(document);
                 var node = await view.CoreWebView2.CallDevToolsProtocolMethodAsync("DOM.querySelector", JsonSerializer.Serialize(new { nodeId = parsed.RootElement.GetProperty("root").GetProperty("nodeId").GetInt32(), selector = args.Text("selector") })).WaitAsync(ct);
                 using var selected = JsonDocument.Parse(node); var nodeId = selected.RootElement.GetProperty("nodeId").GetInt32();
-                if (nodeId == 0) throw new IOException("업로드 요소가 없습니다.");
+                if (nodeId == 0) throw new Hermes.Core.HermesException("업로드 요소가 없습니다.");
                 await view.CoreWebView2.CallDevToolsProtocolMethodAsync("DOM.setFileInputFiles", JsonSerializer.Serialize(new { nodeId, files = new[] { file } })).WaitAsync(ct);
                 return new("파일 업로드 입력 완료");
             }
@@ -211,17 +211,17 @@ public partial class MainWindow
             else if (action == "click") script = "(()=>{const e=document.querySelector(" + BrowserTools.Selector(args) + ");if(!e)throw Error('Element not found');e.click();return 'Clicked';})()";
             else if (action == "type")
             {
-                var value = args.Text("text"); if (value.Length > 100000) throw new IOException("브라우저 입력 길이 제한");
+                var value = args.Text("text"); if (value.Length > 100000) throw new Hermes.Core.HermesException("브라우저 입력 길이 제한");
                 script = "(()=>{const e=document.querySelector(" + BrowserTools.Selector(args) + ");if(!e || !['INPUT','TEXTAREA'].includes(e.tagName)||e.type==='file')throw Error('Unsupported input');const setter=Object.getOwnPropertyDescriptor(e.tagName==='INPUT'?HTMLInputElement.prototype:HTMLTextAreaElement.prototype,'value').set;setter.call(e," + JsonSerializer.Serialize(value) + ");e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return 'Typed';})()";
             }
             else if (action == "evaluate") script = args.Text("script");
-            else throw new IOException("지원하지 않는 브라우저 동작입니다.");
-            if (action is "read" or "screenshot" && (view.Source == null || view.Source.Scheme is not ("http" or "https"))) throw new IOException("이 채팅의 브라우저에 열린 페이지가 없습니다. 브라우저 패널에서 URL을 먼저 여세요.");
+            else throw new Hermes.Core.HermesException("지원하지 않는 브라우저 동작입니다.");
+            if (action is "read" or "screenshot" && (view.Source == null || view.Source.Scheme is not ("http" or "https"))) throw new Hermes.Core.HermesException("이 채팅의 브라우저에 열린 페이지가 없습니다. 브라우저 패널에서 URL을 먼저 여세요.");
             var executed = await view.CoreWebView2.CallDevToolsProtocolMethodAsync("Runtime.evaluate", JsonSerializer.Serialize(new { expression = script, awaitPromise = true, returnByValue = true })).WaitAsync(ct);
-            if (executed.Length > 250000) throw new IOException("브라우저 응답 길이 제한");
+            if (executed.Length > 250000) throw new Hermes.Core.HermesException("브라우저 응답 길이 제한");
             using var output = JsonDocument.Parse(executed);
             if (output.RootElement.Property("exceptionDetails") is { } scriptError)
-                throw new IOException("브라우저 스크립트 실행 실패: " + Safety.Redact(scriptError.Property("exception")?.Text("description") ?? scriptError.Text("text")));
+                throw new Hermes.Core.HermesException("브라우저 스크립트 실행 실패: " + Safety.Redact(scriptError.Property("exception")?.Text("description") ?? scriptError.Text("text")));
             var returned = output.RootElement.GetProperty("result");
             var text = returned.Property("value") is { } scriptValue ? scriptValue.ValueKind == JsonValueKind.String ? scriptValue.GetString() ?? "" : scriptValue.GetRawText() : returned.Text("type");
             var image = action is "read" or "screenshot" ? await CaptureBrowserScreen(view, ct) : null;
@@ -232,7 +232,7 @@ public partial class MainWindow
         {
             if (operationView != null) RemoveBrowserTab(operationView);
             browserStatus.Text = "브라우저 응답 시간 초과 · 다음 요청에서 다시 연결합니다.";
-            throw new IOException(browserStatus.Text, ex);
+            throw new Hermes.Core.HermesException(browserStatus.Text, ex);
         }
         finally { gate.Release(); }
     }

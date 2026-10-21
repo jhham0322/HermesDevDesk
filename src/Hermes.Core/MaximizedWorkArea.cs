@@ -14,7 +14,7 @@ public static class MaximizedWorkArea
     // Do not mix these with primary-monitor SystemParameters.WorkArea DIPs.
     public static MaximizePlacement Calculate(DesktopPixelRect monitor,DesktopPixelRect work,AutoHideEdges autoHide)
     {
-        if(monitor.Width<=0||monitor.Height<=0||work.Width<=0||work.Height<=0)throw new IOException("Invalid monitor work area");
+        if(monitor.Width<=0||monitor.Height<=0||work.Width<=0||work.Height<=0)throw new HermesException("Invalid monitor work area");
         var left=Math.Max(monitor.Left,work.Left);var top=Math.Max(monitor.Top,work.Top);
         var right=Math.Min(monitor.Right,work.Right);var bottom=Math.Min(monitor.Bottom,work.Bottom);
         // Reserve the normal activation edge only when WorkArea did not already reserve it.
@@ -22,7 +22,7 @@ public static class MaximizedWorkArea
         if(autoHide.HasFlag(AutoHideEdges.Top)&&top==monitor.Top)top+=2;
         if(autoHide.HasFlag(AutoHideEdges.Right)&&right==monitor.Right)right-=2;
         if(autoHide.HasFlag(AutoHideEdges.Bottom)&&bottom==monitor.Bottom)bottom-=2;
-        if(right<=left||bottom<=top)throw new IOException("Empty monitor work area");
+        if(right<=left||bottom<=top)throw new HermesException("Empty monitor work area");
         return new(left-monitor.Left,top-monitor.Top,right-left,bottom-top);
     }
 }

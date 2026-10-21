@@ -13,7 +13,7 @@ public static class ChatAdapter
         if (responseRequest["input"] is JsonValue text) messages.Add(new JsonObject { ["role"] = "user", ["content"] = text.DeepClone() });
         else if (responseRequest["input"] is JsonArray inputs) foreach (var node in inputs)
         {
-            if (node is not JsonObject item) throw new IOException("Unsupported chat adapter input");
+            if (node is not JsonObject item) throw new HermesException("Unsupported chat adapter input");
             var type = item["type"]?.GetValue<string>() ?? "message";
             if (type == "message")
             {
@@ -25,7 +25,7 @@ public static class ChatAdapter
                     var partType = part?["type"]?.GetValue<string>();
                     if (partType is "input_text" or "output_text" or "text") content.Add(new JsonObject { ["type"] = "text", ["text"] = part?["text"]?.DeepClone() });
                     else if (partType == "input_image") content.Add(new JsonObject { ["type"] = "image_url", ["image_url"] = new JsonObject { ["url"] = part?["image_url"]?.DeepClone() } });
-                    else throw new IOException("Chat adapter cannot represent this content type");
+                    else throw new HermesException("Chat adapter cannot represent this content type");
                 }
                 JsonNode payload = content.All(p => p?["type"]?.GetValue<string>() == "text")
                     ? JsonValue.Create(string.Join("\n", content.Select(p => p?["text"]?.GetValue<string>() ?? "")))! : content;
@@ -58,15 +58,15 @@ public static class ChatAdapter
                 // Chat tool messages only support text. Send raster content as a real user image, never JSON text.
                 if (images.Count > 0) messages.Add(new JsonObject { ["role"] = "user", ["content"] = images });
             }
-            else if (type != "reasoning") throw new IOException("Unsupported chat adapter input item");
+            else if (type != "reasoning") throw new HermesException("Unsupported chat adapter input item");
         }
         void Tool(JsonObject t, string? ns)
         {
             var type = t["type"]?.GetValue<string>();
             if (type == "namespace") { foreach (var inner in t["tools"]!.AsArray()) Tool(inner!.AsObject(), t["name"]!.GetValue<string>()); return; }
-            if (type is not ("function" or "custom")) throw new IOException("Chat adapter does not emulate hosted tools");
+            if (type is not ("function" or "custom")) throw new HermesException("Chat adapter does not emulate hosted tools");
             var name = t["name"]!.GetValue<string>(); var encoded = Encoded(ns, name);
-            if (!mapping.TryAdd(encoded, new(name, ns, type))) throw new IOException("Tool name collision");
+            if (!mapping.TryAdd(encoded, new(name, ns, type))) throw new HermesException("Tool name collision");
             var schema = type == "custom" ? JsonNode.Parse("{\"type\":\"object\",\"properties\":{\"input\":{\"type\":\"string\"}},\"required\":[\"input\"],\"additionalProperties\":false}") : t["parameters"]?.DeepClone() ?? new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() };
             tools.Add(new JsonObject { ["type"] = "function", ["function"] = new JsonObject { ["name"] = encoded, ["description"] = t["description"]?.DeepClone() ?? "", ["parameters"] = schema } });
         }
@@ -79,25 +79,26 @@ public static class ChatAdapter
     private static string Encoded(string? ns, string name)
     {
         var value = ns == null ? name : ns + "__" + name;
-        if (value.Length > 64 || value.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '_' or '-'))) throw new IOException("Chat tool name is incompatible; use Responses protocol");
+        if (value.Length > 64 || value.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '_' or '-'))) throw new HermesException("Chat tool name is incompatible; use Responses protocol");
         return value;
     }
     public static JsonObject Response(JsonElement chat, ChatAdaptation adaptation, bool allowEmptyProbe = false)
     {
-        var choice = chat.GetProperty("choices")[0]; var message = choice.GetProperty("message"); var output = new JsonArray();
+
+        if (chat.Property("error") != null) throw new ModelServerException(ProviderErrors.ReadableMessage(chat.GetRawText()));        var choice = chat.GetProperty("choices")[0]; var message = choice.GetProperty("message"); var output = new JsonArray();
         var text = message.Text("content");
         if (message.Property("content") is { ValueKind: JsonValueKind.Array } parts)
             text = string.Join("", parts.EnumerateArray().Where(p => p.ValueKind == JsonValueKind.Object).Select(p => p.Text("text")));
         if (text.Length > 0) output.Add(new JsonObject { ["id"] = "msg_" + Guid.NewGuid().ToString("N"), ["type"] = "message", ["role"] = "assistant", ["status"] = "completed", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = text, ["annotations"] = new JsonArray() }) });
         if (message.Property("tool_calls") is { ValueKind: JsonValueKind.Array } calls) foreach (var call in calls.EnumerateArray())
         {
-            var function = call.GetProperty("function"); var encoded = function.Text("name"); if (!adaptation.Tools.TryGetValue(encoded, out var tool)) throw new IOException("Unknown tool returned by gateway");
+            var function = call.GetProperty("function"); var encoded = function.Text("name"); if (!adaptation.Tools.TryGetValue(encoded, out var tool)) throw new HermesException("Unknown tool returned by gateway");
             var item = new JsonObject { ["id"] = "fc_" + Guid.NewGuid().ToString("N"), ["call_id"] = call.Text("id"), ["type"] = tool.Type == "custom" ? "custom_tool_call" : "function_call", ["name"] = tool.Name, ["status"] = "completed" };
             if (tool.Namespace != null) item["namespace"] = tool.Namespace;
             if (tool.Type == "custom") { using var arguments = JsonDocument.Parse(function.Text("arguments")); item["input"] = arguments.RootElement.Text("input"); }
             else item["arguments"] = function.Text("arguments"); output.Add(item);
         }
-        if (output.Count == 0 && !allowEmptyProbe) throw new IOException("모델이 답변 본문이나 도구 호출을 반환하지 않았습니다. finish_reason=" + choice.Text("finish_reason") + (message.Property("reasoning_content") != null ? " · 추론 내용만 반환됨. 서버의 출력 토큰 제한과 응답 형식을 확인하세요." : " · 서버의 응답 형식을 확인하세요."));
+        if (output.Count == 0 && !allowEmptyProbe) throw new HermesException("모델이 답변 본문이나 도구 호출을 반환하지 않았습니다. finish_reason=" + choice.Text("finish_reason") + (message.Property("reasoning_content") != null ? " · 추론 내용만 반환됨. 서버의 출력 토큰 제한과 응답 형식을 확인하세요." : " · 서버의 응답 형식을 확인하세요."));
         var usage = TokenCounts.FromResponse(chat); JsonObject? tokens = usage.Input.HasValue && usage.Output.HasValue && usage.Total.HasValue ? new() { ["input_tokens"] = usage.Input, ["output_tokens"] = usage.Output, ["total_tokens"] = usage.Total } : null;
         if (tokens != null && usage.Cached.HasValue) tokens["input_tokens_details"] = new JsonObject { ["cached_tokens"] = usage.Cached };
         if (tokens != null && usage.Reasoning.HasValue) tokens["output_tokens_details"] = new JsonObject { ["reasoning_tokens"] = usage.Reasoning };

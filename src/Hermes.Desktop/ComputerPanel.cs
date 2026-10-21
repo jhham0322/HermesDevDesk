@@ -114,24 +114,24 @@ public partial class MainWindow
     private async Task<ComputerToolResult> ComputerActionAsync(WorkItem task, JsonElement arguments)
     {
         var action = ComputerTools.Parse(arguments);
-        if (!await computerGate.WaitAsync(0)) throw new IOException("다른 컴퓨터 요청이 진행 중입니다. 순차 요청하세요.");
+        if (!await computerGate.WaitAsync(0)) throw new Hermes.Core.HermesException("다른 컴퓨터 요청이 진행 중입니다. 순차 요청하세요.");
         var epoch = computerEpoch; var turn = task.TurnId; var token = computerCancellation.Token; computerRequestTask = task;
         void Check()
         {
-            if (closing || !computerArmed || epoch != computerEpoch || token.IsCancellationRequested || task != CurrentTask || task.ProjectId != CurrentProject?.Id || task.ProjectId != computerProjectId || task.ThreadComputerEnabled != true || task.Status != "실행 중" || task.TurnId != turn) throw new IOException("컴퓨터 제어가 중단되었거나 선택 작업이 바뀌었습니다.");
+            if (closing || !computerArmed || epoch != computerEpoch || token.IsCancellationRequested || task != CurrentTask || task.ProjectId != CurrentProject?.Id || task.ProjectId != computerProjectId || task.ThreadComputerEnabled != true || task.Status != "실행 중" || task.TurnId != turn) throw new Hermes.Core.HermesException("컴퓨터 제어가 중단되었거나 선택 작업이 바뀌었습니다.");
         }
         try
         {
             Check();
             if (action.Action == "windows") return new(JsonSerializer.Serialize(new { windows = computerWindows.Select(w => new { windowId = w.Id, title = Safety.Redact(w.Window.Title) }), note = "사용자가 이번 실행에서 허용한 창만 표시합니다." }));
-            var target = computerWindows.FirstOrDefault(w => w.Id == action.WindowId) ?? throw new IOException("사용자가 허용하지 않은 창입니다. 컴퓨터 패널에서 대상 창을 추가하세요.");
-            if (action.Action == "type" && Safety.Redact(action.Text) != action.Text) throw new IOException("비밀 값으로 인식된 문자열은 컴퓨터 도구로 입력하지 않습니다. 직접 입력하세요.");
+            var target = computerWindows.FirstOrDefault(w => w.Id == action.WindowId) ?? throw new Hermes.Core.HermesException("사용자가 허용하지 않은 창입니다. 컴퓨터 패널에서 대상 창을 추가하세요.");
+            if (action.Action == "type" && Safety.Redact(action.Text) != action.Text) throw new Hermes.Core.HermesException("비밀 값으로 인식된 문자열은 컴퓨터 도구로 입력하지 않습니다. 직접 입력하세요.");
             var expected = computerSizes.GetValueOrDefault(target.Id);
             computerStatus.Text = "요청 검토 대기 · " + target.Window.Title + " · " + action.Action;
             var sensitive = SensitiveComputerAction(target, action);
             var auto = ComputerExecutionPolicy.CanAutoExecute(action, computerArmed, computerWindows.Contains(target), computerAutomatic, sensitive) || (computerAutomatic && computerArmed && action.Action is "inspect" or "wait_for_change");
             task.Transcript.Add(new("컴퓨터 요청", $"action={action.Action}; automatic={auto}; scopeCount={computerWindows.Count}; inputTextOmitted=true", DateTime.UtcNow));
-            if (!auto && !ReviewComputerRequest(target, action)) throw new IOException("사용자가 컴퓨터 요청을 거절했습니다.");
+            if (!auto && !ReviewComputerRequest(target, action)) throw new Hermes.Core.HermesException("사용자가 컴퓨터 요청을 거절했습니다.");
             Check(); if (action.IsInput) computerSnapshots.Consume(target.Id, action.SnapshotId, DateTimeOffset.UtcNow);
             computerStatus.Text = "실행 중 · " + target.Window.Title + " · " + action.Action + " · 중단 Ctrl+Alt+F12";
             ComputerFrame frame; ComputerObservationStats? observation = null;
@@ -146,7 +146,7 @@ public partial class MainWindow
                 finally { computerWaitWake = null; }
                 Check();
                 observation = new(reply.Metrics.Captures, reply.Metrics.Changes, reply.Metrics.Coalesced, reply.Metrics.Notifications);
-                if (!reply.Success) throw new IOException(reply.Error);
+                if (!reply.Success) throw new Hermes.Core.HermesException(reply.Error);
                 if (reply.Frame == null) return new(JsonSerializer.Serialize(new { reason = reply.Reason, metrics = reply.Metrics, imageSent = false, actualModelRequests = (int?)null }), null, observation);
                 task.Transcript.Add(new("컴퓨터 변화 계측", JsonSerializer.Serialize(reply.Metrics), DateTime.UtcNow));
                 frame = reply.Frame;

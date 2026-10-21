@@ -40,7 +40,7 @@ public partial class MainWindow
         {
             for (int attempt = 0; ; attempt++)
             {
-                if (target != CurrentTask?.Id || project != CurrentProject?.Id) throw new IOException("대화가 바뀌었습니다. 선택한 대화에 다시 붙여넣으세요.");
+                if (target != CurrentTask?.Id || project != CurrentProject?.Id) throw new Hermes.Core.HermesException("대화가 바뀌었습니다. 선택한 대화에 다시 붙여넣으세요.");
                 try
                 {
                     var data = readClipboard();
@@ -91,16 +91,16 @@ public partial class MainWindow
     }
     private void EnsureAttachmentTask()
     {
-        if (CurrentProject == null) throw new IOException("첨부할 프로젝트를 먼저 선택하세요.");
+        if (CurrentProject == null) throw new Hermes.Core.HermesException("첨부할 프로젝트를 먼저 선택하세요.");
         if (CurrentTask == null)
         {
             var draft = Prompt.Text; NewTask_Click(this, new()); Prompt.Text = draft;
         }
-        if (CurrentTask?.Archived == true) throw new IOException("대화를 복원한 뒤 첨부하세요.");
+        if (CurrentTask?.Archived == true) throw new Hermes.Core.HermesException("대화를 복원한 뒤 첨부하세요.");
     }
     private void ChooseAttachments(bool imagesOnly) => _ = Guard(() =>
     {
-        var project = CurrentProject ?? throw new IOException("첨부할 프로젝트를 먼저 선택하세요.");
+        var project = CurrentProject ?? throw new Hermes.Core.HermesException("첨부할 프로젝트를 먼저 선택하세요.");
         var dialog = new OpenFileDialog
         {
             Filter = imagesOnly ? "이미지|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff|모든 파일|*.*" : "모든 파일|*.*|문서와 텍스트|*.pdf;*.docx;*.xlsx;*.txt;*.md;*.csv;*.json",
@@ -123,11 +123,11 @@ public partial class MainWindow
         if (extension is ".bmp" or ".gif" or ".tif" or ".tiff")
         {
             Safety.RejectReparseAncestors(path);
-            if (new FileInfo(path).Length > ImageAttachments.MaxImageBytes) throw new IOException("이미지 파일당 최대 20MB입니다.");
+            if (new FileInfo(path).Length > ImageAttachments.MaxImageBytes) throw new Hermes.Core.HermesException("이미지 파일당 최대 20MB입니다.");
             using var stream = File.OpenRead(path); AddClipboardImage(DecodeClipboardImage(stream)); return;
         }
         var project = CurrentProject!;
-        if (pendingFiles.Count >= FileAttachments.MaxFiles) throw new IOException("파일은 최대 10개까지 첨부할 수 있습니다.");
+        if (pendingFiles.Count >= FileAttachments.MaxFiles) throw new Hermes.Core.HermesException("파일은 최대 10개까지 첨부할 수 있습니다.");
         var file = FileAttachments.Import(project.Root, path);
         try { var selected = FileAttachments.Validate(project.Root, pendingFiles.Append(file)); pendingFiles.Clear(); pendingFiles.AddRange(selected); }
         catch { File.Delete(Safety.Resolve(project.Root, file.RelativePath)); throw; }

@@ -17,7 +17,7 @@ public partial class MainWindow
     private readonly Button browserCloseAll = new() { Content = "모든 탭 닫기" };
     private WebView2 CreateBrowserTab(string? owner)
     {
-        if (browserTabOwners.Count >= BrowserTabLimit) throw new IOException("브라우저는 최대 10개까지 열 수 있습니다. 사용하지 않는 탭을 닫으세요.");
+        if (browserTabOwners.Count >= BrowserTabLimit) throw new Hermes.Core.HermesException("브라우저는 최대 10개까지 열 수 있습니다. 사용하지 않는 탭을 닫으세요.");
         var view = new WebView2(); browserTabOwners.Add(view, owner); browserTabReady[view] = new(TaskCreationOptions.RunContinuationsAsynchronously); return view;
     }
     private void RefreshBrowserTabs()

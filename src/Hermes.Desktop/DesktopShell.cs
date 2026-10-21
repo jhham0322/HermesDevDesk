@@ -239,7 +239,7 @@ public partial class MainWindow
     }
     private void DeleteChat(WorkItem task, bool confirm)
     {
-        if (DeskController.IsRunning(task)) throw new IOException("삭제할 채팅을 먼저 중단하세요.");
+        if (DeskController.IsRunning(task)) throw new Hermes.Core.HermesException("삭제할 채팅을 먼저 중단하세요.");
         if (confirm && MessageBox.Show(this, "이 채팅의 대화 기록과 초안을 삭제할까요?\n프로젝트 파일, Git 이력과 사용량은 유지됩니다.", "채팅 삭제", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         openChats.Remove(task.Id); closedChats.Remove(task.Id); navigation.RemoveAll(id => id == task.Id); navigationIndex = navigation.Count - 1;
         imageDrafts.Remove(task.Id); fileDrafts.Remove(task.Id); skillDrafts.Remove(task.Id); modelDrafts.Remove(task.Id);

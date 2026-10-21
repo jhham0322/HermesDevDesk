@@ -84,7 +84,7 @@ public sealed class StateStore
     public AppState Load()
     {
         if (!File.Exists(path)) return new();
-        var state = JsonSerializer.Deserialize<AppState>(File.ReadAllText(path)) ?? throw new IOException("이력 파일 손상: 원본을 보존했습니다.");
+        var state = JsonSerializer.Deserialize<AppState>(File.ReadAllText(path)) ?? throw new HermesException("이력 파일 손상: 원본을 보존했습니다.");
         foreach (var entry in state.Usage.Where(e => e.Status == "started")) { entry.Status = "unknown-after-restart"; entry.Requests = null; entry.Note = "연결 종료 전 최종 usage를 받지 못함"; }
         foreach (var task in state.Tasks.Where(t => t.Status is "실행 중" or "승인 대기" or "시작 중" or "중단 중")) { task.Status = "연결 끊김 · 재개 가능"; task.TurnId = null; }
         return state;

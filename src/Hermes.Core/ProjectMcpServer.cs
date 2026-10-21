@@ -54,7 +54,7 @@ public sealed class ProjectMcpServer
                 "resources/list" => new { resources = Array.Empty<object>() },
                 "resources/templates/list" => new { resourceTemplates = Array.Empty<object>() },
                 "tools/call" => await Call(message.Property("params") ?? JsonSerializer.SerializeToElement(new { })).ConfigureAwait(false),
-                _ => throw new IOException("Unsupported local MCP method")
+                _ => throw new HermesException("Unsupported local MCP method")
             };
             await Send(new { jsonrpc = "2.0", id, result }).ConfigureAwait(false);
         }
@@ -117,20 +117,20 @@ public sealed class ProjectMcpServer
             case "read_project_text": return Result(WorkspaceFiles.Read(root, args.Text("relativePath")));
             case "error_demo": return Result("HERMES_MCP_EXPECTED_ERROR", true);
             case "request_confirmation":
-                var message = args.Text("message"); if (message.Length is < 1 or > 2000) throw new IOException("Confirmation message length");
+                var message = args.Text("message"); if (message.Length is < 1 or > 2000) throw new HermesException("Confirmation message length");
                 return Result(await Confirm(message).ConfigureAwait(false) ? "HERMES_MCP_APPROVED" : "HERMES_MCP_DECLINED");
             case "write_project_note":
-                if (!writable) throw new IOException("Read-only MCP session");
+                if (!writable) throw new HermesException("Read-only MCP session");
                 var relative = args.Text("relativePath"); var text = args.Text("text");
-                if (text.Length > 10000) throw new IOException("Note exceeds 10000 characters");
+                if (text.Length > 10000) throw new HermesException("Note exceeds 10000 characters");
                 var path = Safety.Resolve(root, relative);
-                if (File.Exists(path) || Directory.Exists(path) || !Directory.Exists(Path.GetDirectoryName(path))) throw new IOException("New file in an existing project directory required; existing data preserved");
+                if (File.Exists(path) || Directory.Exists(path) || !Directory.Exists(Path.GetDirectoryName(path))) throw new HermesException("New file in an existing project directory required; existing data preserved");
                 if (!await Confirm("Create NEW project file " + relative + "\n\n" + Safety.Redact(text)).ConfigureAwait(false)) return Result("HERMES_MCP_DECLINED: no file created");
                 path = Safety.Resolve(root, relative);
                 using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 { var bytes = Encoding.UTF8.GetBytes(Safety.Redact(text)); await file.WriteAsync(bytes).ConfigureAwait(false); }
                 return Result("Created " + relative);
-            default: throw new IOException("Unknown or disabled local MCP tool");
+            default: throw new HermesException("Unknown or disabled local MCP tool");
         }
     }
 }

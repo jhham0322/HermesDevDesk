@@ -23,7 +23,7 @@ public sealed class ComputerChangeGate
             this.options.ChangedFraction is <= 0 or > 1 || !double.IsFinite(this.options.ChangedFraction) ||
             this.options.DebounceMs < 0 || this.options.MinimumNotificationMs < 1000 ||
             this.options.MaximumCoalescingMs < this.options.DebounceMs)
-            throw new IOException("Invalid local change thresholds/rate limit");
+            throw new HermesException("Invalid local change thresholds/rate limit");
     }
     public void SetDelivered(byte[] pixels, ComputerCursor? cursor, DateTimeOffset? at = null)
     { delivered = pixels.ToArray(); deliveredCursor = cursor; lastNotification = at; }

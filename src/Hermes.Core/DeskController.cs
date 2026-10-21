@@ -50,7 +50,7 @@ public sealed partial class DeskController : IAsyncDisposable
     public void AddModel(string model)
     {
         model = model.Trim();
-        if (model.Length is < 1 or > 200 || model.Any(char.IsControl) || Safety.Redact(model) != model || (KeyStore.HasKey && model.Contains(KeyStore.ReadOwnKey(), StringComparison.Ordinal))) throw new IOException("모델명을 확인하세요.");
+        if (model.Length is < 1 or > 200 || model.Any(char.IsControl) || Safety.Redact(model) != model || (KeyStore.HasKey && model.Contains(KeyStore.ReadOwnKey(), StringComparison.Ordinal))) throw new HermesException("모델명을 확인하세요.");
         if (!State.SavedModels.TryGetValue(ModelScope, out var models)) State.SavedModels[ModelScope] = models = [];
         if (!models.Contains(model)) models.Add(model);
         if (State.Provider.Mode == ConnectionMode.CompanyApi && !Models.Contains(model)) Models.Add(model);
@@ -83,7 +83,7 @@ public sealed partial class DeskController : IAsyncDisposable
     {
         var original = State.Provider;
         var result = await GatewayConnector.Connect(original, KeyStore, ct);
-        if (!ReferenceEquals(original, State.Provider)) throw new IOException("설정이 바뀌어 이전 연결 확인 결과를 적용하지 않았습니다.");
+        if (!ReferenceEquals(original, State.Provider)) throw new HermesException("설정이 바뀌어 이전 연결 확인 결과를 적용하지 않았습니다.");
         var rememberedModels = SavedModels.ToList();
         State.Provider = result.Settings;
         var connection = State.ModelConnections.FirstOrDefault(c => c.Settings.Deployment == State.Provider.Deployment);
@@ -95,11 +95,11 @@ public sealed partial class DeskController : IAsyncDisposable
     }
     public void Configure(ProviderSettings settings, string? newKey = null, bool deleteKey = false)
     {
-        if (connecting || State.Tasks.Any(IsRunning)) throw new IOException("진행 중인 연결/작업이 끝난 뒤 설정을 저장하세요.");
+        if (connecting || State.Tasks.Any(IsRunning)) throw new HermesException("진행 중인 연결/작업이 끝난 뒤 설정을 저장하세요.");
         settings.NormalizeInferenceEndpoint();
         if (settings.Mode == ConnectionMode.CompanyApi) settings.Validate(allowTestLoopback);
         var candidateKey = newKey ?? (KeyStore.HasKey ? KeyStore.ReadOwnKey() : null);
-        if (candidateKey != null && JsonSerializer.Serialize(new { settings.Endpoint, settings.Deployment }).Contains(candidateKey, StringComparison.Ordinal)) throw new IOException("API 키를 주소/배포명에 넣을 수 없습니다. 전용 키 입력란을 사용하세요.");
+        if (candidateKey != null && JsonSerializer.Serialize(new { settings.Endpoint, settings.Deployment }).Contains(candidateKey, StringComparison.Ordinal)) throw new HermesException("API 키를 주소/배포명에 넣을 수 없습니다. 전용 키 입력란을 사용하세요.");
         settings.KeyRevision = State.Provider.KeyRevision;
         if (newKey != null) { Safety.RegisterSecret(newKey); KeyStore.Save(newKey); settings.KeyRevision++; }
         if (deleteKey) { KeyStore.DeleteOwnKey(); settings.KeyRevision++; }
@@ -115,7 +115,7 @@ public sealed partial class DeskController : IAsyncDisposable
         if (State.Provider.Protocol == ProviderProtocol.GatewayAuto || !State.Provider.UseAdvancedSettings)
         {
             try { return await ResolveGateway(ct); }
-            catch (IOException ex) { ProviderCheckStatus = Safety.Redact(ex.Message); SubscriptionReady = false; AccountStatus = "모델 연결 확인 실패"; Models.Clear(); Models.Add(State.Provider.Deployment); Models.AddRange(SavedModels.Where(m => !Models.Contains(m))); Save(); return ProviderCheckStatus; }
+            catch (IOException ex) { ProviderCheckStatus = ConnectionErrors.Describe(ex); SubscriptionReady = false; AccountStatus = "모델 연결 확인 실패"; Models.Clear(); Models.Add(State.Provider.Deployment); Models.AddRange(SavedModels.Where(m => !Models.Contains(m))); Save(); return ProviderCheckStatus; }
         }
         await using var check = new CompanyBridge(State.Provider, KeyStore, allowTestLoopback); check.Usage += e => dispatch(() => { UsageLedger.Upsert(State, e); Save(); }); ProviderCheckStatus = await check.CheckConnectionAsync(ct); Models.Clear(); Models.Add(State.Provider.Deployment); Models.AddRange(SavedModels.Where(m => !Models.Contains(m))); Models.AddRange(check.DiscoveredModels.Where(m => !Models.Contains(m))); company?.SetAvailableModels(Models);
         if (Engine != null && connectedFingerprint == State.Provider.Fingerprint && ((State.Provider.IsAnthropic && !check.LastCheckSucceeded) || check.LastCheckHttpStatus is 401 or 403)) { SubscriptionReady = false; AccountStatus = "회사 모델 연결 검사 실패 · 설정 모델: " + State.Provider.Deployment; }
@@ -133,7 +133,7 @@ public sealed partial class DeskController : IAsyncDisposable
         var root = Safety.ProjectRoot(path);
         var existing = State.Projects.FirstOrDefault(p => string.Equals(p.Root, root, StringComparison.OrdinalIgnoreCase));
         if (existing != null) return existing;
-        if (State.Projects.Any(p => Safety.Within(p.Root, root) || Safety.Within(root, p.Root))) throw new IOException("중첩 프로젝트는 등록하지 않습니다. 작업 경계를 분리하세요.");
+        if (State.Projects.Any(p => Safety.Within(p.Root, root) || Safety.Within(root, p.Root))) throw new HermesException("중첩 프로젝트는 등록하지 않습니다. 작업 경계를 분리하세요.");
         var entry = new ProjectEntry { Root = root, Name = Path.GetFileName(root) }; State.Projects.Add(entry); Save(); return entry;
     }
     public WorkItem NewTask(ProjectEntry project, string title)
@@ -147,7 +147,7 @@ public sealed partial class DeskController : IAsyncDisposable
     }
     public async Task<(ProjectEntry Project, WorkItem Task)> NewIsolatedTaskAsync(ProjectEntry source, string storage, string title)
     {
-        if (State.Tasks.Any(t => t.ProjectId == source.Id && IsRunning(t))) throw new IOException("원본 프로젝트 작업을 중단한 후 격리 작업을 만드세요.");
+        if (State.Tasks.Any(t => t.ProjectId == source.Id && IsRunning(t))) throw new HermesException("원본 프로젝트 작업을 중단한 후 격리 작업을 만드세요.");
         var created = await WorktreeManager.CreateAsync(source.Root, storage, State.Projects.Where(p => p.ParentProjectId == null).Select(p => p.Root));
         var project = Register(created.Root); project.Name = source.Name + " / 격리 " + created.Branch[^8..];
         project.ParentProjectId = source.Id; project.WorktreeBranch = created.Branch; project.BaseCommit = created.Commit;
@@ -155,7 +155,7 @@ public sealed partial class DeskController : IAsyncDisposable
     }
     public async Task ConnectAsync(string exe, string cwd)
     {
-        if (connecting) throw new IOException("이미 연결 중입니다.");
+        if (connecting) throw new HermesException("이미 연결 중입니다.");
         connecting = true; try { await ConnectCoreAsync(exe, cwd); } finally { connecting = false; }
     }
     private async Task ConnectCoreAsync(string exe, string cwd)
@@ -179,13 +179,13 @@ public sealed partial class DeskController : IAsyncDisposable
             if (State.Provider.Mode == ConnectionMode.CompanyApi)
             {
                 State.Provider.Validate(allowTestLoopback);
-                if (State.Provider.Authentication != ProviderAuth.None && !KeyStore.HasKey) throw new IOException("회사 키를 앱 설정에서 직접 입력하세요. 기존 키를 추출하지 않습니다.");
+                if (State.Provider.Authentication != ProviderAuth.None && !KeyStore.HasKey) throw new HermesException("회사 키를 앱 설정에서 직접 입력하세요. 기존 키를 추출하지 않습니다.");
                 if (State.Provider.Protocol == ProviderProtocol.GatewayAuto || !State.Provider.UseAdvancedSettings) await ResolveGateway(CancellationToken.None);
                 var savedModels = Models.ToList();
                 company = new(State.Provider, KeyStore, allowTestLoopback); company.Usage += e => dispatch(() => { UsageLedger.Upsert(State, e); if (e.Status == "failed" && State.Tasks.FirstOrDefault(t => t.Id == e.TaskId) is { } failedTask && !failedTask.Transcript.Any(t => t.ItemId == "gateway-error-" + e.Id)) failedTask.Transcript.Add(new("오류", ProviderErrors.ReadableMessage(e.Note), DateTime.UtcNow, "gateway-error-" + e.Id)); Save(); });
                 await client.ConnectAsync(exe, cwd, Path.Combine(DataDirectory, "engine-home"), company.BaseUri, company.Capability, State.Provider.Deployment);
                 var providerAccount = await client.RequestAsync("account/read", new { refreshToken = false });
-                if (providerAccount.Property("requiresOpenaiAuth") is { ValueKind: JsonValueKind.True }) throw new IOException("회사 provider가 외부 OpenAI 인증을 요구해 차단했습니다.");
+                if (providerAccount.Property("requiresOpenaiAuth") is { ValueKind: JsonValueKind.True }) throw new HermesException("회사 provider가 외부 OpenAI 인증을 요구해 차단했습니다.");
                 Models.Clear(); ModelEfforts.Clear(); Models.Add(State.Provider.Deployment); Models.AddRange(SavedModels.Where(m => !Models.Contains(m))); Models.AddRange(savedModels.Where(m => !Models.Contains(m))); company.SetAvailableModels(Models); SubscriptionReady = true; connectedFingerprint = State.Provider.Fingerprint;
                 AccountStatus = "회사 API 전용 연결 · 실제 인증/배포 검증은 첫 서버 응답 기준 · 외부 fallback 없음";
                 State.CodexPath = exe; Save(); return;
@@ -217,12 +217,12 @@ public sealed partial class DeskController : IAsyncDisposable
     public static bool IsRunning(WorkItem t) => t.Status is "실행 중" or "승인 대기" or "시작 중" or "중단 중";
     public ScheduledDraft ScheduleDraft(ProjectEntry project, string title, string prompt, DateTimeOffset due)
     {
-        if (!State.Projects.Contains(project) || title.Trim().Length is < 1 or > 200 || prompt.Trim().Length is < 1 or > 100000 || due <= DateTimeOffset.UtcNow || due > DateTimeOffset.UtcNow.AddDays(365)) throw new IOException("프로젝트/제목/지시/1년 이내 미래 UTC 시각을 확인하세요.");
+        if (!State.Projects.Contains(project) || title.Trim().Length is < 1 or > 200 || prompt.Trim().Length is < 1 or > 100000 || due <= DateTimeOffset.UtcNow || due > DateTimeOffset.UtcNow.AddDays(365)) throw new HermesException("프로젝트/제목/지시/1년 이내 미래 UTC 시각을 확인하세요.");
         Safety.ProjectRoot(project.Root);
         var entry = new ScheduledDraft { ProjectId = project.Id, Title = Safety.Redact(title.Trim()), Prompt = Safety.Redact(prompt), DueAtUtc = due.ToUniversalTime() }; State.ScheduledDrafts.Add(entry); Save(); return entry;
     }
     public void CancelScheduledDraft(ScheduledDraft entry)
-    { if (!State.ScheduledDrafts.Contains(entry)) throw new IOException("등록한 예약이 아님"); entry.Enabled = false; Save(); }
+    { if (!State.ScheduledDrafts.Contains(entry)) throw new HermesException("등록한 예약이 아님"); entry.Enabled = false; Save(); }
     public List<WorkItem> CreateDueDrafts(DateTimeOffset now)
     {
         var created = new List<WorkItem>();
@@ -238,8 +238,8 @@ public sealed partial class DeskController : IAsyncDisposable
     }
     public void DeleteTask(WorkItem task)
     {
-        if (!State.Tasks.Contains(task)) throw new IOException("등록된 채팅이 아닙니다.");
-        if (IsRunning(task)) throw new IOException("이 채팅을 중단한 뒤 삭제하세요. 다른 채팅은 계속 실행할 수 있습니다.");
+        if (!State.Tasks.Contains(task)) throw new HermesException("등록된 채팅이 아닙니다.");
+        if (IsRunning(task)) throw new HermesException("이 채팅을 중단한 뒤 삭제하세요. 다른 채팅은 계속 실행할 수 있습니다.");
         State.Tasks.Remove(task); State.Desktop.Drafts.Remove(task.Id);
         if (task.ThreadId != null) { loadedThreads.Remove(task.ThreadId); State.ThreadUsageSnapshots.Remove(task.ThreadId); }
         Approvals.RemoveAll(a => a.Params.Text("threadId") == task.ThreadId);
@@ -249,13 +249,13 @@ public sealed partial class DeskController : IAsyncDisposable
     public async Task SetArchivedAsync(WorkItem task, bool archived, CancellationToken cancellation = default)
     {
         cancellation.ThrowIfCancellationRequested();
-        if (IsRunning(task) || State.Tasks.Any(IsRunning)) throw new IOException("실행 중인 작업을 먼저 중단하세요.");
+        if (IsRunning(task) || State.Tasks.Any(IsRunning)) throw new HermesException("실행 중인 작업을 먼저 중단하세요.");
         if (task.Archived == archived) return;
-        if (!State.Tasks.Contains(task)) throw new IOException("앱에 등록된 대화만 보관/복원합니다.");
+        if (!State.Tasks.Contains(task)) throw new HermesException("앱에 등록된 대화만 보관/복원합니다.");
         if (task.ThreadId != null)
         {
-            var engine = Engine ?? throw new IOException("공식 엔진 연결 후 대화를 보관/복원하세요.");
-            if (connectedFingerprint != State.Provider.Fingerprint || task.ProviderFingerprint != connectedFingerprint) throw new IOException("원래 provider로 연결하세요.");
+            var engine = Engine ?? throw new HermesException("공식 엔진 연결 후 대화를 보관/복원하세요.");
+            if (connectedFingerprint != State.Provider.Fingerprint || task.ProviderFingerprint != connectedFingerprint) throw new HermesException("원래 provider로 연결하세요.");
             cancellation.ThrowIfCancellationRequested();
             await engine.RequestAsync(archived ? "thread/archive" : "thread/unarchive", new { threadId = task.ThreadId });
             loadedThreads.Remove(task.ThreadId);
@@ -265,8 +265,8 @@ public sealed partial class DeskController : IAsyncDisposable
     }
     public async Task<WorkItem> ForkAsync(WorkItem source, string? mcpHostExe = null)
     {
-        var engine = Engine ?? throw new IOException("엔진 연결 필요");
-        if (HasPendingModel || !SubscriptionReady || connectedFingerprint != State.Provider.Fingerprint || source.ThreadId == null || source.ProviderFingerprint != connectedFingerprint || State.Tasks.Any(IsRunning)) throw new IOException("같은 provider의 시작된 대화를 작업 중이 아닐 때 분기하세요.");
+        var engine = Engine ?? throw new HermesException("엔진 연결 필요");
+        if (HasPendingModel || !SubscriptionReady || connectedFingerprint != State.Provider.Fingerprint || source.ThreadId == null || source.ProviderFingerprint != connectedFingerprint || State.Tasks.Any(IsRunning)) throw new HermesException("같은 provider의 시작된 대화를 작업 중이 아닐 때 분기하세요.");
         var project = Project(source); var root = Safety.ProjectRoot(project.Root);
         var mcp = new Dictionary<string, object>(disabledMcp);
         var forkTaskId = Guid.NewGuid().ToString("N");
@@ -274,40 +274,40 @@ public sealed partial class DeskController : IAsyncDisposable
         var forkConfig = new Dictionary<string, object> { ["mcp_servers"] = mcp, ["web_search"] = "disabled" };
         if (company != null) forkConfig["model_providers.hermes_company.base_url"] = company.TaskBaseUri(forkTaskId).AbsoluteUri;
         var response = await engine.RequestAsync("thread/fork", new { threadId = source.ThreadId, cwd = root, model = source.Model, modelProvider = company == null ? "openai" : "hermes_company", sandbox = source.ThreadWritable == true ? "workspace-write" : "read-only", approvalPolicy = "on-request", approvalsReviewer = "user", excludeTurns = true, config = forkConfig });
-        if (!string.Equals(Path.GetFullPath(response.Text("cwd")), root, StringComparison.OrdinalIgnoreCase) || response.Text("modelProvider") != (company == null ? "openai" : "hermes_company")) throw new IOException("분기 경로/provider 불일치");
-        var id = response.GetProperty("thread").Text("id"); if (id.Length == 0 || id == source.ThreadId) throw new IOException("새 대화 ID 확인 실패");
+        if (!string.Equals(Path.GetFullPath(response.Text("cwd")), root, StringComparison.OrdinalIgnoreCase) || response.Text("modelProvider") != (company == null ? "openai" : "hermes_company")) throw new HermesException("분기 경로/provider 불일치");
+        var id = response.GetProperty("thread").Text("id"); if (id.Length == 0 || id == source.ThreadId) throw new HermesException("새 대화 ID 확인 실패");
         var task = new WorkItem { Id = forkTaskId, ProjectId = source.ProjectId, Title = source.Title + " / 분기", ThreadId = id, ThreadLearningVersion = source.ThreadLearningVersion, Model = source.Model, ProviderFingerprint = source.ProviderFingerprint, Writable = source.Writable, ThreadWritable = source.ThreadWritable, ThreadMcpEnabled = source.ThreadMcpEnabled, ThreadBrowserEnabled = source.ThreadBrowserEnabled, ThreadComputerEnabled = source.ThreadComputerEnabled, ReasoningEffort = source.ReasoningEffort, UsageBaselineKnown = false, IsReview = source.IsReview, Transcript = source.Transcript.ToList(), Attachments = source.Attachments.ToList(), FileAttachments = source.FileAttachments.ToList(), Skills = source.Skills.ToList() };
         task.Transcript.Add(new("대화 분기", "원본 작업 " + source.Id + "에서 공식 thread/fork로 분기. 원본 대화/파일은 보존.", DateTime.UtcNow));
         State.Tasks.Insert(0, task); loadedThreads.Add(id); Save(); return task;
     }
     public async Task<WorkItem> StartReviewAsync(ProjectEntry project, string model)
     {
-        var engine = Engine ?? throw new IOException("엔진 연결 필요");
-        if (HasPendingModel || !SubscriptionReady || connectedFingerprint != State.Provider.Fingerprint || !Models.Contains(model) || State.Tasks.Any(IsRunning)) throw new IOException("provider 연결/모델을 확인하고 진행 중 작업을 중단하세요.");
+        var engine = Engine ?? throw new HermesException("엔진 연결 필요");
+        if (HasPendingModel || !SubscriptionReady || connectedFingerprint != State.Provider.Fingerprint || !Models.Contains(model) || State.Tasks.Any(IsRunning)) throw new HermesException("provider 연결/모델을 확인하고 진행 중 작업을 중단하세요.");
         var root = Safety.ProjectRoot(project.Root); var top = await GitRunner.Run(root, "rev-parse", "--show-toplevel");
-        if (top.Exit != 0 || !string.Equals(Path.GetFullPath(top.Output.Trim()), root, StringComparison.OrdinalIgnoreCase)) throw new IOException("등록한 루트 자체가 Git 저장소여야 합니다.");
+        if (top.Exit != 0 || !string.Equals(Path.GetFullPath(top.Output.Trim()), root, StringComparison.OrdinalIgnoreCase)) throw new HermesException("등록한 루트 자체가 Git 저장소여야 합니다.");
         var task = NewTask(project, "AI 변경 검토 " + DateTime.Now.ToString("MM-dd HH:mm")); task.IsReview = true; task.Model = model; task.ProviderFingerprint = connectedFingerprint; task.Status = "시작 중"; task.UsageBaselineKnown = true; company?.BeginTask(task.Id, model); Save();
         try
         {
             var response = await engine.RequestAsync("thread/start", new { cwd = root, model, modelProvider = company == null ? "openai" : "hermes_company", approvalPolicy = "on-request", approvalsReviewer = "user", sandbox = "read-only", config = new Dictionary<string, object?> { ["mcp_servers"] = disabledMcp, ["web_search"] = "disabled", ["review_model"] = model, ["model_providers.hermes_company.base_url"] = company?.TaskBaseUri(task.Id).AbsoluteUri ?? "http://127.0.0.1" }, developerInstructions = "Review only this project. Never read secrets/credentials or other projects. Never write/delete files, change security settings, use network tools or other model APIs. MCP/remote/computer use are disabled for this review." });
-            if (!string.Equals(Path.GetFullPath(response.Text("cwd")), root, StringComparison.OrdinalIgnoreCase) || response.Text("modelProvider") != (company == null ? "openai" : "hermes_company") || response.GetProperty("sandbox").Text("type") != "readOnly") throw new IOException("검토 경로/provider/sandbox 불일치");
+            if (!string.Equals(Path.GetFullPath(response.Text("cwd")), root, StringComparison.OrdinalIgnoreCase) || response.Text("modelProvider") != (company == null ? "openai" : "hermes_company") || response.GetProperty("sandbox").Text("type") != "readOnly") throw new HermesException("검토 경로/provider/sandbox 불일치");
             task.ThreadId = response.GetProperty("thread").Text("id"); task.ThreadWritable = false; task.ThreadMcpEnabled = false; loadedThreads.Add(task.ThreadId); Save();
             var review = await engine.RequestAsync("review/start", new { threadId = task.ThreadId, delivery = "inline", target = new { type = "uncommittedChanges" } });
             if (task.Status is "시작 중" or "실행 중") { task.TurnId = review.GetProperty("turn").Text("id"); task.Status = "실행 중"; }
             task.Transcript.Add(new("AI 검토 요청", "공식 review/start: 선택 Git 프로젝트의 커밋하지 않은 변경. 실제 provider 사용량이 발생할 수 있음.", DateTime.UtcNow)); Save(); return task;
         }
-        catch (Exception e) { task.Status = "실패"; task.Transcript.Add(new("오류", Safety.Redact(e.Message), DateTime.UtcNow)); Save(); throw; }
+        catch (Exception e) { task.Status = "실패"; task.Transcript.Add(new("오류", ConnectionErrors.Describe(e), DateTime.UtcNow)); Save(); throw; }
     }
     private ProjectEntry Project(WorkItem task) => State.Projects.Single(p => p.Id == task.ProjectId);
     public async Task StartAsync(WorkItem task, string prompt, string model, bool writable, IReadOnlyList<ProjectImage>? images = null, string? mcpHostExe = null, IReadOnlyList<ProjectSkill>? skills = null, string? effort = null, IReadOnlyList<ProjectFileAttachment>? files = null)
     {
-        var engine = Engine ?? throw new IOException("엔진에 먼저 연결하세요.");
-        if (task.Archived) throw new IOException("보관된 대화를 복원한 뒤 실행하세요.");
-        if (HasPendingModel || !SubscriptionReady) throw new IOException("선택한 인증/provider 설정을 완료하고 엔진에 연결하세요. 다른 공급자로 자동 전환하지 않습니다.");
-        if (connectedFingerprint != State.Provider.Fingerprint) throw new IOException("Provider 설정이 바뀌었습니다. 다시 연결하세요.");
-        if (IsRunning(task)) throw new IOException("이 채팅이 이미 실행 중입니다.");
-        if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > 100_000 || !Models.Contains(model)) throw new IOException("작업 내용과 사용 가능한 모델을 선택하세요.");
-        if (!string.IsNullOrEmpty(effort) && (!ModelEfforts.TryGetValue(model, out var supported) || !supported.Contains(effort))) throw new IOException("선택 모델이 제공한 추론 수준을 선택하세요.");
+        var engine = Engine ?? throw new HermesException("엔진에 먼저 연결하세요.");
+        if (task.Archived) throw new HermesException("보관된 대화를 복원한 뒤 실행하세요.");
+        if (HasPendingModel || !SubscriptionReady) throw new HermesException("선택한 인증/provider 설정을 완료하고 엔진에 연결하세요. 다른 공급자로 자동 전환하지 않습니다.");
+        if (connectedFingerprint != State.Provider.Fingerprint) throw new HermesException("Provider 설정이 바뀌었습니다. 다시 연결하세요.");
+        if (IsRunning(task)) throw new HermesException("이 채팅이 이미 실행 중입니다.");
+        if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > 100_000 || !Models.Contains(model)) throw new HermesException("작업 내용과 사용 가능한 모델을 선택하세요.");
+        if (!string.IsNullOrEmpty(effort) && (!ModelEfforts.TryGetValue(model, out var supported) || !supported.Contains(effort))) throw new HermesException("선택 모델이 제공한 추론 수준을 선택하세요.");
         ComputerLifecycleEvent?.Invoke(task, "new-command");
         task.ReasoningEffort = effort ?? "";
         var automatic = writable && !task.IsReview && Project(task).FullPermissions;
@@ -327,8 +327,8 @@ public sealed partial class DeskController : IAsyncDisposable
         var useMcp = !task.IsReview && (task.ThreadId == null && !migratingLearning ? Project(task).LocalMcpEnabled : task.ThreadMcpEnabled == true);
         var useBrowser = !task.IsReview && (task.ThreadId == null && !migratingLearning ? Project(task).BrowserEnabled : task.ThreadBrowserEnabled == true);
         var useComputer = !task.IsReview && (task.ThreadId == null && !migratingLearning ? Project(task).ComputerEnabled : task.ThreadComputerEnabled == true);
-        if (useComputer && ComputerTool == null) throw new IOException("컴퓨터 제어 호스트가 준비되지 않았습니다.");
-        if (useBrowser && BrowserTool == null) throw new IOException("브라우저 호스트가 준비되지 않았습니다.");
+        if (useComputer && ComputerTool == null) throw new HermesException("컴퓨터 제어 호스트가 준비되지 않았습니다.");
+        if (useBrowser && BrowserTool == null) throw new HermesException("브라우저 호스트가 준비되지 않았습니다.");
         var mcp = new Dictionary<string, object>(disabledMcp);
         if (useMcp) foreach (var server in McpConfiguration.BuiltIn(mcpHostExe ?? Environment.ProcessPath!, root, writable, Path.GetDirectoryName(Memory.DatabasePath), task.Id)) mcp[server.Key] = server.Value;
         task.Writable = writable; task.Status = "시작 중"; task.Updated = DateTime.UtcNow; Save();
@@ -348,11 +348,11 @@ public sealed partial class DeskController : IAsyncDisposable
                 if (task.ThreadId != null) parameters["threadId"] = task.ThreadId;
                 var result = await engine.RequestAsync(task.ThreadId == null ? "thread/start" : "thread/resume", parameters);
                 task.ThreadId = result.GetProperty("thread").Text("id"); Save();
-                if (!string.Equals(Path.GetFullPath(result.Text("cwd")), root, StringComparison.OrdinalIgnoreCase)) throw new IOException("엔진 작업 경로가 등록 경로와 달라 차단했습니다.");
-                if (result.Text("modelProvider") != (company == null ? "openai" : "hermes_company") || result.Text("approvalsReviewer") != "user" || result.Text("approvalPolicy") != approval) throw new IOException("관리형 정책/공급자 설정이 요청과 다릅니다: " + result.Text("modelProvider") + "/" + result.Text("approvalPolicy") + "/" + result.Text("approvalsReviewer") + " · 요청 " + approval);
+                if (!string.Equals(Path.GetFullPath(result.Text("cwd")), root, StringComparison.OrdinalIgnoreCase)) throw new HermesException("엔진 작업 경로가 등록 경로와 달라 차단했습니다.");
+                if (result.Text("modelProvider") != (company == null ? "openai" : "hermes_company") || result.Text("approvalsReviewer") != "user" || result.Text("approvalPolicy") != approval) throw new HermesException("관리형 정책/공급자 설정이 요청과 다릅니다: " + result.Text("modelProvider") + "/" + result.Text("approvalPolicy") + "/" + result.Text("approvalsReviewer") + " · 요청 " + approval);
                 var sandbox = result.GetProperty("sandbox");
-                if (sandbox.Text("type") != (automatic ? "dangerFullAccess" : writable ? "workspaceWrite" : "readOnly") || (!automatic && sandbox.Property("networkAccess")?.ValueKind == JsonValueKind.True)) throw new IOException("요청한 샌드박스가 적용되지 않아 차단했습니다.");
-                if (sandbox.Property("writableRoots") is { } roots && roots.EnumerateArray().Any(r => !Safety.Within(root, r.GetString()!))) throw new IOException("프로젝트 밖 쓰기 루트가 있어 차단했습니다.");
+                if (sandbox.Text("type") != (automatic ? "dangerFullAccess" : writable ? "workspaceWrite" : "readOnly") || (!automatic && sandbox.Property("networkAccess")?.ValueKind == JsonValueKind.True)) throw new HermesException("요청한 샌드박스가 적용되지 않아 차단했습니다.");
+                if (sandbox.Property("writableRoots") is { } roots && roots.EnumerateArray().Any(r => !Safety.Within(root, r.GetString()!))) throw new HermesException("프로젝트 밖 쓰기 루트가 있어 차단했습니다.");
                 loadedThreads.Add(task.ThreadId);
                 task.ThreadLearningVersion = 1;
                 task.ThreadWritable = writable;
@@ -379,7 +379,7 @@ public sealed partial class DeskController : IAsyncDisposable
             if (task.Status is "시작 중" or "실행 중") { task.TurnId = turn.GetProperty("turn").Text("id"); task.Status = "실행 중"; }
             Save();
         }
-        catch (Exception ex) { task.Status = "실패"; task.Transcript.Add(new("오류", Safety.Redact(ex.Message), DateTime.UtcNow)); Save(); throw; }
+        catch (Exception ex) { task.Status = "실패"; task.Transcript.Add(new("오류", ConnectionErrors.Describe(ex), DateTime.UtcNow)); Save(); throw; }
     }
     public async Task StopAsync(WorkItem task)
     {
@@ -393,9 +393,9 @@ public sealed partial class DeskController : IAsyncDisposable
     }
     public async Task SteerAsync(WorkItem task, string text)
     {
-        if (Engine == null || !SubscriptionReady || task.ThreadId == null || task.TurnId == null || task.Status != "실행 중") throw new IOException("실행 중인 작업에만 추가 지시를 보낼 수 있습니다.");
-        if (connectedFingerprint != State.Provider.Fingerprint || task.ProviderFingerprint != connectedFingerprint) throw new IOException("작업의 연결 설정이 바뀌었습니다.");
-        if (string.IsNullOrWhiteSpace(text) || text.Length > 100_000) throw new IOException("추가 지시 내용을 확인하세요.");
+        if (Engine == null || !SubscriptionReady || task.ThreadId == null || task.TurnId == null || task.Status != "실행 중") throw new HermesException("실행 중인 작업에만 추가 지시를 보낼 수 있습니다.");
+        if (connectedFingerprint != State.Provider.Fingerprint || task.ProviderFingerprint != connectedFingerprint) throw new HermesException("작업의 연결 설정이 바뀌었습니다.");
+        if (string.IsNullOrWhiteSpace(text) || text.Length > 100_000) throw new HermesException("추가 지시 내용을 확인하세요.");
         ComputerLifecycleEvent?.Invoke(task, "new-command");
         await Engine.RequestAsync("turn/steer", new { threadId = task.ThreadId, expectedTurnId = task.TurnId, input = new[] { new { type = "text", text = Memory.Context(MemoryScope(task), text) }, new { type = "text", text } } });
         task.Transcript.Add(new("사용자", Safety.Redact(text), DateTime.UtcNow)); Save();
@@ -491,12 +491,12 @@ public sealed partial class DeskController : IAsyncDisposable
         task.Transcript.Add(new("작업 진행", "브라우저 요청 처리 중 · " + request.Params.Property("arguments")?.Text("action"), DateTime.UtcNow)); Save();
         try
         {
-            if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new IOException("대기 중인 도구 요청의 실행이 중단되었거나 변경되었습니다.");
+            if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new HermesException("대기 중인 도구 요청의 실행이 중단되었거나 변경되었습니다.");
             var arguments = request.Params.GetProperty("arguments");
-            if (Memory.BlockReason(MemoryScope(task), task.Id, "browser", ToolMethod("browser", arguments), ToolRetryIdentity(arguments)) is { } reason) throw new IOException(reason);
+            if (Memory.BlockReason(MemoryScope(task), task.Id, "browser", ToolMethod("browser", arguments), ToolRetryIdentity(arguments)) is { } reason) throw new HermesException(reason);
             attempted = true;
             var result = await BrowserTool!(task, request.Params.GetProperty("arguments")).WaitAsync(TimeSpan.FromSeconds(40));
-            if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new IOException("브라우저 요청의 대화/실행 세션이 바뀌었습니다.");
+            if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new HermesException("브라우저 요청의 대화/실행 세션이 바뀌었습니다.");
             var proof = RememberTool(task, request, "browser", true);
             await engine.RespondAsync(request, new { success = true, contentItems = result.ContentItems.Concat(new object[] { new { type = "inputText", text = "실행 근거 evidenceId=" + proof.Id + "\n" + Memory.Context(MemoryScope(task), MemoryPurpose(task)) } }).ToArray() });
             var text = Safety.Redact(result.Text);
@@ -506,7 +506,7 @@ public sealed partial class DeskController : IAsyncDisposable
         {
             if (attempted) RememberTool(task, request, "browser", false, ex.Message);
             AppLog.Write(ex, "browser-tool");
-            task.Transcript.Add(new("브라우저 오류", Safety.Redact(ex.Message), DateTime.UtcNow)); Save();
+            task.Transcript.Add(new("브라우저 오류", ConnectionErrors.Describe(ex), DateTime.UtcNow)); Save();
             if (engine == Engine) try { await engine.RespondAsync(request, new { success = false, contentItems = new[] { new { type = "inputText", text = Safety.Redact(ex is TimeoutException ? "브라우저 응답 시간이 초과되었습니다. 브라우저 패널에서 페이지를 다시 열고 시도하세요." : ex.Message) } } }); } catch (IOException) { }
         }
         finally { gate.Release(); }
@@ -516,12 +516,12 @@ public sealed partial class DeskController : IAsyncDisposable
         var engine = Engine; if (engine == null) return; var turn = task.TurnId; var attempted = false; var gate = LearningLock(task); await gate.WaitAsync();
         try
         {
-            if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new IOException("대기 중인 도구 요청의 실행이 중단되었거나 변경되었습니다.");
+            if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new HermesException("대기 중인 도구 요청의 실행이 중단되었거나 변경되었습니다.");
             var arguments = request.Params.GetProperty("arguments");
-            if (Memory.BlockReason(MemoryScope(task), task.Id, "computer", ToolMethod("computer", arguments), ToolRetryIdentity(arguments)) is { } reason) throw new IOException(reason);
+            if (Memory.BlockReason(MemoryScope(task), task.Id, "computer", ToolMethod("computer", arguments), ToolRetryIdentity(arguments)) is { } reason) throw new HermesException(reason);
             attempted = true;
             var result = await ComputerTool!(task, request.Params.GetProperty("arguments"));
-            if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new IOException("컴퓨터 요청의 작업이 중단되었거나 변경됐습니다.");
+            if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new HermesException("컴퓨터 요청의 작업이 중단되었거나 변경됐습니다.");
             var proof = RememberTool(task, request, "computer", true);
             await engine.RespondAsync(request, new { success = true, contentItems = result.ContentItems.Concat(new object[] { new { type = "inputText", text = "실행 근거 evidenceId=" + proof.Id + "\n" + Memory.Context(MemoryScope(task), MemoryPurpose(task)) } }).ToArray() });
             ComputerResultDelivered?.Invoke(task, result);
@@ -534,18 +534,18 @@ public sealed partial class DeskController : IAsyncDisposable
         {
             if (attempted) RememberTool(task, request, "computer", false, ex.Message);
             ComputerLifecycleEvent?.Invoke(task, "error");
-            if (engine == Engine) try { await engine.RespondAsync(request, new { success = false, contentItems = new[] { new { type = "inputText", text = Safety.Redact(ex.Message) } } }); } catch (IOException) { }
+            if (engine == Engine) try { await engine.RespondAsync(request, new { success = false, contentItems = new[] { new { type = "inputText", text = ConnectionErrors.Describe(ex) } } }); } catch (IOException) { }
         }
         finally { gate.Release(); }
     }
     public async Task AnswerAsync(ServerRequest request, bool accept, Dictionary<string, object>? answers = null, bool allowEscalation = false)
     {
-        if (!Approvals.Contains(request)) throw new IOException("만료된 승인 요청입니다.");
+        if (!Approvals.Contains(request)) throw new HermesException("만료된 승인 요청입니다.");
         var task = State.Tasks.Single(t => t.ThreadId == request.Params.Text("threadId"));
-        if (accept && ApprovalPolicy.BlockReason(request, Project(task).Root, task.TurnId, task.Writable, allowEscalation) is { } reason) throw new IOException(reason);
+        if (accept && ApprovalPolicy.BlockReason(request, Project(task).Root, task.TurnId, task.Writable, allowEscalation) is { } reason) throw new HermesException(reason);
         if (accept && request.Method == "item/fileChange/requestApproval")
         {
-            if (!pendingChanges.TryGetValue(request.Params.Text("itemId"), out var paths) || paths.Count == 0) throw new IOException("제안된 파일 변경 경로를 확인할 수 없어 승인을 차단했습니다.");
+            if (!pendingChanges.TryGetValue(request.Params.Text("itemId"), out var paths) || paths.Count == 0) throw new HermesException("제안된 파일 변경 경로를 확인할 수 없어 승인을 차단했습니다.");
             foreach (var path in paths)
             {
                 var root = Project(task).Root;
