@@ -24,6 +24,7 @@ public partial class MainWindow
         if (!browserSurface.Children.Contains(view)) browserSurface.Children.Add(view);
         foreach (var child in browserSurface.Children.OfType<WebView2>()) Panel.SetZIndex(child, ReferenceEquals(child, view) ? 1 : 0);
         activeBrowserView = view;
+        UpdateBrowserNavigation(view);
         browserAttachSource.IsEnabled = selectedBrowserSourceTask == CurrentTask?.Id && selectedBrowserSource.Length > 0;
         if (view.CoreWebView2 != null) { browserAddress.Text = view.Source?.AbsoluteUri ?? browserAddress.Text; UpdateBrowserBookmark(view); }
     }
@@ -34,6 +35,8 @@ public partial class MainWindow
     {
         view.CoreWebView2.Settings.AreHostObjectsAllowed = false;
         view.CoreWebView2.Settings.IsWebMessageEnabled = true;
+        view.CoreWebView2.Settings.AreDevToolsEnabled = true;
+        view.CoreWebView2.HistoryChanged += (_, _) => UpdateBrowserNavigation(view);
         view.CoreWebView2.Profile.IsPasswordAutosaveEnabled = desk.State.Browser.SavePasswords;
         view.CoreWebView2.Profile.IsGeneralAutofillEnabled = true;
         view.CoreWebView2.WebMessageReceived += (_, args) => { if (!closing) ReceiveBrowserSource(view, args); };
@@ -66,6 +69,7 @@ public partial class MainWindow
     private void InitializeBrowserPanel()
     {
         var panel = new DockPanel(); var toolbar = new StackPanel(); DockPanel.SetDock(toolbar, Dock.Top); panel.Children.Add(toolbar);
+        var navigation = new WrapPanel(); foreach (var button in new[] { browserBack, browserForward, browserReload, browserDevTools }) navigation.Children.Add(button); toolbar.Children.Add(navigation);
         var address = new DockPanel(); var go = new Button { Content = "열기" }; DockPanel.SetDock(go, Dock.Right); address.Children.Add(go); address.Children.Add(browserAddress); toolbar.Children.Add(address);
         var capture = new Button { Content = "전체 캡처 · AI 첨부", ToolTip = "현재 로드된 페이지 전체를 PNG로 저장하고 AI 입력에 이미지로 첨부합니다." };
         capture.Click += async (_, _) => await Guard(CaptureBrowserToComposerAsync, "browser-full-capture");

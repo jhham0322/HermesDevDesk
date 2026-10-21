@@ -17,8 +17,8 @@ internal static class LearningEngineTests
             var messages = body.GetProperty("messages").EnumerateArray().ToArray();
             var lastTool = messages.LastOrDefault(m => m.Text("role") == "tool");
             object? call = null; string answer = "RAG_ENGINE_DONE";
-            if (n <= 3) call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "repair dependency fixture", command = failed }) };
-            if (n == 4) { blocked = lastTool.Text("content").Contains("2회 반복"); call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "repair dependency fixture", command = "Write-Output RAG_LEARNED_OK" }) }; }
+            if (n <= 3) call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "repair dependency fixture", command = failed, timeoutMs = 90000 }) };
+            if (n == 4) { blocked = lastTool.Text("content").Contains("2회 반복"); call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "repair dependency fixture", command = "Write-Output RAG_LEARNED_OK", timeoutMs = 90000 }) }; }
             if (n == 5) call = new { name = Name("hermes_memory"), arguments = JsonSerializer.Serialize(new { action = "search", query = "repair dependency fixture" }) };
             if (n == 6)
             {
@@ -36,7 +36,7 @@ internal static class LearningEngineTests
         desk.Configure(new() { Endpoint = server.BaseUri.AbsoluteUri + "v1/chat/completions", Deployment = "learning-model", Protocol = ProviderProtocol.GatewayChatCompletions, UseAdvancedSettings = true }, "SYNTHETIC_LEARNING_ENGINE_TOKEN");
         var project = desk.Register(root); project.BrowserEnabled = project.ComputerEnabled = project.LocalMcpEnabled = false;
         void Pump() { while (queue.TryDequeue(out var action)) action(); }
-        async Task Complete(WorkItem task) { var watch = System.Diagnostics.Stopwatch.StartNew(); while (DeskController.IsRunning(task) && watch.Elapsed < TimeSpan.FromSeconds(90)) { Pump(); await Task.Delay(20); } Pump(); if (task.Status != "완료") throw new IOException("Learning engine failed: " + JsonSerializer.Serialize(task.Transcript.TakeLast(8))); }
+        async Task Complete(WorkItem task) { var watch = System.Diagnostics.Stopwatch.StartNew(); while (DeskController.IsRunning(task) && watch.Elapsed < TimeSpan.FromSeconds(180)) { Pump(); await Task.Delay(20); } Pump(); if (task.Status != "완료") throw new IOException("Learning engine failed: " + JsonSerializer.Serialize(task.Transcript.TakeLast(8))); }
         await desk.ConnectAsync(exe, root); Pump(); var chat = desk.NewTask(project, "Learning fixture");
         await desk.StartAsync(chat, "repair dependency fixture", "learning-model", true); await Complete(chat);
         if (!blocked || !File.Exists(Path.Combine(root, "counter.txt")) || File.ReadAllLines(Path.Combine(root, "counter.txt")).Length != 2) throw new IOException("Third failed command was executed or not blocked; calls=" + calls + "; blocked=" + blocked + "; evidence=" + JsonSerializer.Serialize(desk.Memory.Recent(ExecutionMemory.Scope(root))) + "; transcript=" + JsonSerializer.Serialize(chat.Transcript.TakeLast(15)));

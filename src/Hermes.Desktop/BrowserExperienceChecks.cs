@@ -42,6 +42,14 @@ public partial class MainWindow
         Check(!source.Contains("SYNTHETIC_PASSWORD_NOT_TO_COPY") && !source.Contains("PRIVATE_TYPED_VALUE"), "selected source excludes form password and typed textarea values");
         Prompt.Clear(); browserAttachSource.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Check(Prompt.Text.Contains("SELECTED_HTML_OK"), "source attachment fills composer without sending an AI request");
+        browserBack.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var navigationTimer = System.Diagnostics.Stopwatch.StartNew();
+        while ((activeBrowserView?.Source?.AbsolutePath != "/first" || activeBrowserView.CoreWebView2.CanGoForward != true) && navigationTimer.Elapsed < TimeSpan.FromSeconds(10)) await Task.Delay(30);
+        Check(activeBrowserView?.Source?.AbsolutePath == "/first", "previous-page button follows real browser history");
+        browserForward.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); navigationTimer.Restart();
+        while (activeBrowserView?.Source?.AbsolutePath != "/second" && navigationTimer.Elapsed < TimeSpan.FromSeconds(10)) await Task.Delay(30);
+        Check(activeBrowserView?.Source?.AbsolutePath == "/second", "forward-page button restores real next page");
+        Check(activeBrowserView!.CoreWebView2.Settings.AreDevToolsEnabled && browserDevTools.IsEnabled, "developer tools enabled and accessible from navigation toolbar");
         chatBrowsers.Remove(chat.Id); browserSurface.Children.Remove(view); view.Dispose();
         browserAddress.Clear(); await OpenSavedBrowser();
         var restored = System.Diagnostics.Stopwatch.StartNew();

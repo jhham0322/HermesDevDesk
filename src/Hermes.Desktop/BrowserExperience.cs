@@ -10,6 +10,10 @@ namespace Hermes.Desktop;
 public partial class MainWindow
 {
     private readonly DispatcherTimer browserSaveTimer = new() { Interval = TimeSpan.FromMilliseconds(700) };
+    private readonly Button browserBack = new() { Content = "← 이전", ToolTip = "이전 페이지로 이동", IsEnabled = false };
+    private readonly Button browserForward = new() { Content = "다음 →", ToolTip = "다음 페이지로 이동", IsEnabled = false };
+    private readonly Button browserReload = new() { Content = "새로고침" };
+    private readonly Button browserDevTools = new() { Content = "개발자 도구 (F12)", ToolTip = "Elements · Console · Network 디버그 창 열기" };
     private readonly Button browserBookmark = new() { Content = "☆ 북마크" };
     private readonly Button browserAttachSource = new() { Content = "선택 소스 첨부", IsEnabled = false };
     private readonly CheckBox browserPasswords = new() { Content = "비밀번호 저장 · 자동완성" };
@@ -21,9 +25,8 @@ public partial class MainWindow
         if (desk.State.Browser.LastUrl.Length > 0) browserAddress.Text = desk.State.Browser.LastUrl;
         browserSaveTimer.Tick += (_, _) => { browserSaveTimer.Stop(); desk.Save(); };
         var actions = new WrapPanel();
-        var back = new Button { Content = "뒤로" }; var forward = new Button { Content = "앞으로" }; var reload = new Button { Content = "새로고침" };
         var bookmarks = new Button { Content = "북마크 목록" }; var history = new Button { Content = "방문 기록" }; var inspect = new Button { Content = "요소 소스 선택" };
-        foreach (var button in new[] { back, forward, reload, browserBookmark, bookmarks, history, inspect, browserAttachSource }) actions.Children.Add(button);
+        foreach (var button in new[] { browserBookmark, bookmarks, history, inspect, browserAttachSource }) actions.Children.Add(button);
         toolbar.Children.Add(actions); toolbar.Children.Add(browserPasswords);
         browserPasswords.IsChecked = desk.State.Browser.SavePasswords;
         browserPasswords.Click += (_, _) => {
@@ -31,13 +34,27 @@ public partial class MainWindow
             foreach (var view in browserSurface.Children.OfType<WebView2>()) if (view.CoreWebView2 != null) view.CoreWebView2.Profile.IsPasswordAutosaveEnabled = desk.State.Browser.SavePasswords;
             desk.Save();
         };
-        back.Click += (_, _) => { if (activeBrowserView?.CoreWebView2?.CanGoBack == true) activeBrowserView.CoreWebView2.GoBack(); };
-        forward.Click += (_, _) => { if (activeBrowserView?.CoreWebView2?.CanGoForward == true) activeBrowserView.CoreWebView2.GoForward(); };
-        reload.Click += (_, _) => activeBrowserView?.CoreWebView2?.Reload();
+        browserBack.Click += (_, _) => { if (activeBrowserView?.CoreWebView2?.CanGoBack == true) activeBrowserView.CoreWebView2.GoBack(); };
+        browserForward.Click += (_, _) => { if (activeBrowserView?.CoreWebView2?.CanGoForward == true) activeBrowserView.CoreWebView2.GoForward(); };
+        browserReload.Click += (_, _) => activeBrowserView?.CoreWebView2?.Reload();
+        browserDevTools.Click += async (_, _) => await Guard(OpenBrowserDevTools, "browser-devtools");
         browserBookmark.Click += (_, _) => _ = Guard(() => { ToggleCurrentBookmark(); return Task.CompletedTask; }, "browser-bookmark");
         bookmarks.Click += (_, _) => ShowBrowserLibrary(true); history.Click += (_, _) => ShowBrowserLibrary(false);
         inspect.Click += async (_, _) => await Guard(PickBrowserSource, "browser-element-source");
         browserAttachSource.Click += (_, _) => { if (selectedBrowserSource.Length > 0 && selectedBrowserSourceTask == CurrentTask?.Id) { Prompt.AppendText((Prompt.Text.Length > 0 ? "\n\n" : "") + selectedBrowserSource); Prompt.Focus(); } };
+    }
+    private async Task OpenBrowserDevTools()
+    {
+        await OpenSavedBrowser();
+        activeBrowserView!.CoreWebView2.Settings.AreDevToolsEnabled = true;
+        activeBrowserView.CoreWebView2.OpenDevToolsWindow();
+        browserStatus.Text = "개발자 도구 열림 · Elements / Console / Network에서 디버깅할 수 있습니다.";
+    }
+    private void UpdateBrowserNavigation(WebView2 view)
+    {
+        if (activeBrowserView != view) return;
+        browserBack.IsEnabled = view.CoreWebView2?.CanGoBack == true;
+        browserForward.IsEnabled = view.CoreWebView2?.CanGoForward == true;
     }
     private void RememberBrowserPage(WebView2 view)
     {
