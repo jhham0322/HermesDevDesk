@@ -50,6 +50,15 @@ public sealed class ProviderSettings
         UseAdvancedSettings = false;
         return true;
     }
+    public bool NormalizeInferenceEndpoint()
+    {
+        var url = Endpoint.Trim().TrimEnd('/');
+        var protocol = url.EndsWith("/messages", StringComparison.OrdinalIgnoreCase) ? ProviderProtocol.AnthropicMessages
+            : url.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase) ? ProviderProtocol.GatewayChatCompletions
+            : url.EndsWith("/responses", StringComparison.OrdinalIgnoreCase) ? ProviderProtocol.GatewayResponses : Protocol;
+        if (protocol == Protocol) return false;
+        Protocol = protocol; return true;
+    }
     public Uri RequestUri(bool models, bool allowLoopbackForTests = false)
     {
         var baseUri = Validate(allowLoopbackForTests); var basePath = baseUri.AbsoluteUri.TrimEnd('/');
@@ -59,6 +68,8 @@ public sealed class ProviderSettings
             if (!baseUri.AbsolutePath.TrimEnd('/').EndsWith("/v1", StringComparison.OrdinalIgnoreCase)) basePath += "/v1";
             return new(basePath + "/messages");
         }
+        if (basePath.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase)) basePath = basePath[..^17];
+        else if (basePath.EndsWith("/responses", StringComparison.OrdinalIgnoreCase)) basePath = basePath[..^10];
         if (models) return new(basePath + "/models");
         var path = IsChat ? "/chat/completions" : "/responses";
         return new(basePath + path);

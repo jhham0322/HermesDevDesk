@@ -130,12 +130,24 @@ public sealed class CompanyBridge : IAsyncDisposable
             entry.Requests = 1; using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token); entry.HttpStatus = (int)response.StatusCode;
             if (!response.IsSuccessStatusCode)
             {
-                entry.Status = "failed"; entry.Note = $"회사 서버 HTTP {(int)response.StatusCode} · 요청 경로: {request.RequestUri!.AbsolutePath}; no fallback; usage not provided";
+                entry.Status = "failed"; entry.Note = $"회사 서버 HTTP {(int)response.StatusCode} · 모델: {entry.Deployment} · 요청 경로: {request.RequestUri!.AbsolutePath} · API: {settings.Protocol}";
+                if ((int)response.StatusCode is >= 300 and < 400) entry.Note += " · Redirect blocked; no fallback";
                 using (var errorBody = await response.Content.ReadAsStreamAsync(linked.Token))
                 {
-                    var buffer = new byte[8192]; var length = await errorBody.ReadAsync(buffer, linked.Token);
-                    try { using var errorJson = JsonDocument.Parse(buffer.AsMemory(0, length)); var detail = errorJson.RootElement.Property("error")?.Text("message") ?? errorJson.RootElement.Text("message"); if (detail.Length > 0) entry.Note += " · " + Safety.Redact(detail[..Math.Min(detail.Length, 1000)]); }
-                    catch (JsonException) { }
+                    using var memory = new MemoryStream(); var buffer = new byte[8192];
+                    while (memory.Length < 65536)
+                    {
+                        var length = await errorBody.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, 65536 - memory.Length)), linked.Token);
+                        if (length == 0) break;
+                        memory.Write(buffer, 0, length);
+                    }
+                    try
+                    {
+                        using var errorJson = JsonDocument.Parse(memory.ToArray());
+                        var detail = ProviderErrors.Detail(errorJson.RootElement);
+                        entry.Note += " · " + ProviderErrors.Guidance((int)response.StatusCode, settings, detail);
+                    }
+                    catch (JsonException) { entry.Note += " · 서버 오류 응답이 JSON 형식이 아닙니다."; }
                 }
                 Emit(entry);
                 await LoopbackHttp.Reply(stream, (int)response.StatusCode is >= 300 and < 400 ? 502 : (int)response.StatusCode, "application/json", JsonSerializer.Serialize(new { error = new { message = entry.Note, type = "company_endpoint_error" } }), ct); return;

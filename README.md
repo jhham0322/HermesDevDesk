@@ -1,4 +1,25 @@
-# Hermes DevDesk 0.8.8
+# Hermes DevDesk 0.8.9
+
+0.8.9: 긴 대화의 화면을 40개 메시지 단위로 유지하고 이전/다음 기록과 최신 메시지로 이동할 수 있습니다. 메시지 추가 시 기존 화면을 재사용하며, 본문 문단을 하나의 텍스트 컨트롤로 묶고 접힌 도구 결과는 펼칠 때 렌더링합니다. 스트리밍 이력 저장은 2초 간격으로 묶고 완료·종료 시 저장합니다.
+
+연결 설정에서 **새 모델 / 저장 / 선택 모델 삭제**로 모델을 관리합니다. 각 모델은 **모델명, 모델 URL, 토큰**을 독립 저장합니다. 기본은 Claude 호환 Messages API를 우선 확인하고 같은 서버의 Chat Completions / Responses 지원을 확인하는 방식이며 인증은 Bearer 토큰입니다. URL은 base URL, `/v1`, 완전한 `/v1/messages` 모두 지원합니다. 고급 설정에서 다른 지원 프로토콜이나 `x-api-key` 인증을 지정할 수 있습니다. 전송 시 선택 모델의 URL·토큰을 적용하고 연결이 바뀌면 엔진을 다시 연결합니다. 실행 중인 요청은 중단 후 모델을 바꿉니다.
+
+**JSON 내보내기 / JSON 가져오기**는 모델별 연결을 옮깁니다. 가져오기는 같은 모델명을 갱신하고 다른 모델은 추가합니다. JSON에는 토큰 원문이 포함됩니다. 앱 내부 저장은 Windows 사용자 DPAPI 보호를 유지합니다. 세 필드만 있는 JSON도 가져올 수 있습니다:
+
+```json
+[
+  {
+    "ModelName": "your-model-name",
+    "ModelUrl": "https://your-company.example/v1/messages",
+    "Token": "your-token-value"
+  }
+]
+```
+
+로컬 검증은 합성 토큰과 로컬 서버만 사용했습니다. 공식 엔진으로 동일 채팅에서 A → B → A의 서버·모델·인증 전환을 확인했습니다. 5,001개 메시지의 WPF 검사에서 화면 컨트롤은 40개, 추가 렌더링은 약 7ms였습니다(이 PC의 측정값).
+
+아래 설치 링크는 이전 공개 버전 0.8.8입니다. 0.8.9 소스는 이 저장소에 반영되어 있습니다.
+
 
 [Windows 설치 파일 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.8/HermesDevDesk-0.8.8-win-x64-Setup.exe) · [Portable ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.8/HermesDevDesk-0.8.8-win-x64-Portable.zip) · [릴리스 페이지](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.8.8)
 

@@ -213,10 +213,15 @@ public partial class MainWindow : Window
         if (connectingCompany) return;
         if (string.IsNullOrWhiteSpace(Prompt.Text)) { if (pendingImages.Count + pendingFiles.Count == 0) { Footer.Text = "질문을 입력하세요."; Prompt.Focus(); return; } Prompt.Text = "첨부한 이미지와 파일을 확인하고 내용을 설명해 주세요."; }
         if (CurrentProject == null) { Footer.Text = "질문을 실행할 프로젝트 폴더를 선택하세요."; Register_Click(this, new RoutedEventArgs()); if (CurrentProject == null) return; }
+        var chosenModel = Model.SelectedItem as string ?? "";
+        if (CurrentTask?.Status == "실행 중" && chosenModel != CurrentTask.Model) throw new IOException("모델을 바꾸려면 실행을 중단한 뒤 다시 전송하세요.");
+        if (CurrentTask?.Status != "실행 중") desk.SelectModelConnection(chosenModel);
         if (desk.HasPendingModel || (!desk.SubscriptionReady && !desk.CanConnectCompany && desk.State.Provider.Mode == ConnectionMode.CompanyApi))
         {
             Footer.Text = "서버 URL, API 키, 모델명을 저장하세요.";
             Settings_Click(this, new RoutedEventArgs());
+            chosenModel = Model.SelectedItem as string ?? desk.State.Provider.Deployment;
+            desk.SelectModelConnection(chosenModel);
             if (desk.HasPendingModel || (!desk.SubscriptionReady && !desk.CanConnectCompany)) return;
         }
         var prompt = Prompt.Text; var task = CurrentTask;
@@ -241,7 +246,7 @@ public partial class MainWindow : Window
             return;
         }
         if (task.Transcript.Count == 0) task.Title = Safety.Redact(prompt.Length > 45 ? prompt[..45] + "…" : prompt);
-        await desk.StartAsync(task, prompt, Model.SelectedItem as string ?? "", Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList(), effort: Effort.SelectedIndex > 0 ? Effort.SelectedItem as string : null, files: pendingFiles.ToList());
+        await desk.StartAsync(task, prompt, chosenModel, Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList(), effort: Effort.SelectedIndex > 0 ? Effort.SelectedItem as string : null, files: pendingFiles.ToList());
         if (CurrentTask == task && Prompt.Text == prompt) { Prompt.Clear(); ImageClear_Click(this, new RoutedEventArgs()); SkillClear_Click(this, new RoutedEventArgs()); }
         else if (CurrentTask != task)
         {

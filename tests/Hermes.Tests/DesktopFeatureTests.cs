@@ -39,7 +39,7 @@ internal static class DesktopFeatureTests
         var writes = desk.Store.SaveCount; var timer = System.Diagnostics.Stopwatch.StartNew();
         using var parameters = JsonDocument.Parse("{\"threadId\":\"benchmark-thread\",\"itemId\":\"benchmark-item\",\"delta\":\"benchmark \"}");
         for (var i = 0; i < 2000; i++) desk.Handle(new("item/agentMessage/delta", parameters.RootElement));
-        await Task.Delay(300); while (queue.TryDequeue(out var action)) action(); timer.Stop();
+        await Task.Delay(2100); while (queue.TryDequeue(out var action)) action(); timer.Stop();
         check(desk.Store.SaveCount - writes <= 2 && streaming.Transcript.Single().Text.Length == 20000, "2000 streaming events persist in at most two snapshots without text loss");
         Console.WriteLine($"PERF: 2000 deltas; snapshot writes={desk.Store.SaveCount - writes}; elapsedMs={timer.ElapsedMilliseconds}");
     }

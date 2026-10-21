@@ -48,6 +48,7 @@ public sealed class WorkItem
 public sealed record TranscriptEntry(string Kind, string Text, DateTime At, string? ItemId = null);
 public sealed class AppState
 {
+    public List<ModelConnection> ModelConnections { get; set; } = [];
     public string PendingModel { get; set; } = "";
     public Dictionary<string, List<string>> SavedModels { get; set; } = [];
     public string? CodexPath { get; set; }

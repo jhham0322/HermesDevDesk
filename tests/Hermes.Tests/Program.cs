@@ -84,6 +84,10 @@ if (args.Contains("--lifecycle-smoke"))
 {
     await LifecycleTests.Run(Path.Combine(baseDir, "lifecycle-project"), args[Array.IndexOf(args, "--codex") + 1], args[Array.IndexOf(args, "--report") + 1]); return;
 }
+if (args.Contains("--model-connections-engine"))
+{
+    await ModelConnectionEngineTests.Run(args[Array.IndexOf(args, "--root") + 1], args[Array.IndexOf(args, "--codex") + 1]); return;
+}
 if (args.Contains("--multi-chat-only"))
 {
     await MultiChatTests.Run(args[Array.IndexOf(args, "--root") + 1], args[Array.IndexOf(args, "--codex") + 1]); return;
@@ -195,6 +199,8 @@ await using (var rpc = new AppServerClient())
     await rpc.RequestAsync("approval", new { }); var req = await requestSeen.Task.WaitAsync(TimeSpan.FromSeconds(5)); await rpc.RespondAsync(req, new { decision = "decline" }); Assert(req.Id.GetString() == "server-1", "server request string ID and response");
 }
 Console.WriteLine($"PASS {count} checks. Fixture transport is unit testing, not engine verification. Scratch: {baseDir}");
+await HostedVllmTests.Run(baseDir, Assert);
+await ModelConnectionTests.Run(baseDir, Assert);
 await CompanyTests.Run(baseDir, Assert);
 await AnthropicTests.Run(baseDir, Assert);
 await SimpleGatewayTests.Run(baseDir, Assert);

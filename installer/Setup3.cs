@@ -8,11 +8,11 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-[assembly: AssemblyVersion("0.8.8.0")]
-[assembly: AssemblyFileVersion("0.8.8.0")]
+[assembly: AssemblyVersion("0.8.9.0")]
+[assembly: AssemblyFileVersion("0.8.9.0")]
 internal static class Setup
 {
-    internal const string Version="0.8.8";
+    internal const string Version="0.8.9";
     internal static string Target=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","HermesDevDesk",Version);
     [STAThread] static int Main(string[] args)
     {
@@ -62,7 +62,7 @@ internal sealed class SetupForm:Form{
     internal Button InstallButton=new Button{Text="설치 / 재개"},RemoveButton=new Button{Text="이 버전 제거"},CancelControl=new Button{Text="작업 취소",Enabled=false};
     internal Button LaunchButton=new Button{Text="설치된 앱 실행"};
     internal Task Last;internal string Error;internal bool Cancelled,CancelAfterProgress;bool test;CancellationTokenSource cancellation;TextBox path=new TextBox();Label status=new Label();ProgressBar progress=new ProgressBar();
-    internal SetupForm(string target,bool testing){test=testing;Text="Hermes DevDesk 0.8.8 설치";Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);Width=700;Height=440;StartPosition=FormStartPosition.CenterScreen;MaximizeBox=false;
+    internal SetupForm(string target,bool testing){test=testing;Text="Hermes DevDesk 0.8.9 설치";Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);Width=700;Height=440;StartPosition=FormStartPosition.CenterScreen;MaximizeBox=false;
         Controls.Add(new Label{Left=24,Top=20,Width=640,Height=100,Text="독립 Windows 개발 에이전트 앱 · 사내 중계서버 연결\n.NET 런타임과 공식 CLI 포함. 기존 버전과 이력은 보존합니다.\n관리자 권한·방화벽·전역 설정 변경 없이 선택한 폴더에 설치합니다.\n회사 URL/모델명/API 키는 설치 후 앱에 직접 입력하세요."});
         path.SetBounds(24,130,530,28);path.Text=target;var browse=new Button{Text="폴더 선택"};browse.SetBounds(565,128,100,30);browse.Click+=delegate{using(var d=new FolderBrowserDialog())if(d.ShowDialog(this)==DialogResult.OK)path.Text=d.SelectedPath;};
         progress.SetBounds(24,177,640,22);status.SetBounds(24,210,640,65);InstallButton.SetBounds(24,290,190,38);RemoveButton.SetBounds(237,290,190,38);CancelControl.SetBounds(450,290,215,38);var close=new Button{Text="닫기"};close.SetBounds(550,340,115,32);close.Click+=delegate{Close();};LaunchButton.SetBounds(24,340,190,32);

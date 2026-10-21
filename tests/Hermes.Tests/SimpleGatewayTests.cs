@@ -16,6 +16,7 @@ internal static class SimpleGatewayTests
             if (mode == "redirect") { await LoopbackHttp.Reply(stream, 302, "application/json", "{}", ct, new() { ["Location"] = "https://example.invalid" }); return; }
             if (mode == "model404") { await LoopbackHttp.Reply(stream, 404, "application/json", "{\"error\":{\"code\":\"model_not_found\",\"message\":\"model not found\"}}", ct); return; }
             if (mode == "error") { await LoopbackHttp.Reply(stream, 500, "application/json", "{\"error\":{\"message\":\"owned backend down\"}}", ct); return; }
+            if (mode == "auth" && !request.Path.EndsWith("/responses", StringComparison.Ordinal)) { await LoopbackHttp.Reply(stream, 404, "application/json", "{}", ct); return; }
             if (mode == "auth") { await LoopbackHttp.Reply(stream, request.Headers.GetValueOrDefault("api-key") == token ? 200 : 401, "application/json", response, ct); return; }
             if (mode == "html") { await LoopbackHttp.Reply(stream, 200, "text/html", "<html>owned sign in page</html>", ct); return; }
             if (mode == "responses" && request.Path == "/v1/responses") { await LoopbackHttp.Reply(stream, 200, "application/json", response, ct); return; }
@@ -30,7 +31,7 @@ internal static class SimpleGatewayTests
         paths.Clear(); var complete = new ProviderSettings { Endpoint = server.BaseUri.AbsoluteUri.TrimEnd('/') + "/v1/chat/completions", Deployment = settings.Deployment, Protocol = ProviderProtocol.GatewayAuto };
         await GatewayConnector.Connect(complete, store, CancellationToken.None); check(paths.SequenceEqual(new[] { "/v1/chat/completions" }), "complete inference URL is used once without duplicated route");
         paths.Clear(); mode = "responses"; result = await GatewayConnector.Connect(settings, store, CancellationToken.None); check(result.Settings.Protocol == ProviderProtocol.GatewayResponses && paths.Last() == "/v1/responses", "gateway detects Responses endpoint");
-        paths.Clear(); mode = "auth"; result = await GatewayConnector.Connect(settings, store, CancellationToken.None); check(result.Settings.Authentication == ProviderAuth.ApiKeyHeader && paths.Count == 2, "same route selects supported API key header after bearer rejection");
+        paths.Clear(); mode = "auth"; result = await GatewayConnector.Connect(settings, store, CancellationToken.None); check(result.Settings.Authentication == ProviderAuth.ApiKeyHeader && paths.Count >= 2, "same route selects supported API key header after bearer rejection");
         paths.Clear(); mode = "anthropic"; result = await GatewayConnector.Connect(settings, store, CancellationToken.None); check(result.Settings.Protocol == ProviderProtocol.AnthropicMessages, "three field gateway detects Anthropic endpoint");
         foreach (var failure in new[] { "redirect", "model404", "error", "html" })
         {

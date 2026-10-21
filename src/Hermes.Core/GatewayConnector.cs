@@ -28,7 +28,7 @@ public static class GatewayConnector
                 else request.Headers.TryAddWithoutValidation(candidate.IsAnthropic ? "x-api-key" : "api-key", key);
                 if (candidate.IsAnthropic) request.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
                 var body = candidate.IsAnthropic ? new JsonObject { ["model"] = input.Deployment, ["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = "Reply only OK." }), ["max_tokens"] = 1, ["stream"] = false }
-                    : candidate.IsChat ? new JsonObject { ["model"] = input.Deployment, ["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = "Reply only OK." }), ["max_completion_tokens"] = 1, ["stream"] = false }
+                    : candidate.IsChat ? new JsonObject { ["model"] = input.Deployment, ["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = "Reply only OK." }), ["max_tokens"] = 1, ["stream"] = false }
                     : new JsonObject { ["model"] = input.Deployment, ["input"] = "Reply only OK.", ["max_output_tokens"] = 1, ["stream"] = false, ["store"] = false };
                 request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
                 HttpResponseMessage response;
@@ -46,8 +46,9 @@ public static class GatewayConnector
                     using (parsed)
                     {
                         var error = parsed?.RootElement.Property("error");
-                        var detail = error?.ValueKind == JsonValueKind.Object ? error.Value.Text("message") : "";
-                        detail = Safety.Redact(detail); if (detail.Length > 400) detail = detail[..400];
+                        var detail = parsed == null ? "" : ProviderErrors.Detail(parsed.RootElement);
+                        detail = Safety.Redact(detail); if (detail.Length > 6000) detail = detail[..6000];
+                        if (!response.IsSuccessStatusCode && detail.Length > 0) attempts[^1] += " · " + detail;
                         var lower = detail.ToLowerInvariant();
                         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                         {
@@ -59,6 +60,8 @@ public static class GatewayConnector
                             if (lower.Contains("model") || lower.Contains("deployment") || detail.Contains("모델") || detail.Contains("배포") || (error?.ValueKind == JsonValueKind.Object && error.Value.Text("code").Contains("model", StringComparison.OrdinalIgnoreCase))) throw new IOException("모델 " + input.Deployment + " 호출 실패: " + detail);
                             break; // Only an unsupported route permits checking another route on the same supplied server.
                         }
+                        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity && IsProtocolRejection(detail))
+                            break; // Compatibility probes only; never replay a user turn after an inference error.
                         if (!response.IsSuccessStatusCode) throw new IOException("모델 " + input.Deployment + " 호출 실패 · " + attempts[^1] + " · " + detail);
                         if (parsed == null) { attempts[^1] += " (JSON 응답이 아님: 로그인/웹 페이지 여부 확인)"; break; }
                         var root = parsed.RootElement; JsonObject converted;
@@ -80,6 +83,13 @@ public static class GatewayConnector
         throw new IOException("서버의 지원 API 경로를 확인하지 못했습니다. 설정 모델 " + input.Deployment + "은 유지했습니다. " + string.Join("; ", attempts));
     }
 
+    internal static bool IsProtocolRejection(string detail)
+    {
+        var text = detail.ToLowerInvariant();
+        return text.Contains("hosted_vllmexception") || text.Contains("unsupportedparamserror") ||
+            ((text.Contains("not support") || text.Contains("unsupported") || text.Contains("not implemented")) &&
+             (text.Contains("/responses") || text.Contains("/messages") || text.Contains("parameter") || text.Contains("endpoint")));
+    }
     public static IReadOnlyList<ProviderSettings> Candidates(ProviderSettings input)
     {
         var uri = input.Validate(); var url = uri.AbsoluteUri.TrimEnd('/'); var result = new List<ProviderSettings>();
@@ -93,9 +103,10 @@ public static class GatewayConnector
         if (url.EndsWith("/responses", StringComparison.OrdinalIgnoreCase)) { Add(url[..^10], ProviderProtocol.GatewayResponses); return result; }
         if (url.EndsWith("/messages", StringComparison.OrdinalIgnoreCase)) { Add(url, ProviderProtocol.AnthropicMessages); return result; }
         var bases = uri.AbsolutePath.TrimEnd('/').EndsWith("/v1", StringComparison.OrdinalIgnoreCase) ? new[] { url } : new[] { url, url + "/v1" };
-        foreach (var path in bases) Add(path, ProviderProtocol.GatewayResponses);
-        foreach (var path in bases) Add(path, ProviderProtocol.GatewayChatCompletions);
+        // Basic three-field connections prefer Claude-compatible messages, then vLLM chat.
         Add(url, ProviderProtocol.AnthropicMessages);
+        foreach (var path in bases.Reverse()) Add(path, ProviderProtocol.GatewayChatCompletions);
+        foreach (var path in bases.Reverse()) Add(path, ProviderProtocol.GatewayResponses);
         return result;
     }
 }
