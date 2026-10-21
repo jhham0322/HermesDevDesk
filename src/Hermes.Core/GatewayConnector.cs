@@ -68,14 +68,14 @@ public static class GatewayConnector
                         try
                         {
                             if (candidate.IsAnthropic) converted = AnthropicAdapter.Response(root, new(new(), new()));
-                            else if (candidate.IsChat) converted = ChatAdapter.Response(root, new(new(), new()));
+                            else if (candidate.IsChat) converted = ChatAdapter.Response(root, new(new(), new()), allowEmptyProbe: true);
                             else if (root.Text("object") == "response" || root.Property("output") is { ValueKind: JsonValueKind.Array }) converted = JsonNode.Parse(root.GetRawText())!.AsObject();
                             else break;
                         }
                         catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException) { break; }
                         if (converted["status"]?.GetValue<string>() == "failed") throw new IOException("서버가 설정 모델의 생성 요청을 실패로 반환했습니다.");
                         using var final = JsonDocument.Parse(converted.ToJsonString());
-                        return new(candidate, "모델 " + input.Deployment + " 연결 확인 · " + target.AbsolutePath + " · " + candidate.Protocol + " (최대 출력 1토큰 검사)", TokenCounts.FromResponse(final.RootElement));
+                        return new(candidate, "모델 " + input.Deployment + " 기본 API 연결 확인 · 에이전트 도구 지원은 실행 시 확인 · " + target.AbsolutePath + " · " + candidate.Protocol + " (최대 출력 1토큰 검사)", TokenCounts.FromResponse(final.RootElement));
                     }
                 }
             }
@@ -103,9 +103,10 @@ public static class GatewayConnector
         if (url.EndsWith("/responses", StringComparison.OrdinalIgnoreCase)) { Add(url[..^10], ProviderProtocol.GatewayResponses); return result; }
         if (url.EndsWith("/messages", StringComparison.OrdinalIgnoreCase)) { Add(url, ProviderProtocol.AnthropicMessages); return result; }
         var bases = uri.AbsolutePath.TrimEnd('/').EndsWith("/v1", StringComparison.OrdinalIgnoreCase) ? new[] { url } : new[] { url, url + "/v1" };
-        // Basic three-field connections prefer Claude-compatible messages, then vLLM chat.
-        Add(url, ProviderProtocol.AnthropicMessages);
+        // A three-field API gateway uses the supplied Chat Completions contract by default.
+        if (input.IsAnthropic) Add(url, ProviderProtocol.AnthropicMessages);
         foreach (var path in bases.Reverse()) Add(path, ProviderProtocol.GatewayChatCompletions);
+        Add(url, ProviderProtocol.AnthropicMessages);
         foreach (var path in bases.Reverse()) Add(path, ProviderProtocol.GatewayResponses);
         return result;
     }

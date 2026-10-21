@@ -39,7 +39,7 @@ public sealed class ProviderSettings
             throw new IOException("http:// 또는 https:// 주소만 지원합니다. HTTPS 인증서 검증 해제나 자동 HTTP 전환은 하지 않습니다.");
         if (uri.Host.Equals("api.openai.com", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("chatgpt.com", StringComparison.OrdinalIgnoreCase)) throw new IOException("회사 API 모드에서는 공개 OpenAI 주소를 사용하지 않습니다. 외부 fallback도 없습니다.");
         if (string.IsNullOrWhiteSpace(Deployment) || Deployment.Length > 200 || Deployment.Any(char.IsControl)) throw new IOException("회사에서 제공한 정확한 deployment/model 이름을 입력하세요.");
-        if (IsAnthropic && MaxOutputTokens is < 1 or > 128000) throw new IOException("Anthropic 최대 출력 토큰은 1~128000입니다.");
+        if (MaxOutputTokens is < 1 or > 128000) throw new IOException("최대 출력 토큰은 1~128000입니다.");
         return uri;
     }
     public bool NormalizeRelaySettings()

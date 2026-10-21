@@ -28,6 +28,7 @@ public sealed class WorkItem
     public bool Writable { get; set; }
     public bool? ThreadWritable { get; set; }
     public List<TranscriptEntry> Transcript { get; set; } = [];
+    public string BrowserLastUrl { get; set; } = "";
     public string Diff { get; set; } = "";
     public List<ChangedFile> ChangedFiles { get; set; } = [];
     public string ProviderFingerprint { get; set; } = "";
@@ -48,6 +49,7 @@ public sealed class WorkItem
 public sealed record TranscriptEntry(string Kind, string Text, DateTime At, string? ItemId = null);
 public sealed class AppState
 {
+    public BrowserPreferences Browser { get; set; } = new();
     public List<ModelConnection> ModelConnections { get; set; } = [];
     public string PendingModel { get; set; } = "";
     public Dictionary<string, List<string>> SavedModels { get; set; } = [];

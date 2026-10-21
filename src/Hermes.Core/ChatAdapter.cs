@@ -27,13 +27,18 @@ public static class ChatAdapter
                     else if (partType == "input_image") content.Add(new JsonObject { ["type"] = "image_url", ["image_url"] = new JsonObject { ["url"] = part?["image_url"]?.DeepClone() } });
                     else throw new IOException("Chat adapter cannot represent this content type");
                 }
-                messages.Add(new JsonObject { ["role"] = role, ["content"] = content });
+                JsonNode payload = content.All(p => p?["type"]?.GetValue<string>() == "text")
+                    ? JsonValue.Create(string.Join("\n", content.Select(p => p?["text"]?.GetValue<string>() ?? "")))! : content;
+                messages.Add(new JsonObject { ["role"] = role, ["content"] = payload });
             }
             else if (type is "function_call" or "custom_tool_call")
             {
                 var name = Encoded(item["namespace"]?.GetValue<string>(), item["name"]!.GetValue<string>());
                 var arguments = type == "custom_tool_call" ? new JsonObject { ["input"] = item["input"]?.DeepClone() }.ToJsonString() : item["arguments"]?.GetValue<string>() ?? "{}";
-                messages.Add(new JsonObject { ["role"] = "assistant", ["content"] = null, ["tool_calls"] = new JsonArray(new JsonObject { ["id"] = item["call_id"]?.DeepClone(), ["type"] = "function", ["function"] = new JsonObject { ["name"] = name, ["arguments"] = arguments } }) });
+                var call = new JsonObject { ["id"] = item["call_id"]?.DeepClone(), ["type"] = "function", ["function"] = new JsonObject { ["name"] = name, ["arguments"] = arguments } };
+                if (messages.LastOrDefault() is JsonObject previous && previous["role"]?.GetValue<string>() == "assistant" && previous["tool_calls"] is JsonArray previousCalls)
+                    previousCalls.Add(call);
+                else messages.Add(new JsonObject { ["role"] = "assistant", ["content"] = null, ["tool_calls"] = new JsonArray(call) });
             }
             else if (type is "function_call_output" or "custom_tool_call_output")
             {
@@ -66,10 +71,9 @@ public static class ChatAdapter
             tools.Add(new JsonObject { ["type"] = "function", ["function"] = new JsonObject { ["name"] = encoded, ["description"] = t["description"]?.DeepClone() ?? "", ["parameters"] = schema } });
         }
         if (responseRequest["tools"] is JsonArray declared) foreach (var t in declared) Tool(t!.AsObject(), null);
-        var body = new JsonObject { ["model"] = responseRequest["model"]?.DeepClone(), ["messages"] = messages, ["stream"] = false };
+        var body = new JsonObject { ["model"] = responseRequest["model"]?.DeepClone(), ["messages"] = messages, ["stream"] = responseRequest["stream"]?.GetValue<bool>() == true };
         if (tools.Count > 0) body["tools"] = tools;
-        if (responseRequest["max_output_tokens"] != null) body["max_completion_tokens"] = responseRequest["max_output_tokens"]!.DeepClone();
-        if (responseRequest["parallel_tool_calls"] != null) body["parallel_tool_calls"] = responseRequest["parallel_tool_calls"]!.DeepClone();
+        if (responseRequest["max_output_tokens"] != null) body["max_tokens"] = responseRequest["max_output_tokens"]!.DeepClone();
         return new(body, mapping);
     }
     private static string Encoded(string? ns, string name)
@@ -78,10 +82,12 @@ public static class ChatAdapter
         if (value.Length > 64 || value.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '_' or '-'))) throw new IOException("Chat tool name is incompatible; use Responses protocol");
         return value;
     }
-    public static JsonObject Response(JsonElement chat, ChatAdaptation adaptation)
+    public static JsonObject Response(JsonElement chat, ChatAdaptation adaptation, bool allowEmptyProbe = false)
     {
         var choice = chat.GetProperty("choices")[0]; var message = choice.GetProperty("message"); var output = new JsonArray();
         var text = message.Text("content");
+        if (message.Property("content") is { ValueKind: JsonValueKind.Array } parts)
+            text = string.Join("", parts.EnumerateArray().Where(p => p.ValueKind == JsonValueKind.Object).Select(p => p.Text("text")));
         if (text.Length > 0) output.Add(new JsonObject { ["id"] = "msg_" + Guid.NewGuid().ToString("N"), ["type"] = "message", ["role"] = "assistant", ["status"] = "completed", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = text, ["annotations"] = new JsonArray() }) });
         if (message.Property("tool_calls") is { ValueKind: JsonValueKind.Array } calls) foreach (var call in calls.EnumerateArray())
         {
@@ -91,9 +97,12 @@ public static class ChatAdapter
             if (tool.Type == "custom") { using var arguments = JsonDocument.Parse(function.Text("arguments")); item["input"] = arguments.RootElement.Text("input"); }
             else item["arguments"] = function.Text("arguments"); output.Add(item);
         }
+        if (output.Count == 0 && !allowEmptyProbe) throw new IOException("모델이 답변 본문이나 도구 호출을 반환하지 않았습니다. finish_reason=" + choice.Text("finish_reason") + (message.Property("reasoning_content") != null ? " · 추론 내용만 반환됨. 서버의 출력 토큰 제한과 응답 형식을 확인하세요." : " · 서버의 응답 형식을 확인하세요."));
         var usage = TokenCounts.FromResponse(chat); JsonObject? tokens = usage.Input.HasValue && usage.Output.HasValue && usage.Total.HasValue ? new() { ["input_tokens"] = usage.Input, ["output_tokens"] = usage.Output, ["total_tokens"] = usage.Total } : null;
         if (tokens != null && usage.Cached.HasValue) tokens["input_tokens_details"] = new JsonObject { ["cached_tokens"] = usage.Cached };
         if (tokens != null && usage.Reasoning.HasValue) tokens["output_tokens_details"] = new JsonObject { ["reasoning_tokens"] = usage.Reasoning };
-        return new() { ["id"] = chat.Text("id") is { Length: > 0 } id ? "resp_" + id : "resp_" + Guid.NewGuid().ToString("N"), ["object"] = "response", ["created_at"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ["status"] = "completed", ["model"] = chat.Text("model"), ["output"] = output, ["usage"] = tokens };
+        var response = new JsonObject { ["id"] = chat.Text("id") is { Length: > 0 } id ? "resp_" + id : "resp_" + Guid.NewGuid().ToString("N"), ["object"] = "response", ["created_at"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ["status"] = choice.Text("finish_reason") is "length" or "content_filter" ? "incomplete" : "completed", ["model"] = chat.Text("model"), ["output"] = output, ["usage"] = tokens };
+        if (choice.Text("finish_reason") is "length" or "content_filter") response["incomplete_details"] = new JsonObject { ["reason"] = choice.Text("finish_reason") == "length" ? "max_output_tokens" : "content_filter" };
+        return response;
     }
 }

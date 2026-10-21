@@ -40,7 +40,7 @@ public sealed class CompanyBridge : IAsyncDisposable
     public CompanyBridge(ProviderSettings settings, ProtectedKeyStore keys, bool allowLoopbackForTests = false, HttpMessageHandler? handler = null)
     {
         this.settings = settings; this.keys = keys; activeModel = settings.Deployment; availableModels.Add(settings.Deployment); testLoopback = allowLoopbackForTests; settings.Validate(testLoopback);
-        http = new(handler ?? new SocketsHttpHandler { AllowAutoRedirect = false, AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate }) { Timeout = TimeSpan.FromMinutes(4) };
+        http = new(handler ?? new SocketsHttpHandler { AllowAutoRedirect = false, AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate }) { Timeout = Timeout.InfiniteTimeSpan };
         server = new(Handle);
     }
     public void SetAvailableModels(IEnumerable<string> models) { availableModels.Clear(); availableModels.Add(settings.Deployment); foreach (var model in models) availableModels.Add(model); }
@@ -63,26 +63,27 @@ public sealed class CompanyBridge : IAsyncDisposable
     }
     public async Task<string> CheckConnectionAsync(CancellationToken ct = default)
     {
+        using var checkTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct); checkTimeout.CancelAfter(TimeSpan.FromSeconds(60));
         var entry = StartEntry(); LastCheckSucceeded = false; LastCheckHttpStatus = null; DiscoveredModels.Clear();
         try
         {
-            using var request = Request(settings.IsAnthropic ? HttpMethod.Post : HttpMethod.Get, settings.RequestUri(true, testLoopback));
-            if (settings.IsAnthropic) request.Content = new StringContent(JsonSerializer.Serialize(new { model = settings.Deployment, max_tokens = 1, stream = false, messages = new[] { new { role = "user", content = "Reply OK." } } }), Encoding.UTF8, "application/json");
-            entry.Requests = 1; using var response = await http.SendAsync(request, ct); entry.HttpStatus = (int)response.StatusCode; LastCheckHttpStatus = entry.HttpStatus;
-            entry.Status = response.IsSuccessStatusCode ? "completed" : "failed"; entry.Note = settings.IsAnthropic ? "Anthropic messages 최소 생성 검사 (최대 출력 1토큰)" : "GET models 검사: 생성 요청/토큰 사용량 없음. 배포별 추론 가능 여부는 보장하지 않음"; Emit(entry);
-            if (settings.IsAnthropic && response.IsSuccessStatusCode)
+            using var request = Request(settings.IsAnthropic || settings.IsChat ? HttpMethod.Post : HttpMethod.Get, settings.RequestUri(!settings.IsChat, testLoopback));
+            if (settings.IsAnthropic || settings.IsChat) request.Content = new StringContent(JsonSerializer.Serialize(new { model = settings.Deployment, max_tokens = 1, stream = false, messages = new[] { new { role = "user", content = "Reply OK." } } }), Encoding.UTF8, "application/json");
+            entry.Requests = 1; using var response = await http.SendAsync(request, checkTimeout.Token); entry.HttpStatus = (int)response.StatusCode; LastCheckHttpStatus = entry.HttpStatus;
+            entry.Status = response.IsSuccessStatusCode ? "completed" : "failed"; entry.Note = settings.IsAnthropic || settings.IsChat ? "POST messages/chat completions 최소 생성 검사 (최대 출력 1토큰)" : "GET models 검사: 생성 요청/토큰 사용량 없음. 배포별 추론 가능 여부는 보장하지 않음"; Emit(entry);
+            if ((settings.IsAnthropic || settings.IsChat) && response.IsSuccessStatusCode)
             {
-                var text = Safety.Redact(await response.Content.ReadAsStringAsync(ct));
+                var text = Safety.Redact(await response.Content.ReadAsStringAsync(checkTimeout.Token));
                 if (text.Length > 2_000_000) throw new IOException("Connection response size limit");
                 using var doc = JsonDocument.Parse(text); var empty = new AnthropicAdaptation(new(), new());
-                var converted = AnthropicAdapter.Response(doc.RootElement, empty); using var usage = JsonDocument.Parse(converted.ToJsonString());
-                entry.Tokens = TokenCounts.FromResponse(usage.RootElement); entry.Note = "Anthropic POST messages · max_tokens=1 최소 생성 검사"; Emit(entry);
+                var converted = settings.IsChat ? ChatAdapter.Response(doc.RootElement, new(new(), new()), allowEmptyProbe: true) : AnthropicAdapter.Response(doc.RootElement, empty); using var usage = JsonDocument.Parse(converted.ToJsonString());
+                entry.Tokens = TokenCounts.FromResponse(usage.RootElement); entry.Note = "POST " + settings.RequestUri(false, testLoopback).AbsolutePath + " · max_tokens=1 기본 생성 검사"; Emit(entry);
                 LastCheckSucceeded = true;
-                return "설정 모델 " + settings.Deployment + " · Anthropic messages 응답 확인 (최대 출력 1토큰 검사)";
+                return "설정 모델 " + settings.Deployment + " · " + (settings.IsChat ? "Chat Completions" : "Anthropic messages") + " 기본 응답 확인 (최대 출력 1토큰 검사) · 에이전트 도구 지원은 실행 시 확인";
             }
-            if (!settings.IsAnthropic && response.IsSuccessStatusCode)
+            if (!settings.IsAnthropic && !settings.IsChat && response.IsSuccessStatusCode)
             {
-                using var list = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+                using var list = JsonDocument.Parse(await response.Content.ReadAsStringAsync(checkTimeout.Token));
                 if (list.RootElement.Property("data") is { ValueKind: JsonValueKind.Array } models) foreach (var item in models.EnumerateArray().Take(200))
                 {
                     var id = item.Text("id"); if (id.Length is > 0 and <= 200 && !id.Any(char.IsControl) && !DiscoveredModels.Contains(id)) DiscoveredModels.Add(id);
@@ -90,9 +91,9 @@ public sealed class CompanyBridge : IAsyncDisposable
                 LastCheckSucceeded = true;
             }
             if ((int)response.StatusCode is >= 300 and < 400) return "Redirect 차단. 다른 서버로 전송하지 않았습니다.";
-            return response.IsSuccessStatusCode ? "설정된 서버의 models 경로 응답 확인. 실제 추론은 아직 확인하지 않았습니다." : $"서버 응답 HTTP {(int)response.StatusCode}. 요청 경로: {settings.RequestUri(true, testLoopback).AbsolutePath}. 경로/모델/권한을 확인하세요. 모델 목록 경로 404만으로 추론 실패를 판단하지 않습니다. 외부 fallback 없음.";
+            return response.IsSuccessStatusCode ? "설정된 서버의 models 경로 응답 확인. 실제 추론은 아직 확인하지 않았습니다." : $"서버 응답 HTTP {(int)response.StatusCode}. 요청 경로: {settings.RequestUri(!settings.IsChat, testLoopback).AbsolutePath}. 경로/모델/권한을 확인하세요. 모델 목록 경로 404만으로 추론 실패를 판단하지 않습니다. 외부 fallback 없음.";
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException) { entry.Status = "failed"; entry.Note = ConnectionErrors.Describe(ex, ct) + " · 요청 경로: " + settings.RequestUri(true, testLoopback).AbsolutePath; if (entry.Requests == null) entry.Requests = 0; Emit(entry); return entry.Note; }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidOperationException) { entry.Status = "failed"; entry.Note = ConnectionErrors.Describe(ex, ct) + " · 요청 경로: " + settings.RequestUri(!settings.IsChat, testLoopback).AbsolutePath; if (entry.Requests == null) entry.Requests = 0; Emit(entry); return entry.Note; }
     }
     private void Emit(UsageEntry entry)
     {
@@ -118,12 +119,18 @@ public sealed class CompanyBridge : IAsyncDisposable
         }
         if (incoming.Method != "POST" || route != "/v1/responses") { await LoopbackHttp.Reply(stream, 404, "application/json", "{\"error\":{\"message\":\"Unsupported local route\"}}", ct); return; }
         var entry = StartEntry(requestTask, context); var streaming = false; using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, context?.Operation.Token ?? operation.Token);
+        linked.CancelAfter(TimeSpan.FromMinutes(10));
         try
         {
             if (incoming.Headers.ContainsKey("Content-Encoding")) throw new IOException("Compressed request body not supported by the local adapter");
             var body = JsonNode.Parse(incoming.Body)?.AsObject() ?? throw new IOException("Invalid request JSON"); body["model"] = context?.Model ?? activeModel; body["store"] = false;
             var wantsStream = body["stream"]?.GetValue<bool>() == true;
             ChatAdaptation? adaptation = settings.IsChat ? ChatAdapter.Request(body) : null;
+            if (adaptation != null)
+            {
+                var requested = adaptation.Body["max_tokens"]?.GetValue<int>() ?? settings.MaxOutputTokens;
+                adaptation.Body["max_tokens"] = Math.Clamp(requested, 1, settings.MaxOutputTokens);
+            }
             AnthropicAdaptation? anthropic = settings.IsAnthropic ? AnthropicAdapter.Request(body, settings.MaxOutputTokens) : null;
             using var request = Request(HttpMethod.Post, settings.RequestUri(false, testLoopback));
             request.Content = new StringContent((anthropic?.Body ?? adaptation?.Body ?? body).ToJsonString(), Encoding.UTF8, "application/json");
@@ -151,6 +158,14 @@ public sealed class CompanyBridge : IAsyncDisposable
                 }
                 Emit(entry);
                 await LoopbackHttp.Reply(stream, (int)response.StatusCode is >= 300 and < 400 ? 502 : (int)response.StatusCode, "application/json", JsonSerializer.Serialize(new { error = new { message = entry.Note, type = "company_endpoint_error" } }), ct); return;
+            }
+            if (adaptation != null && response.Content.Headers.ContentType?.MediaType == "text/event-stream")
+            {
+                if (!wantsStream) throw new IOException("Unexpected Chat SSE response");
+                streaming = true;
+                await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"), linked.Token);
+                var converted = await ChatStream.Translate(await response.Content.ReadAsStreamAsync(linked.Token), stream, adaptation, linked.Token);
+                using var parsed = JsonDocument.Parse(converted.ToJsonString()); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model"); entry.Status = parsed.RootElement.Text("status"); entry.Note = "Chat SSE → Responses 실시간 전달"; Emit(entry); return;
             }
             if (anthropic != null && response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             {
@@ -218,8 +233,13 @@ public sealed class CompanyBridge : IAsyncDisposable
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException or JsonException or InvalidOperationException or KeyNotFoundException or FormatException or NotSupportedException or ArgumentException)
         {
-            entry.Status = ex is OperationCanceledException ? "cancelled" : "failed"; entry.Note = "요청 실패/중단 또는 호환 불가; usage 미제공; 외부 fallback 없음 · " + ConnectionErrors.Describe(ex, context?.Operation.Token ?? operation.Token); AppLog.Write(ex, "company-bridge"); Emit(entry);
-            if (!streaming && !ct.IsCancellationRequested) await LoopbackHttp.Reply(stream, 502, "application/json", JsonSerializer.Serialize(new { error = new { message = entry.Note, type = "company_adapter_error" } }), ct);
+            entry.Status = ex is OperationCanceledException ? "cancelled" : "failed"; entry.Note = "API 응답 처리 실패 · 방식: " + settings.Protocol + " · 상류 경로: " + settings.RequestUri(false, testLoopback).AbsolutePath + " · 경과 " + (int)(DateTimeOffset.UtcNow - entry.At).TotalSeconds + "초 · " + ConnectionErrors.Describe(ex, context?.Operation.Token ?? operation.Token); AppLog.Write(ex, "company-bridge"); Emit(entry);
+            if (streaming && !ct.IsCancellationRequested)
+            {
+                var errorEvent = JsonSerializer.Serialize(new { type = "error", code = "server_error", message = entry.Note });
+                await stream.WriteAsync(Encoding.UTF8.GetBytes("event: error\ndata: " + errorEvent + "\n\n"), ct); await stream.FlushAsync(ct);
+            }
+            if (!streaming && !ct.IsCancellationRequested) await LoopbackHttp.Reply(stream, ex is OperationCanceledException ? 504 : 502, "application/json", JsonSerializer.Serialize(new { error = new { message = entry.Note, type = "company_adapter_error" } }), ct);
         }
     }
     public async ValueTask DisposeAsync() { operation.Cancel(); foreach (var context in tasks.Values) context.Operation.Cancel(); await server.DisposeAsync(); http.Dispose(); operation.Dispose(); foreach (var context in tasks.Values) context.Operation.Dispose(); }

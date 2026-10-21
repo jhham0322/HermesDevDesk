@@ -22,7 +22,7 @@ public sealed partial class SettingsWindow
         Check(Title.Contains(AppVersion.Current), "model settings shows loaded assembly version");
         Check(manual.IsChecked != true, "new profile uses simple connection");
         deployment.Text = "alpha-ui"; endpoint.Text = "https://alpha.invalid"; key.Password = "SYNTHETIC_UI_ALPHA_TOKEN"; Save();
-        Check(desk.State.Provider.IsAnthropic && desk.State.Provider.Authentication == ProviderAuth.BearerKey, "three fields use Claude Messages and Bearer token");
+        Check(desk.State.Provider.Protocol == ProviderProtocol.GatewayAuto && desk.State.Provider.Authentication == ProviderAuth.BearerKey, "three fields use gateway Chat API discovery and Bearer token");
         Check(key.Password.Length == 0 && savedModels.Items.Count == 1, "save adds model row and clears token field");
         var alpha = desk.State.ModelConnections.Single();
         editingId = null; deployment.Text = "beta-ui"; endpoint.Text = "https://beta.invalid/v1/messages"; key.Password = "SYNTHETIC_UI_BETA_TOKEN"; Save();

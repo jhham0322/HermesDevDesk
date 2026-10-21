@@ -24,6 +24,8 @@ public partial class MainWindow
         if (!browserSurface.Children.Contains(view)) browserSurface.Children.Add(view);
         foreach (var child in browserSurface.Children.OfType<WebView2>()) Panel.SetZIndex(child, ReferenceEquals(child, view) ? 1 : 0);
         activeBrowserView = view;
+        browserAttachSource.IsEnabled = selectedBrowserSourceTask == CurrentTask?.Id && selectedBrowserSource.Length > 0;
+        if (view.CoreWebView2 != null) { browserAddress.Text = view.Source?.AbsoluteUri ?? browserAddress.Text; UpdateBrowserBookmark(view); }
     }
     private Task? browserInitialization;
     private readonly Dictionary<string, WebView2> chatBrowsers = [];
@@ -31,6 +33,12 @@ public partial class MainWindow
     private void ConfigureBrowser(WebView2 view, Func<string?> projectRoot)
     {
         view.CoreWebView2.Settings.AreHostObjectsAllowed = false;
+        view.CoreWebView2.Settings.IsWebMessageEnabled = true;
+        view.CoreWebView2.Profile.IsPasswordAutosaveEnabled = desk.State.Browser.SavePasswords;
+        view.CoreWebView2.Profile.IsGeneralAutofillEnabled = true;
+        view.CoreWebView2.WebMessageReceived += (_, args) => { if (!closing) ReceiveBrowserSource(view, args); };
+        view.CoreWebView2.SourceChanged += (_, _) => RememberBrowserPage(view);
+        view.CoreWebView2.DocumentTitleChanged += (_, _) => RememberBrowserPage(view);
         view.CoreWebView2.PermissionRequested += (_, args) => { args.State = CoreWebView2PermissionState.Allow; args.Handled = true; };
         view.CoreWebView2.NewWindowRequested += (_, args) => { args.Handled = true; try { view.CoreWebView2.Navigate(BrowserTools.ValidateUrl(args.Uri).AbsoluteUri); } catch (IOException) { } };
         view.CoreWebView2.DownloadStarting += (_, args) =>
@@ -45,14 +53,14 @@ public partial class MainWindow
             catch (IOException) { args.Cancel = true; }
         };
         view.CoreWebView2.NavigationStarting += (_, args) => { try { BrowserTools.ValidateUrl(args.Uri); } catch (IOException) { args.Cancel = true; } };
-        view.CoreWebView2.NavigationCompleted += (_, args) => { if (activeBrowserView == view) { browserAddress.Text = view.Source?.AbsoluteUri ?? ""; browserStatus.Text = args.IsSuccess ? view.CoreWebView2.DocumentTitle : "페이지 로드 실패: " + args.WebErrorStatus; } };
+        view.CoreWebView2.NavigationCompleted += (_, args) => { if (activeBrowserView == view) { browserAddress.Text = view.Source?.AbsoluteUri ?? ""; browserStatus.Text = args.IsSuccess ? view.CoreWebView2.DocumentTitle : "페이지 로드 실패: " + args.WebErrorStatus; } if (args.IsSuccess) RememberBrowserPage(view); };
     }
     private void ShowChatBrowser()
     {
         if (CurrentTask is { } task && chatBrowsers.TryGetValue(task.Id, out var view)) SetBrowserView(view);
         else if (browserView != null) SetBrowserView(browserView);
     }
-    private void DisposeBrowsers() { foreach (var view in chatBrowsers.Values) view.Dispose(); browserView?.Dispose(); }
+    private void DisposeBrowsers() { browserSaveTimer.Stop(); sourcePickers.Clear(); desk.Save(); foreach (var view in chatBrowsers.Values) view.Dispose(); browserView?.Dispose(); }
 
 
     private void InitializeBrowserPanel()
@@ -61,7 +69,7 @@ public partial class MainWindow
         var address = new DockPanel(); var go = new Button { Content = "열기" }; DockPanel.SetDock(go, Dock.Right); address.Children.Add(go); address.Children.Add(browserAddress); toolbar.Children.Add(address);
         var capture = new Button { Content = "전체 캡처 · AI 첨부", ToolTip = "현재 로드된 페이지 전체를 PNG로 저장하고 AI 입력에 이미지로 첨부합니다." };
         capture.Click += async (_, _) => await Guard(CaptureBrowserToComposerAsync, "browser-full-capture");
-        toolbar.Children.Add(capture); toolbar.Children.Add(browserEnable); toolbar.Children.Add(browserStatus); panel.Children.Add(browserHost);
+        toolbar.Children.Add(capture); InitializeBrowserExperience(toolbar); toolbar.Children.Add(browserEnable); toolbar.Children.Add(browserStatus); panel.Children.Add(browserHost);
         InspectorTabs.Items.Add(new TabItem { Header = "브라우저", Content = panel });
         go.Click += async (_, _) => await Guard(() => NavigateBrowser(browserAddress.Text));
         browserAddress.KeyDown += async (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; await Guard(() => NavigateBrowser(browserAddress.Text)); } };
@@ -200,5 +208,5 @@ public partial class MainWindow
         }
         finally { gate.Release(); }
     }
-    private void BrowserPanel_Click(object sender, RoutedEventArgs e) => OpenPanel(8);
+    private async void BrowserPanel_Click(object sender, RoutedEventArgs e) { OpenPanel(8); await Guard(OpenSavedBrowser, "browser-restore"); }
 }

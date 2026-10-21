@@ -181,7 +181,7 @@ public sealed partial class DeskController : IAsyncDisposable
                 if (State.Provider.Authentication != ProviderAuth.None && !KeyStore.HasKey) throw new IOException("회사 키를 앱 설정에서 직접 입력하세요. 기존 키를 추출하지 않습니다.");
                 if (State.Provider.Protocol == ProviderProtocol.GatewayAuto || !State.Provider.UseAdvancedSettings) await ResolveGateway(CancellationToken.None);
                 var savedModels = Models.ToList();
-                company = new(State.Provider, KeyStore, allowTestLoopback); company.Usage += e => dispatch(() => { UsageLedger.Upsert(State, e); Save(); });
+                company = new(State.Provider, KeyStore, allowTestLoopback); company.Usage += e => dispatch(() => { UsageLedger.Upsert(State, e); if (e.Status == "failed" && State.Tasks.FirstOrDefault(t => t.Id == e.TaskId) is { } failedTask && !failedTask.Transcript.Any(t => t.ItemId == "gateway-error-" + e.Id)) failedTask.Transcript.Add(new("오류", ProviderErrors.ReadableMessage(e.Note), DateTime.UtcNow, "gateway-error-" + e.Id)); Save(); });
                 await client.ConnectAsync(exe, cwd, Path.Combine(DataDirectory, "engine-home"), company.BaseUri, company.Capability, State.Provider.Deployment);
                 var providerAccount = await client.RequestAsync("account/read", new { refreshToken = false });
                 if (providerAccount.Property("requiresOpenaiAuth") is { ValueKind: JsonValueKind.True }) throw new IOException("회사 provider가 외부 OpenAI 인증을 요구해 차단했습니다.");
@@ -415,7 +415,7 @@ public sealed partial class DeskController : IAsyncDisposable
             case "turn/completed":
                 ComputerStopRequested?.Invoke(task);
                 var turn = p.GetProperty("turn"); task.Status = turn.Text("status") switch { "completed" => "완료", "interrupted" => "중단됨", _ => "실패" };
-                if (turn.Property("error") is { ValueKind: JsonValueKind.Object } error) task.Transcript.Add(new("오류", Safety.Redact(error.Text("message")), DateTime.UtcNow));
+                if (turn.Property("error") is { ValueKind: JsonValueKind.Object } error) task.Transcript.Add(new("오류", ProviderErrors.ReadableMessage(error.Text("message")), DateTime.UtcNow));
                 task.TurnId = null; Approvals.RemoveAll(a => a.Params.Text("threadId") == task.ThreadId); break;
             case "item/reasoning/summaryTextDelta":
                 ProgressMessages.Delta(task, p.Text("itemId"), p.Property("summaryIndex")?.ToString() ?? "0", p.Text("delta")); break;
@@ -444,7 +444,7 @@ public sealed partial class DeskController : IAsyncDisposable
                     }
                 }
                 break;
-            case "error": task.Transcript.Add(new("오류", Safety.Redact(p.GetProperty("error").Text("message")), DateTime.UtcNow)); break;
+            case "error": task.Transcript.Add(new("오류", ProviderErrors.ReadableMessage(p.GetProperty("error").Text("message")), DateTime.UtcNow)); break;
         }
         if (e.Method is "item/reasoning/summaryTextDelta" or "item/agentMessage/delta" or "item/commandExecution/outputDelta" or "thread/tokenUsage/updated") SaveStream();
         else Save();

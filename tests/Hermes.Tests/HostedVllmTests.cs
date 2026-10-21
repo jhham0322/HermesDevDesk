@@ -19,8 +19,8 @@ internal static class HostedVllmTests
         });
         var input = new ProviderSettings { Endpoint = mock.BaseUri.AbsoluteUri + "v1", Deployment = "hosted-model", Protocol = ProviderProtocol.GatewayAuto };
         var connected = await GatewayConnector.Connect(input, keys, CancellationToken.None);
-        check(connected.Settings.IsChat && paths.SequenceEqual(new[] { "/v1/messages", "/v1/chat/completions" }), "v1 base with hosted-vLLM 400 chooses working chat API instead of Responses");
-        paths.Clear(); claude = true;
+        check(connected.Settings.IsChat && paths.SequenceEqual(new[] { "/v1/chat/completions" }), "v1 base with hosted-vLLM 400 chooses working chat API instead of Responses");
+        paths.Clear(); claude = true; input.Protocol = ProviderProtocol.AnthropicMessages;
         connected = await GatewayConnector.Connect(input, keys, CancellationToken.None);
         check(connected.Settings.IsAnthropic && paths.SequenceEqual(new[] { "/v1/messages" }), "Claude-compatible gateway never probes Responses first");
         var full = new ProviderSettings { Endpoint = mock.BaseUri.AbsoluteUri + "v1/chat/completions", Deployment = "hosted-model", Protocol = ProviderProtocol.AnthropicMessages };
@@ -36,6 +36,6 @@ internal static class HostedVllmTests
         // This matches the old basic settings that had already been resolved to Responses.
         desk.Configure(new() { Endpoint = input.Endpoint, Deployment = input.Deployment, Protocol = ProviderProtocol.GatewayResponses, UseAdvancedSettings = false }, "SYNTHETIC_VLLM_TOKEN");
         paths.Clear(); var status = await desk.CheckProviderAsync();
-        check(desk.State.Provider.IsAnthropic && status.Contains("연결 확인") && paths.First() == "/v1/messages", "existing basic Responses configuration is rechecked with Claude first");
+        check(desk.State.Provider.IsChat && status.Contains("연결 확인") && paths.First() == "/v1/chat/completions", "existing basic Responses configuration is rechecked with Chat first");
     }
 }

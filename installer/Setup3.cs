@@ -8,15 +8,19 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-[assembly: AssemblyVersion("0.8.10.0")]
-[assembly: AssemblyFileVersion("0.8.10.0")]
+[assembly: AssemblyVersion("0.8.11.0")]
+[assembly: AssemblyFileVersion("0.8.11.0")]
+[assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
 internal static class Setup
 {
-    internal const string Version="0.8.10";
-    internal static string Target=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","HermesDevDesk",Version);
+    internal const string Version="0.8.11";
+    internal static string Target=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","HermesDevDesk","App");
     [STAThread] static int Main(string[] args)
     {
+        AppContext.SetSwitch("Switch.System.IO.UseLegacyPathHandling",false);
+        AppContext.SetSwitch("Switch.System.IO.BlockLongPaths",false);
         try {
+            if(args.Length==2&&args[0]=="/info"){File.WriteAllText(args[1],"{\"version\":\""+Version+"\",\"defaultTarget\":\""+Target.Replace("\\","\\\\")+"\"}");return 0;}
             if(args.Length==2&&args[0]=="/verify") { using(var z=Payload()){ var m=Manifest(z); Verify(z,m); File.WriteAllText(args[1],"PASS: "+m.Count+" embedded files SHA256 verified. No install.\n");} return 0;}
             if(args.Length==2&&args[0]=="/extract"){ Install(args[1],CancellationToken.None,null);return 0;}
             Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
@@ -24,7 +28,7 @@ internal static class Setup
             if(args.Length==3&&args[0]=="/cleanup-test"){CleanupTests(args[1],args[2]);return 0;}
             if(args.Length>0)throw new IOException("Use /verify REPORT, /extract ABSOLUTE_PATH or /test-suite ISOLATED_PATH REPORT");
             Application.Run(new SetupForm(Target,false));return 0;
-        }catch(Exception e){if(args.Length>1&&(args[0]=="/verify"||args[0]=="/test-suite"||args[0]=="/cleanup-test"))File.WriteAllText(args[args.Length-1],"FAIL "+e);else if(args.Length==0)MessageBox.Show(e.Message);return 1;}
+        }catch(Exception e){if(args.Length>1&&(args[0]=="/verify"||args[0]=="/test-suite"||args[0]=="/cleanup-test"))File.WriteAllText(args[args.Length-1],"FAIL "+e);else if(args.Length==2&&args[0]=="/extract")File.WriteAllText(Path.GetFullPath(args[1])+".install-error.txt",e.ToString());else if(args.Length==0)MessageBox.Show(e.Message);return 1;}
     }
     static ZipArchive Payload(){var s=Assembly.GetExecutingAssembly().GetManifestResourceStream("HermesPayload.zip");if(s==null)throw new IOException("Payload missing");return new ZipArchive(s,ZipArchiveMode.Read);}
     static string Hash(Stream s){using(var h=SHA256.Create())return BitConverter.ToString(h.ComputeHash(s)).Replace("-","").ToLowerInvariant();}
@@ -37,7 +41,37 @@ internal static class Setup
         var info=z.GetEntry("release-info.json");if(info==null)throw new IOException("Release version metadata missing");
         using(var reader=new StreamReader(info.Open()))if(!reader.ReadToEnd().Contains("\"version\": \""+Version+"\""))throw new IOException("Installer/payload version mismatch");
         var seen=new HashSet<string>(StringComparer.OrdinalIgnoreCase);long bytes=0;foreach(var e in z.Entries){Name(e.FullName);if(!seen.Add(e.FullName))throw new IOException("Duplicate archive entry");bytes+=e.Length;if(bytes>1024L*1024*1024)throw new IOException("Payload too large");if(e.Name.Length==0||e.FullName==".hermes-manifest.tsv")continue;string hash;if(!m.TryGetValue(e.FullName,out hash))throw new IOException("Unlisted file");using(var s=e.Open())if(Hash(s)!=hash)throw new IOException("Payload hash mismatch");}foreach(var n in m.Keys)if(!seen.Contains(n))throw new IOException("Missing file");}
+    static bool OwnsInstallation(string root){
+        Root(root);var marker=FilePath(root,".hermes-owned");var manifest=FilePath(root,".hermes-manifest.tsv");if(!File.Exists(marker)||!File.Exists(manifest))return false;
+        var identity=File.ReadAllText(marker).Trim();if(!System.Text.RegularExpressions.Regex.IsMatch(identity,@"^HermesDevDesk-\d+\.\d+\.\d+-[a-f0-9]{64}$"))return false;
+        using(var stream=File.OpenRead(manifest))return identity.EndsWith("-"+Hash(stream),StringComparison.Ordinal);
+    }
+    static void DeleteOwnedTree(string root){
+        root=Path.GetFullPath(root);Root(root);if(!OwnsInstallation(root))throw new IOException("Refusing to remove an unowned installation: "+root);
+        var directories=new List<string>();CollectDirectories(root,directories);
+        // Every path and descendant was validated above, including reparse-point rejection.
+        Directory.Delete(root,true);
+    }
+    static void WaitForExclusiveRead(string file,CancellationToken ct){
+        for(var attempt=0;;attempt++){ct.ThrowIfCancellationRequested();try{using(var check=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.None)){}return;}catch(IOException error){var code=error.HResult&65535;if(attempt>=39||(code!=32&&code!=33))throw;Thread.Sleep(250);}}
+    }
     internal static void Install(string r,CancellationToken ct,Action<int,string> progress){
+        r=Path.GetFullPath(r);Root(r);
+        if(!Directory.Exists(r)||Directory.GetFileSystemEntries(r).Length==0){InstallPayload(r,ct,progress);ValidateInstalled(r);return;}
+        if(!OwnsInstallation(r))throw new IOException("설치 프로그램이 소유하지 않은 폴더는 비울 수 없습니다: "+r);
+        var stage=r+".staging-"+Guid.NewGuid().ToString("N");var backup=r+".previous-"+Guid.NewGuid().ToString("N");Root(stage);Root(backup);
+        if(Path.GetDirectoryName(stage)!=Path.GetDirectoryName(r)||Path.GetDirectoryName(backup)!=Path.GetDirectoryName(r))throw new IOException("Upgrade destination escaped installation parent");
+        bool moved=false;
+        try{
+            InstallPayload(stage,ct,progress);ValidateInstalled(stage);ct.ThrowIfCancellationRequested();ClosePreviousApp(r);
+            var directories=new List<string>();CollectDirectories(r,directories);
+            foreach(var file in Directory.GetFiles(r,"*",SearchOption.AllDirectories))WaitForExclusiveRead(file,ct);
+            Directory.Move(r,backup);moved=true;
+            try{Directory.Move(stage,r);}catch{Directory.Move(backup,r);moved=false;throw;}
+            ValidateInstalled(r);DeleteOwnedTree(backup);moved=false;
+        }finally{if(Directory.Exists(stage)&&OwnsInstallation(stage))DeleteOwnedTree(stage);if(moved&&!Directory.Exists(r)&&Directory.Exists(backup))Directory.Move(backup,r);}
+    }
+    static void InstallPayload(string r,CancellationToken ct,Action<int,string> progress){
         Root(r);r=Path.GetFullPath(r);using(var z=Payload()){var m=Manifest(z);Verify(z,m);ct.ThrowIfCancellationRequested();var marker=Path.Combine(r,".hermes-owned");var id=Identity(z);
         Root(marker);if(Directory.Exists(r)&&Directory.GetFileSystemEntries(r).Length>0&&(!File.Exists(marker)||File.ReadAllText(marker).Trim()!=id))throw new IOException("Nonempty unowned directory or another version; choose another path");
         foreach(var pair in m){var p=FilePath(r,pair.Key);if(Directory.Exists(p))throw new IOException("Directory conflicts with file");if(File.Exists(p))using(var s=File.OpenRead(p))if(Hash(s)!=pair.Value)throw new IOException("Modified file preserved; choose another destination: "+pair.Key);}
@@ -121,7 +155,7 @@ using(var z=Payload()){var m=Manifest(z);var marker=FilePath(r,".hermes-owned");
         using(var f=new SetupForm(path,true)){f.Show();f.InstallButton.PerformClick();var first=f.Last;f.InstallButton.PerformClick();if(first!=f.Last)throw new IOException("Duplicate click");Wait(f);if(f.Error!=null||!File.Exists(Path.Combine(path,"HermesDevDesk.exe")))throw new IOException("Install failed "+f.Error);lines.Add("PASS programmatic install/repeated-click guard");
         f.LaunchButton.PerformClick();Wait(f);if(f.Error!=null)throw new IOException("Installed app launch failed: "+f.Error);lines.Add("PASS launch button runs installed WPF app with isolated smoke data");
         f.InstallButton.PerformClick();Wait(f);if(f.Error!=null)throw new IOException("Repeat install failed");lines.Add("PASS repeat same-version installation");
-        File.WriteAllText(Path.Combine(path,"README.md"),"MODIFIED");File.WriteAllText(Path.Combine(path,"user.txt"),"KEEP");f.InstallButton.PerformClick();Wait(f);if(f.Error==null)throw new IOException("Modified file overwritten");lines.Add("PASS modified conflict error, no overwrite");
+        File.WriteAllText(Path.Combine(path,"README.md"),"MODIFIED");File.WriteAllText(Path.Combine(path,"user.txt"),"KEEP");f.InstallButton.PerformClick();Wait(f);if(f.Error!=null||File.Exists(Path.Combine(path,"user.txt"))||File.ReadAllText(Path.Combine(path,"README.md"))=="MODIFIED")throw new IOException("Same-folder clean replacement failed");lines.Add("PASS same installation folder fully refreshed");File.WriteAllText(Path.Combine(path,"README.md"),"MODIFIED");File.WriteAllText(Path.Combine(path,"user.txt"),"KEEP");
         f.RemoveButton.PerformClick();Wait(f);if(f.Error!=null||File.Exists(Path.Combine(path,"HermesDevDesk.exe"))||File.ReadAllText(Path.Combine(path,"README.md"))!="MODIFIED"||File.ReadAllText(Path.Combine(path,"user.txt"))!="KEEP")throw new IOException("Removal preservation failed");lines.Add("PASS remove handler preserves modified/user files");f.Close();}
         path=Path.Combine(root,"cancel");using(var f=new SetupForm(path,true)){f.Show();f.CancelAfterProgress=true;f.InstallButton.PerformClick();Wait(f);if(!f.Cancelled||Directory.GetFiles(path,"*.partial",SearchOption.AllDirectories).Length>0)throw new IOException("Cancel failed");lines.Add("PASS cancel handler and private partial cleanup");
         f.CancelAfterProgress=false;f.InstallButton.PerformClick();Wait(f);if(f.Error!=null)throw new IOException("Cancel resume failed");lines.Add("PASS recover cancelled installation");
@@ -134,9 +168,9 @@ internal sealed class SetupForm:Form{
     internal Button InstallButton=new Button{Text="설치 / 재개"},RemoveButton=new Button{Text="이 버전 제거"},CancelControl=new Button{Text="작업 취소",Enabled=false};
     internal Button LaunchButton=new Button{Text="설치한 "+Setup.Version+" 실행"};
     internal Task Last;internal string Error;internal bool Cancelled,CancelAfterProgress;bool test;CancellationTokenSource cancellation;TextBox path=new TextBox();Label status=new Label();ProgressBar progress=new ProgressBar();
-    internal SetupForm(string target,bool testing){test=testing;Text="Hermes DevDesk 0.8.10 설치";Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);Width=700;Height=440;StartPosition=FormStartPosition.CenterScreen;MaximizeBox=false;
-        Controls.Add(new Label{Left=24,Top=20,Width=640,Height=100,Text="독립 Windows 개발 에이전트 앱 · 사내 중계서버 연결\n.NET 런타임과 공식 CLI 포함. 설치 완료 후 이전 앱 버전은 자동 정리하고 이력·설정은 보존합니다.\n관리자 권한·방화벽·전역 설정 변경 없이 선택한 폴더에 설치합니다.\n회사 URL/모델명/API 키는 설치 후 앱에 직접 입력하세요."});
-        path.SetBounds(24,130,530,28);path.Text=target;var browse=new Button{Text="폴더 선택"};browse.SetBounds(565,128,100,30);browse.Click+=delegate{using(var d=new FolderBrowserDialog())if(d.ShowDialog(this)==DialogResult.OK)path.Text=d.SelectedPath;};
+    internal SetupForm(string target,bool testing){test=testing;Text="Hermes DevDesk 0.8.11 설치";Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);Width=700;Height=440;StartPosition=FormStartPosition.CenterScreen;MaximizeBox=false;
+        Controls.Add(new Label{Left=24,Top=20,Width=640,Height=100,Text="독립 Windows 개발 에이전트 앱 · 사내 중계서버 연결\n.NET 런타임과 공식 CLI 포함. 고정 App 폴더를 새 설치본으로 전체 교체합니다. 이력·설정은 별도 보존합니다.\n관리자 권한·방화벽·전역 설정 변경 없이 선택한 폴더에 설치합니다.\n회사 URL/모델명/API 키는 설치 후 앱에 직접 입력하세요."});
+        path.SetBounds(24,130,530,28);path.Text=target;path.ReadOnly=true;var browse=new Button{Text="폴더 선택"};browse.SetBounds(565,128,100,30);browse.Enabled=false;browse.Click+=delegate{using(var d=new FolderBrowserDialog())if(d.ShowDialog(this)==DialogResult.OK)path.Text=d.SelectedPath;};
         progress.SetBounds(24,177,640,22);status.SetBounds(24,210,640,65);InstallButton.SetBounds(24,290,190,38);RemoveButton.SetBounds(237,290,190,38);CancelControl.SetBounds(450,290,215,38);var close=new Button{Text="닫기"};close.SetBounds(550,340,115,32);close.Click+=delegate{Close();};LaunchButton.SetBounds(24,340,190,32);
         Controls.AddRange(new Control[]{path,browse,progress,status,InstallButton,RemoveButton,CancelControl,LaunchButton,close});
         LaunchButton.Click+=delegate{if(Last==null||Last.IsCompleted)Last=Launch();};

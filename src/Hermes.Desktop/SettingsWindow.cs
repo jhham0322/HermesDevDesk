@@ -69,7 +69,7 @@ public sealed partial class SettingsWindow : Window
         endpointScheme.ItemsSource = new[] { "주소에 http:// 또는 https:// 직접 입력", "스킴 없는 주소에 https:// 적용", "스킴 없는 주소에 http:// 적용" }; endpointScheme.SelectedIndex = 0;
         maxTokens.Text = desk.State.Provider.MaxOutputTokens.ToString();
         manual.IsChecked = desk.State.Provider.UseAdvancedSettings;
-        content.Children.Add(new TextBlock { Text = "기본 연결은 Claude 호환 Messages API입니다. 모델명, URL, 토큰만 입력하세요.", FontSize = 12, Margin = new Thickness(4, 10, 4, 4), TextWrapping = TextWrapping.Wrap });
+        content.Children.Add(new TextBlock { Text = "기본은 Chat Completions API입니다. 모델명, URL, 토큰만 입력하세요. Claude API는 전체 /v1/messages URL 또는 고급 설정으로 선택합니다.", FontSize = 12, Margin = new Thickness(4, 10, 4, 4), TextWrapping = TextWrapping.Wrap });
         content.Children.Add(transportNotice);
         void Transport() { try { transportNotice.Text = ProviderSettings.TransportNotice(ProviderSettings.ResolveEndpointInput(endpoint.Text, (EndpointSchemeChoice)endpointScheme.SelectedIndex)); } catch (IOException) { transportNotice.Text = "URL에 http:// 또는 https://를 포함해 입력하세요."; } }
         endpoint.TextChanged += (_, _) => Transport(); endpointScheme.SelectionChanged += (_, _) => Transport(); Transport();
@@ -100,7 +100,8 @@ public sealed partial class SettingsWindow : Window
     private ProviderSettings Current()
     {
         var advanced = manual.IsChecked == true;
-        return new() { UseAdvancedSettings = advanced, Mode = advanced ? (ConnectionMode)mode.SelectedItem : ConnectionMode.CompanyApi, Protocol = advanced ? (ProviderProtocol)protocol.SelectedItem : ProviderProtocol.AnthropicMessages, Authentication = advanced ? (ProviderAuth)authentication.SelectedItem : ProviderAuth.BearerKey, MaxOutputTokens = advanced ? int.TryParse(maxTokens.Text, out var max) ? max : throw new IOException("최대 출력 토큰은 정수로 입력하세요.") : 8192, Endpoint = advanced && mode.SelectedItem is ConnectionMode.ExistingChatGptCli ? endpoint.Text.Trim() : ProviderSettings.ResolveEndpointInput(endpoint.Text, (EndpointSchemeChoice)endpointScheme.SelectedIndex), Deployment = deployment.Text.Trim() };
+        var savedProtocol = desk.State.ModelConnections.FirstOrDefault(c => c.Id == editingId)?.Settings.Protocol ?? ProviderProtocol.GatewayAuto;
+        return new() { UseAdvancedSettings = advanced, Mode = advanced ? (ConnectionMode)mode.SelectedItem : ConnectionMode.CompanyApi, Protocol = advanced ? (ProviderProtocol)protocol.SelectedItem : savedProtocol, Authentication = advanced ? (ProviderAuth)authentication.SelectedItem : ProviderAuth.BearerKey, MaxOutputTokens = advanced ? int.TryParse(maxTokens.Text, out var max) ? max : throw new IOException("최대 출력 토큰은 정수로 입력하세요.") : 8192, Endpoint = advanced && mode.SelectedItem is ConnectionMode.ExistingChatGptCli ? endpoint.Text.Trim() : ProviderSettings.ResolveEndpointInput(endpoint.Text, (EndpointSchemeChoice)endpointScheme.SelectedIndex), Deployment = deployment.Text.Trim() };
     }
     private void Save()
     {

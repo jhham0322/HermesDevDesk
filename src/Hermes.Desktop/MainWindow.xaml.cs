@@ -53,7 +53,7 @@ public partial class MainWindow : Window
             var visibleModels = desk.DisplayModels.Count > 0 ? desk.DisplayModels.ToList() : new List<string> { "모델명을 입력하세요" };
             if (!Model.Items.Cast<string>().SequenceEqual(visibleModels)) { var selected = desk.HasPendingModel ? desk.State.PendingModel : Model.SelectedItem as string; Model.ItemsSource = visibleModels; Model.SelectedItem = visibleModels.Contains(selected!) ? selected : visibleModels.FirstOrDefault(); }
             Model.ToolTip = desk.HasPendingModel ? "입력한 모델 · URL/키를 저장하고 연결하세요" : "설정한 모델 · " + desk.AccountStatus;
-            ProviderHint.Text = desk.State.Provider.Mode == ConnectionMode.CompanyApi ? desk.State.Provider.IsAnthropic ? "Anthropic Messages · " + desk.ProviderCheckStatus : "회사 API · " + desk.ProviderCheckStatus : "ChatGPT CLI · 구독 사용량 사용";
+            ProviderHint.Text = desk.State.Provider.Mode == ConnectionMode.CompanyApi ? desk.State.Provider.IsAnthropic ? "Anthropic Messages · " + desk.ProviderCheckStatus : desk.State.Provider.Protocol + " · " + desk.ProviderCheckStatus : "ChatGPT CLI · 구독 사용량 사용";
             StartButton.IsEnabled = CanSubmit();
             RenderTask();
             RenderSidebar(); UpdateShellState();
