@@ -37,7 +37,7 @@ public sealed partial class SettingsWindow : Window
          draftTimer.Tick += (_, _) => { draftTimer.Stop(); desk.Save(); };
         savedModels.ItemsSource = desk.State.ModelConnections.ToList();
         editingId = desk.State.ModelConnections.FirstOrDefault(c => c.Settings.Deployment == desk.State.Provider.Deployment)?.Id;
-        content.Children.Add(new TextBlock { Text = "모델별 연결 · 모델명 / URL / 토큰", Margin = new Thickness(4, 10, 4, 4) });
+        var modelHeading = new TextBlock { Text = "모델별 연결 · 모델명 / URL / 토큰", Margin = new Thickness(4, 10, 4, 4) }; content.Children.Add(modelHeading);
         content.Children.Add(savedModels);
         var modelButtons = new WrapPanel(); content.Children.Add(modelButtons);
         var addModel = new Button { Content = "새 모델" };
@@ -46,8 +46,8 @@ public sealed partial class SettingsWindow : Window
         var exportModels = new Button { Content = "JSON 내보내기" };
         var importModels = new Button { Content = "JSON 가져오기" };
         foreach (var button in new[] { addModel, editModel, removeModel, exportModels, importModels }) modelButtons.Children.Add(button);
-        content.Children.Add(new TextBlock { Text = "내보낸 JSON에는 토큰이 포함됩니다. 가져오기는 같은 모델명을 갱신하고 다른 모델을 추가합니다.", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
-        addModel.Click += (_, _) => { editingId = null; savedModels.SelectedItem = null; deployment.Clear(); endpoint.Clear(); key.Clear(); manual.IsChecked = false; status.Text = "새 모델의 모델명, URL, 토큰을 입력한 뒤 저장하세요."; };
+        var exportHint = new TextBlock { Text = "내보낸 JSON에는 토큰이 포함됩니다. 가져오기는 같은 모델명을 갱신하고 다른 모델을 추가합니다.", TextWrapping = TextWrapping.Wrap, FontSize = 12 }; content.Children.Add(exportHint);
+        addModel.Click += (_, _) => { BeginNewModel(); status.Text = "새 모델의 모델명, URL, 토큰을 입력한 뒤 저장하세요."; deployment.Focus(); };
         editModel.Click += (_, _) => {
             var selected = savedModels.SelectedItem as ModelConnection ?? desk.State.ModelConnections.FirstOrDefault(c => c.Id == editingId);
             if (selected == null) { status.Text = "수정할 모델을 목록에서 선택하세요."; return; }
@@ -60,7 +60,14 @@ public sealed partial class SettingsWindow : Window
             maxTokens.Text = selected.Settings.MaxOutputTokens.ToString(); manual.IsChecked = selected.Settings.UseAdvancedSettings;
             key.Clear(); status.Text = "선택 모델 수정 · 토큰을 비워두면 기존 토큰을 유지합니다.";
         };
-        removeModel.Click += (_, _) => Try(() => { if (savedModels.SelectedItem is ModelConnection selected) { desk.DeleteModelConnection(selected.Id); editingId = null; savedModels.ItemsSource = desk.State.ModelConnections.ToList(); status.Text = "모델 삭제됨"; } });
+        removeModel.Click += (_, _) => Try(() => {
+            var selected = savedModels.SelectedItem as ModelConnection ?? desk.State.ModelConnections.FirstOrDefault(c => c.Id == editingId);
+            if (selected == null) { status.Text = "삭제할 모델을 목록에서 선택하세요."; return; }
+            desk.DeleteModelConnection(selected.Id);
+            BeginNewModel(); savedModels.ItemsSource = desk.State.ModelConnections.ToList();
+            savedModels.SelectedItem = desk.State.ModelConnections.FirstOrDefault();
+            status.Text = "모델 삭제됨 · " + selected.Settings.Deployment;
+        });
         exportModels.Click += (_, _) => Try(() => { var dialog = new Microsoft.Win32.SaveFileDialog { Filter = "JSON|*.json", FileName = "hermes-models.json" }; if (dialog.ShowDialog(this) == true) { File.WriteAllText(dialog.FileName, desk.ExportModelConnections()); status.Text = "JSON 내보내기 완료 · 토큰 포함"; } });
         importModels.Click += (_, _) => Try(() => { var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "JSON|*.json" }; if (dialog.ShowDialog(this) == true) { if (new FileInfo(dialog.FileName).Length > 2_000_000) throw new IOException("파일 크기 제한은 2MB입니다."); desk.ImportModelConnections(File.ReadAllText(dialog.FileName)); savedModels.ItemsSource = desk.State.ModelConnections.ToList(); savedModels.SelectedItem = desk.State.ModelConnections.FirstOrDefault(c => c.Settings.Deployment == desk.State.Provider.Deployment); status.Text = "JSON 가져오기 완료"; } });
         mode.ItemsSource = Enum.GetValues<ConnectionMode>(); mode.SelectedItem = desk.State.Provider.Mode;
@@ -95,6 +102,11 @@ public sealed partial class SettingsWindow : Window
         };
         delete.Click += (_, _) => Try(() => { if (MessageBox.Show(this, "이 앱에 저장한 API 키를 삭제할까요?", "키 삭제", MessageBoxButton.YesNo) == MessageBoxResult.Yes) { desk.DeleteModelToken(editingId); key.Clear(); status.Text = "저장한 키 삭제됨"; } });
         close.Click += (_, _) => Close();
+        // Keep model management visible before the editable connection fields.
+        var management = new UIElement[] { modelHeading, savedModels, modelButtons, exportHint };
+        foreach (var element in management) content.Children.Remove(element);
+        for (int i = 0; i < management.Length; i++) content.Children.Insert(2 + i, management[i]);
+        savedModels.SelectedItem = desk.State.ModelConnections.FirstOrDefault(c => c.Id == editingId);
         Closed += (_, _) => { draftTimer.Stop(); cancellation.Cancel(); desk.Save(); key.Clear(); };
     }
     private ProviderSettings Current()
@@ -111,7 +123,15 @@ public sealed partial class SettingsWindow : Window
         editingId = desk.State.ModelConnections.First(c => c.Settings.Deployment == settings.Deployment).Id;
         key.Clear(); endpoint.Text = settings.Endpoint; UpdateKeyHint();
         savedModels.ItemsSource = desk.State.ModelConnections.ToList();
+        savedModels.SelectedItem = desk.State.ModelConnections.First(c => c.Id == editingId);
 
+    }
+    private void BeginNewModel()
+    {
+        editingId = null; savedModels.SelectedItem = null;
+        deployment.Clear(); endpoint.Clear(); key.Clear(); manual.IsChecked = false;
+        endpointScheme.SelectedIndex = 0;
+        keyHint.Text = "새 모델의 토큰을 입력하세요. 모델마다 별도로 저장합니다.";
     }
     private void UpdateKeyHint() => keyHint.Text = desk.KeyStore.HasKey ? "저장된 키가 있습니다. 새 키로 바꿀 때만 입력하세요." : "키는 이 PC의 Windows 사용자 보호 저장소에 저장합니다.";
     private void Try(Action action) { try { action(); } catch (Exception ex) { status.Text = ConnectionErrors.Describe(ex); } }
