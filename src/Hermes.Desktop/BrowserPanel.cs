@@ -18,6 +18,7 @@ public partial class MainWindow
     private readonly ContentControl browserHost = new();
     private readonly Grid browserSurface = new();
     private WebView2? activeBrowserView;
+    private static string BrowserDisplayAddress(WebView2 view) => view.Source?.Scheme is "http" or "https" ? view.Source.AbsoluteUri : "";
     private void SetBrowserView(WebView2 view)
     {
         browserHost.Content = browserSurface;
@@ -25,12 +26,12 @@ public partial class MainWindow
         if (browserTabOwners.TryGetValue(view, out var taskOwner) && taskOwner != CurrentTask?.Id) { view.Visibility = Visibility.Hidden; RefreshBrowserTabs(); return; }
         foreach (var child in browserSurface.Children.OfType<WebView2>()) { child.Visibility = child == view ? Visibility.Visible : Visibility.Hidden; Panel.SetZIndex(child, child == view ? 1 : 0); }
         activeBrowserView = view;
-        browserAddress.Text = view.Source?.AbsoluteUri ?? "";
+        browserAddress.Text = BrowserDisplayAddress(view);
         if (browserTabOwners.TryGetValue(view, out var owner)) { if (owner == null) browserView = view; else chatBrowsers[owner] = view; }
         RefreshBrowserTabs();
         UpdateBrowserNavigation(view);
         browserAttachSource.IsEnabled = selectedBrowserSourceTask == CurrentTask?.Id && selectedBrowserSource.Length > 0;
-        if (view.CoreWebView2 != null) { browserAddress.Text = view.Source?.AbsoluteUri ?? browserAddress.Text; UpdateBrowserBookmark(view); }
+        if (view.CoreWebView2 != null) { browserAddress.Text = BrowserDisplayAddress(view); UpdateBrowserBookmark(view); }
     }
     private Task? browserInitialization;
     private readonly Dictionary<string, WebView2> chatBrowsers = [];
@@ -70,7 +71,7 @@ public partial class MainWindow
             catch (IOException) { args.Cancel = true; }
         };
         view.CoreWebView2.NavigationStarting += (_, args) => { try { BrowserTools.ValidateUrl(args.Uri); } catch (IOException) { args.Cancel = true; } };
-        view.CoreWebView2.NavigationCompleted += (_, args) => { if (activeBrowserView == view) { browserAddress.Text = view.Source?.AbsoluteUri ?? ""; browserStatus.Text = args.IsSuccess ? view.CoreWebView2.DocumentTitle : "페이지 로드 실패: " + args.WebErrorStatus; } if (args.IsSuccess) RememberBrowserPage(view); };
+        view.CoreWebView2.NavigationCompleted += (_, args) => { if (activeBrowserView == view) { browserAddress.Text = BrowserDisplayAddress(view); browserStatus.Text = args.IsSuccess ? view.CoreWebView2.DocumentTitle : "페이지 로드 실패: " + args.WebErrorStatus; } if (args.IsSuccess) RememberBrowserPage(view); };
     }
     private void ShowChatBrowser()
     {
