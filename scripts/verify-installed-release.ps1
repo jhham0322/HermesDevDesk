@@ -45,5 +45,9 @@ $learningData = Join-Path $fixture 'learning-data'
 Run-Checked $app @('--learning-panel-smoke', '--data-dir', ('"'+$learningData+'"'))
 $learning = Get-Content -LiteralPath (Join-Path $learningData 'learning-panel-report.json') -Raw | ConvertFrom-Json
 if (-not $learning.passed -or $learning.version -ne $ExpectedVersion) { throw 'Installed learning RAG failed' }
-[ordered]@{ passed = $true; version = $ExpectedVersion; installerSha256 = (Get-FileHash $setup -Algorithm SHA256).Hash; installedExecutable = $app; modelUiChecks = $settings.checks; browserChecks = $browser.checks.Count; learningChecks = $learning.checks; modelScreenshot = (Join-Path $data 'simple-settings.png'); conversationReport = (Join-Path $performanceData 'conversation-performance.json') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $releaseRoot 'installed-validation.json') -Encoding utf8
+$localBrowserData = Join-Path $fixture 'local-browser-data'
+Run-Checked $app @('--local-browser-smoke', '--data-dir', ('"'+$localBrowserData+'"'))
+$localBrowser = Get-Content -LiteralPath (Join-Path $localBrowserData 'local-browser-report.json') -Raw | ConvertFrom-Json
+if (-not $localBrowser.passed -or $localBrowser.version -ne $ExpectedVersion -or $localBrowser.checks.Count -lt 8) { throw 'Installed local HTTP/TLS browser checks failed' }
+[ordered]@{ passed = $true; version = $ExpectedVersion; installerSha256 = (Get-FileHash $setup -Algorithm SHA256).Hash; installedExecutable = $app; modelUiChecks = $settings.checks; browserChecks = $browser.checks.Count; learningChecks = $learning.checks; localBrowserChecks = $localBrowser.checks.Count; modelScreenshot = (Join-Path $data 'simple-settings.png'); conversationReport = (Join-Path $performanceData 'conversation-performance.json') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $releaseRoot 'installed-validation.json') -Encoding utf8
 Get-Content -LiteralPath (Join-Path $releaseRoot 'installed-validation.json')

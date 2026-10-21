@@ -14,9 +14,21 @@ public static class BrowserTools
     } ];
     public static Uri ValidateUrl(string value)
     {
+        value = value.Trim();
+        if (!value.Contains("://", StringComparison.Ordinal) && Uri.TryCreate("http://" + value, UriKind.Absolute, out var local) && IsLocalDevelopmentUrl(local)) value = local.AbsoluteUri;
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || uri.UserInfo.Length != 0) throw new IOException("브라우저는 인증정보가 없는 HTTP/HTTPS 주소를 지원합니다.");
         return uri;
     }
+    public static bool IsLocalDevelopmentUrl(Uri uri)
+    {
+        if (uri.Scheme is not ("https" or "http") || uri.UserInfo.Length > 0) return false;
+        if (uri.DnsSafeHost.Equals("localhost", StringComparison.OrdinalIgnoreCase)) return true;
+        if (!System.Net.IPAddress.TryParse(uri.DnsSafeHost.Trim('[', ']'), out var ip)) return false;
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+        return System.Net.IPAddress.IsLoopback(ip);
+    }
+    public static Uri? LocalHttpAlternative(Uri uri)
+        => IsLocalDevelopmentUrl(uri) && uri.Scheme == "https" ? new UriBuilder(uri) { Scheme = "http", Port = uri.Port }.Uri : null;
     public static string Selector(JsonElement arguments)
     {
         var selector = arguments.Text("selector");

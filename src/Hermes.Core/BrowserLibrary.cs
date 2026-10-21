@@ -3,6 +3,7 @@ public sealed class BrowserPreferences
 {
     public string LastUrl { get; set; } = "";
     public bool SavePasswords { get; set; } = true;
+    public bool LocalDevelopmentMode { get; set; } = true;
     public List<BrowserPageEntry> Bookmarks { get; set; } = [];
     public List<BrowserPageEntry> History { get; set; } = [];
 }

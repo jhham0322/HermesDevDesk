@@ -36,6 +36,7 @@ public partial class MainWindow
         view.CoreWebView2.Settings.AreHostObjectsAllowed = false;
         view.CoreWebView2.Settings.IsWebMessageEnabled = true;
         view.CoreWebView2.Settings.AreDevToolsEnabled = true;
+        ConfigureLocalBrowser(view);
         view.CoreWebView2.HistoryChanged += (_, _) => UpdateBrowserNavigation(view);
         view.CoreWebView2.Profile.IsPasswordAutosaveEnabled = desk.State.Browser.SavePasswords;
         view.CoreWebView2.Profile.IsGeneralAutofillEnabled = true;
@@ -63,7 +64,7 @@ public partial class MainWindow
         if (CurrentTask is { } task && chatBrowsers.TryGetValue(task.Id, out var view)) SetBrowserView(view);
         else if (browserView != null) SetBrowserView(browserView);
     }
-    private void DisposeBrowsers() { browserSaveTimer.Stop(); sourcePickers.Clear(); desk.Save(); foreach (var view in chatBrowsers.Values) view.Dispose(); browserView?.Dispose(); }
+    private void DisposeBrowsers() { browserSaveTimer.Stop(); sourcePickers.Clear(); browserNavigationTargets.Clear(); localHttpAttempts.Clear(); localBrowserRecoveries.Clear(); desk.Save(); foreach (var view in chatBrowsers.Values) view.Dispose(); browserView?.Dispose(); }
 
 
     private void InitializeBrowserPanel()
@@ -73,7 +74,7 @@ public partial class MainWindow
         var address = new DockPanel(); var go = new Button { Content = "열기" }; DockPanel.SetDock(go, Dock.Right); address.Children.Add(go); address.Children.Add(browserAddress); toolbar.Children.Add(address);
         var capture = new Button { Content = "전체 캡처 · AI 첨부", ToolTip = "현재 로드된 페이지 전체를 PNG로 저장하고 AI 입력에 이미지로 첨부합니다." };
         capture.Click += async (_, _) => await Guard(CaptureBrowserToComposerAsync, "browser-full-capture");
-        toolbar.Children.Add(capture); InitializeBrowserExperience(toolbar); toolbar.Children.Add(browserEnable); toolbar.Children.Add(browserStatus); panel.Children.Add(browserHost);
+        toolbar.Children.Add(capture); InitializeBrowserExperience(toolbar); InitializeLocalBrowser(toolbar); toolbar.Children.Add(browserEnable); toolbar.Children.Add(browserStatus); panel.Children.Add(browserHost);
         InspectorTabs.Items.Add(new TabItem { Header = "브라우저", Content = panel });
         go.Click += async (_, _) => await Guard(() => NavigateBrowser(browserAddress.Text));
         browserAddress.KeyDown += async (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; await Guard(() => NavigateBrowser(browserAddress.Text)); } };
@@ -126,7 +127,7 @@ public partial class MainWindow
         WebView2 view;
         if (CurrentTask is { } task) view = await EnsureChatBrowser(task, timeout.Token);
         else { await EnsureBrowser().WaitAsync(timeout.Token); view = browserView!; }
-        SetBrowserView(view); view.CoreWebView2.Navigate(uri.AbsoluteUri);
+        SetBrowserView(view); ResetLocalBrowserAttempts(view); view.CoreWebView2.Navigate(uri.AbsoluteUri);
     }
     private async Task<string> CaptureBrowserScreen(WebView2 view, CancellationToken ct)
     {
@@ -157,9 +158,10 @@ public partial class MainWindow
             var action = args.Text("action");
             if (action == "navigate")
             {
+                ResetLocalBrowserAttempts(view);
                 var uri = BrowserTools.ValidateUrl(args.Text("url"));
                 var done = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-                void Completed(object? sender, CoreWebView2NavigationCompletedEventArgs e) { if (e.IsSuccess) done.TrySetResult("페이지 로드됨: " + view.Source); else done.TrySetException(new IOException("페이지 로드 실패: " + e.WebErrorStatus)); }
+                void Completed(object? sender, CoreWebView2NavigationCompletedEventArgs e) { if (e.IsSuccess) done.TrySetResult("페이지 로드됨: " + view.Source); else if (!LocalBrowserRecoveryInProgress(view, e)) done.TrySetException(new IOException("페이지 로드 실패: " + e.WebErrorStatus)); }
                 view.CoreWebView2.NavigationCompleted += Completed;
                 try { view.CoreWebView2.Navigate(uri.AbsoluteUri); return new(await done.Task.WaitAsync(TimeSpan.FromSeconds(20), ct)); }
                 finally { view.CoreWebView2.NavigationCompleted -= Completed; }
