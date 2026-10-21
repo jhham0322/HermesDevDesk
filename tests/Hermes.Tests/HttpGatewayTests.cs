@@ -58,7 +58,7 @@ internal static class HttpGatewayTests
                 Check(!body.Contains(fakeKey),"fake key is not reflected in bridge response");
             }
             redirect=true;
-            await using(var bridge=new CompanyBridge(reopened.State.Provider,reopened.KeyStore)){var before=calls;var result=await bridge.CheckConnectionAsync();Check(calls==before+1&&result.Contains("Redirect"),"HTTP redirect is rejected without fallback or follow-up request");}
+            await using(var bridge=new CompanyBridge(reopened.State.Provider,reopened.KeyStore)){var before=calls;var result=await bridge.CheckConnectionAsync();Check(calls==before+1&&result == "{}" && bridge.LastCheckHttpStatus == 302,"HTTP redirect preserves upstream body and status without a follow-up request");}
             using var tlsFailure=new TlsFailureHandler();
             await using(var bridge=new CompanyBridge(https,reopened.KeyStore,handler:tlsFailure)){await bridge.CheckConnectionAsync();Check(tlsFailure.Calls==1&&tlsFailure.AllHttps,"TLS failure never retries using HTTP");}
             Write(true,"");
