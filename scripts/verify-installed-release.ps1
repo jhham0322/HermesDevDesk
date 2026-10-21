@@ -41,5 +41,9 @@ $browserData = Join-Path $fixture 'browser-data'
 Run-Checked $app @('--browser-experience-smoke', '--data-dir', ('"'+$browserData+'"'))
 $browser = Get-Content -LiteralPath (Join-Path $browserData 'browser-experience-report.json') -Raw | ConvertFrom-Json
 if (-not $browser.passed -or $browser.version -ne $ExpectedVersion -or $browser.checks.Count -lt 9) { throw 'Installed browser behavior failed' }
-[ordered]@{ passed = $true; version = $ExpectedVersion; installerSha256 = (Get-FileHash $setup -Algorithm SHA256).Hash; installedExecutable = $app; modelUiChecks = $settings.checks; browserChecks = $browser.checks.Count; modelScreenshot = (Join-Path $data 'simple-settings.png'); conversationReport = (Join-Path $performanceData 'conversation-performance.json') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $releaseRoot 'installed-validation.json') -Encoding utf8
+$learningData = Join-Path $fixture 'learning-data'
+Run-Checked $app @('--learning-panel-smoke', '--data-dir', ('"'+$learningData+'"'))
+$learning = Get-Content -LiteralPath (Join-Path $learningData 'learning-panel-report.json') -Raw | ConvertFrom-Json
+if (-not $learning.passed -or $learning.version -ne $ExpectedVersion) { throw 'Installed learning RAG failed' }
+[ordered]@{ passed = $true; version = $ExpectedVersion; installerSha256 = (Get-FileHash $setup -Algorithm SHA256).Hash; installedExecutable = $app; modelUiChecks = $settings.checks; browserChecks = $browser.checks.Count; learningChecks = $learning.checks; modelScreenshot = (Join-Path $data 'simple-settings.png'); conversationReport = (Join-Path $performanceData 'conversation-performance.json') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $releaseRoot 'installed-validation.json') -Encoding utf8
 Get-Content -LiteralPath (Join-Path $releaseRoot 'installed-validation.json')

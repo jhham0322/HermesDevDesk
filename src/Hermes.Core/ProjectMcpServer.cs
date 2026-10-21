@@ -8,10 +8,16 @@ namespace Hermes.Core;
 public sealed class ProjectMcpServer
 {
     private readonly string root; private readonly bool writable;
+    private readonly ExecutionMemory? memory;
+    private readonly string memoryTask = "";
+    private readonly SemaphoreSlim calls = new(1, 1);
     private readonly SemaphoreSlim output = new(1, 1);
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> pending = new();
     private readonly ConcurrentDictionary<string, byte> active = new();
-    public ProjectMcpServer(string root, bool writable) { this.root = Safety.ProjectRoot(root); this.writable = writable; }
+    public ProjectMcpServer(string root, bool writable) { this.root = Safety.ProjectRoot(root); this.writable = writable;
+        if (Environment.GetEnvironmentVariable("HERMES_MEMORY_DIR") is { Length: > 0 } directory && Environment.GetEnvironmentVariable("HERMES_MEMORY_TASK") is { Length: > 0 } task)
+        { memory = new ExecutionMemory(directory); memoryTask = task; }
+    }
     public async Task RunAsync()
     {
         Console.InputEncoding = Encoding.UTF8; Console.OutputEncoding = new UTF8Encoding(false);
@@ -84,6 +90,25 @@ public sealed class ProjectMcpServer
         finally { pending.TryRemove(id, out _); }
     }
     private async Task<object> Call(JsonElement parameters)
+    {
+        if (memory == null) return await CallCore(parameters);
+        await calls.WaitAsync();
+        var name = parameters.Text("name"); var args = parameters.Property("arguments");
+        var method = name + " " + args?.Text("relativePath") + " " + args?.Text("relativeDirectory");
+        var scope = ExecutionMemory.Scope(root); var key = Guid.NewGuid().ToString("N");
+        try
+        {
+            if (memory.BlockReason(scope, memoryTask, "mcp", method) is { } reason) return Result(reason + "\n" + memory.Context(scope, method), true);
+            var result = await CallCore(parameters); var json = JsonSerializer.SerializeToElement(result);
+            var success = json.Property("isError")?.ValueKind != JsonValueKind.True;
+            memory.Record(scope, memoryTask, key, name, "mcp", method, success, success ? "MCP 호출 완료. 목표 달성은 별도 확인." : "MCP tool returned error");
+            return result;
+        }
+        catch (Exception ex)
+        { memory.Record(scope, memoryTask, key, name, "mcp", method, false, ex.Message); throw; }
+        finally { calls.Release(); }
+    }
+    private async Task<object> CallCore(JsonElement parameters)
     {
         var name = parameters.Text("name"); var args = parameters.Property("arguments") ?? JsonSerializer.SerializeToElement(new { });
         switch (name)

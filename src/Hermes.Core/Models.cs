@@ -28,6 +28,7 @@ public sealed class WorkItem
     public bool Writable { get; set; }
     public bool? ThreadWritable { get; set; }
     public List<TranscriptEntry> Transcript { get; set; } = [];
+    public int ThreadLearningVersion { get; set; }
     public string BrowserLastUrl { get; set; } = "";
     public string Diff { get; set; } = "";
     public List<ChangedFile> ChangedFiles { get; set; } = [];

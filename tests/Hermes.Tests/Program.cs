@@ -84,6 +84,10 @@ if (args.Contains("--lifecycle-smoke"))
 {
     await LifecycleTests.Run(Path.Combine(baseDir, "lifecycle-project"), args[Array.IndexOf(args, "--codex") + 1], args[Array.IndexOf(args, "--report") + 1]); return;
 }
+if (args.Contains("--tool-learning-engine"))
+{ await ToolLearningEngineTests.Run(Path.GetFullPath(args[Array.IndexOf(args, "--root") + 1]), args[Array.IndexOf(args, "--codex") + 1]); return; }
+if (args.Contains("--learning-engine"))
+{ await LearningEngineTests.Run(Path.GetFullPath(args[Array.IndexOf(args, "--root") + 1]), args[Array.IndexOf(args, "--codex") + 1]); return; }
 if (args.Contains("--chat-streaming-engine"))
 {
     await ChatStreamingEngineTests.Run(args[Array.IndexOf(args, "--root") + 1], args[Array.IndexOf(args, "--codex") + 1]); return;
@@ -209,6 +213,8 @@ await using (var rpc = new AppServerClient())
 Console.WriteLine($"PASS {count} checks. Fixture transport is unit testing, not engine verification. Scratch: {baseDir}");
 await ChatCompatibilityTests.Run(Assert);
 BrowserLibraryTests.Run(Assert);
+ExecutionMemoryTests.Run(baseDir, Assert);
+await McpMemoryTests.Run(baseDir, Assert);
 await HostedVllmTests.Run(baseDir, Assert);
 await ModelConnectionTests.Run(baseDir, Assert);
 await CompanyTests.Run(baseDir, Assert);

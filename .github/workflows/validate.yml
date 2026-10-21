@@ -39,6 +39,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Chat request compatibility failed' }
           & ./tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe --chat-streaming-engine --root (Join-Path $env:RUNNER_TEMP 'chat-streaming') --codex $engine.FullName
           if ($LASTEXITCODE -ne 0) { throw 'Chat streaming/tool round trip failed' }
+      - name: Verify automatic execution, tool and business RAG with official engine
+        shell: pwsh
+        run: |
+          $engine = Get-ChildItem vendor -Recurse -Filter codex.exe | Select-Object -First 1
+          & ./tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe --learning-engine --root (Join-Path $env:RUNNER_TEMP 'learning-rag') --codex $engine.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Automatic execution RAG failed' }
+          & ./tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe --tool-learning-engine --root (Join-Path $env:RUNNER_TEMP 'tool-learning-rag') --codex $engine.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Tool/business RAG failed' }
       - name: Check WPF model management and long conversation
         shell: pwsh
         run: |

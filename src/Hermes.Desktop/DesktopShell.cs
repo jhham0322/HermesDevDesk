@@ -35,6 +35,7 @@ public partial class MainWindow
         Effort.ItemsSource = new[] { "기본" }; Effort.SelectedIndex = 0;
         InitializeBrowserPanel();
         InitializeComputerPanel();
+        InitializeLearningPanel();
         GitRunner.Executable = desk.State.Desktop.GitExecutable;
         refreshTimer.Tick += (_, _) => { refreshTimer.Stop(); Refresh(); };
         InspectorSplitter.DragCompleted += (_, _) => SaveInspectorWidth();

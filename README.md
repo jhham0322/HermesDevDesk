@@ -1,4 +1,12 @@
-# Hermes DevDesk 0.8.11
+# Hermes DevDesk 0.8.12
+
+매 채팅 시작·추가 지시에서 **업무·명령·도구 RAG**를 자동 검색합니다. 연결된 모델들은 같은 프로젝트의 로컬 지식을 공유하며 별도 사용 명령이 필요하지 않습니다. SQLite DB는 앱 데이터 폴더의 `knowledge/execution-memory.db`에 보관하므로 재설치 후에도 유지됩니다. FTS5/BM25와 한국어 2글자 검색어를 사용하고 외부 임베딩 서버는 필요하지 않습니다.
+
+에이전트 명령은 `hermes_command`로 실행합니다. 같은 채팅에서 같은 방법·오류가 2회 반복되면 다음 동일 실행을 차단하고 원인 확인·다른 접근과 RAG 검색을 안내합니다. 브라우저·컴퓨터·내장 MCP에도 반복 검사와 실행 기록을 적용합니다. 명령은 기존 권한과 공식 sandbox를 유지하며 한 번에 최대 120초입니다.
+
+성공 실행은 자동으로 방법 저장소를 갱신합니다. `hermes_memory`로 검색하고 실제 성공 근거를 인용해 개선 설명을 개정할 수 있습니다. 업무 완료 시 목적·관찰된 실행 절차·실패·산출물 보고를 자동 정리합니다. `workflow.report`는 모델이 작성한 완료 보고이며 업무 목표 검증과 구분합니다. 컴퓨터 제어는 의미 있는 대상·동작을 기록하고 기존 좌표·스냅샷 ID·입력한 문자를 재사용하지 않습니다.
+
+오른쪽 **업무·실행 RAG** 탭에서 방법 검색, 최근 실행 기록, 설명 수정·삭제를 지원합니다. 저장된 내용은 실행 근거를 가진 참고 자료이며 현재 사용자의 지시·권한을 바꾸지 않습니다. 이전 엔진 세션에는 새 도구를 추가할 수 없어 첫 실행 시 새 엔진 세션으로 전환하며 앱 대화 기록과 최근 대화 참고 문맥을 유지합니다.
 
 0.8.9: 긴 대화의 화면을 40개 메시지 단위로 유지하고 이전/다음 기록과 최신 메시지로 이동할 수 있습니다. 메시지 추가 시 기존 화면을 재사용하며, 본문 문단을 하나의 텍스트 컨트롤로 묶고 접힌 도구 결과는 펼칠 때 렌더링합니다. 스트리밍 이력 저장은 2초 간격으로 묶고 완료·종료 시 저장합니다.
 
@@ -18,9 +26,9 @@
 
 로컬 검증은 합성 토큰과 로컬 서버만 사용했습니다. 공식 엔진으로 동일 채팅에서 A → B → A의 서버·모델·인증 전환을 확인했습니다. 5,001개 메시지의 WPF 검사에서 화면 컨트롤은 40개, 추가 렌더링은 약 7ms였습니다(이 PC의 측정값).
 
-[Windows 0.8.11 설치 파일](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.11/HermesDevDesk-0.8.11-win-x64-Setup.exe) · [0.8.11 Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.11/HermesDevDesk-0.8.11-win-x64-Portable.zip) · [릴리스 페이지](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.8.11)
+[Windows 0.8.12 설치 파일](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.12/HermesDevDesk-0.8.12-win-x64-Setup.exe) · [0.8.12 Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.12/HermesDevDesk-0.8.12-win-x64-Portable.zip) · [릴리스 페이지](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.8.12)
 
-0.8.11은 Chat API의 답변 조각을 즉시 전달합니다. 이전 구현은 Chat 요청을 비스트리밍으로 보내고 응답 전체를 기다리다가 4분 제한으로 실패할 수 있었습니다. 서버의 일시적인 지연이나 대기열도 시간 초과 원인이 될 수 있으므로 외부 장애로 단정하지 않습니다. 실행 요청은 `messages`의 텍스트를 문자열로 전달하고 `max_tokens`를 사용하며 불필요한 `parallel_tool_calls`를 보내지 않습니다. 실제 에이전트·도구 호출·후속 답변까지 스트리밍으로 검증합니다.
+0.8.12은 Chat API의 답변 조각을 즉시 전달합니다. 이전 구현은 Chat 요청을 비스트리밍으로 보내고 응답 전체를 기다리다가 4분 제한으로 실패할 수 있었습니다. 서버의 일시적인 지연이나 대기열도 시간 초과 원인이 될 수 있으므로 외부 장애로 단정하지 않습니다. 실행 요청은 `messages`의 텍스트를 문자열로 전달하고 `max_tokens`를 사용하며 불필요한 `parallel_tool_calls`를 보내지 않습니다. 실제 에이전트·도구 호출·후속 답변까지 스트리밍으로 검증합니다.
 
 설치 경로는 항상 `%LOCALAPPDATA%\Programs\HermesDevDesk\App`입니다. 새 설치본을 임시 폴더에서 검증한 뒤 기존 App 폴더를 전체 교체하므로 이전 앱 파일과 별도 파일이 남지 않습니다. 채팅 이력·모델 설정·토큰은 설치 폴더 밖에서 보존합니다. 예전 버전별 설치 폴더는 자동 정리하고 바로가기를 고정 App 경로로 갱신합니다.
 
