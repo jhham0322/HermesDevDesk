@@ -22,10 +22,10 @@ public sealed partial class SettingsWindow : Window
     private readonly DispatcherTimer draftTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
     public SettingsWindow(DeskController desk)
     {
-        this.desk = desk; Title = "회사 서버 연결"; Width = 660; Height = 680; MinWidth = 560; MinHeight = 500; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        this.desk = desk; Title = "모델 관리 · " + AppVersion.Current; Width = 720; Height = 780; MinWidth = 560; MinHeight = 500; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Style = Application.Current.TryFindResource(typeof(Window)) as Style;
         var content = new StackPanel { Margin = new Thickness(24) }; Content = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        content.Children.Add(new TextBlock { Text = "회사 서버 연결", FontSize = 25, FontWeight = FontWeights.SemiBold });
+        content.Children.Add(new TextBlock { Text = "모델 관리 · " + AppVersion.Current, FontSize = 25, FontWeight = FontWeights.SemiBold });
         content.Children.Add(new TextBlock { Text = "회사에서 받은 URL, API 키, 모델명을 입력하세요.", Margin = new Thickness(4, 8, 4, 12), TextWrapping = TextWrapping.Wrap });
         static void Row(Panel panel, string label, Control field) { panel.Children.Add(new TextBlock { Text = label, Margin = new Thickness(4, 10, 4, 4) }); field.Margin = new Thickness(4); panel.Children.Add(field); }
         endpoint.Text = desk.State.Provider.Endpoint; Row(content, "모델 URL", endpoint);
@@ -41,12 +41,18 @@ public sealed partial class SettingsWindow : Window
         content.Children.Add(savedModels);
         var modelButtons = new WrapPanel(); content.Children.Add(modelButtons);
         var addModel = new Button { Content = "새 모델" };
+        var editModel = new Button { Content = "선택 모델 수정" };
         var removeModel = new Button { Content = "선택 모델 삭제" };
         var exportModels = new Button { Content = "JSON 내보내기" };
         var importModels = new Button { Content = "JSON 가져오기" };
-        foreach (var button in new[] { addModel, removeModel, exportModels, importModels }) modelButtons.Children.Add(button);
+        foreach (var button in new[] { addModel, editModel, removeModel, exportModels, importModels }) modelButtons.Children.Add(button);
         content.Children.Add(new TextBlock { Text = "내보낸 JSON에는 토큰이 포함됩니다. 가져오기는 같은 모델명을 갱신하고 다른 모델을 추가합니다.", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
         addModel.Click += (_, _) => { editingId = null; savedModels.SelectedItem = null; deployment.Clear(); endpoint.Clear(); key.Clear(); manual.IsChecked = false; status.Text = "새 모델의 모델명, URL, 토큰을 입력한 뒤 저장하세요."; };
+        editModel.Click += (_, _) => {
+            var selected = savedModels.SelectedItem as ModelConnection ?? desk.State.ModelConnections.FirstOrDefault(c => c.Id == editingId);
+            if (selected == null) { status.Text = "수정할 모델을 목록에서 선택하세요."; return; }
+            savedModels.SelectedItem = selected; deployment.Focus(); status.Text = "모델명, URL, 토큰을 수정한 뒤 모델 저장 / 수정을 누르세요.";
+        };
         savedModels.SelectionChanged += (_, _) => {
             if (savedModels.SelectedItem is not ModelConnection selected) return;
             editingId = selected.Id; endpoint.Text = selected.Settings.Endpoint; deployment.Text = selected.Settings.Deployment;
@@ -68,9 +74,10 @@ public sealed partial class SettingsWindow : Window
         void Transport() { try { transportNotice.Text = ProviderSettings.TransportNotice(ProviderSettings.ResolveEndpointInput(endpoint.Text, (EndpointSchemeChoice)endpointScheme.SelectedIndex)); } catch (IOException) { transportNotice.Text = "URL에 http:// 또는 https://를 포함해 입력하세요."; } }
         endpoint.TextChanged += (_, _) => Transport(); endpointScheme.SelectionChanged += (_, _) => Transport(); Transport();
         var buttons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) }; content.Children.Add(buttons);
-        var save = new Button { Content = "저장" }; var check = new Button { Content = "저장하고 연결 확인" }; var close = new Button { Content = "닫기" };
+        var save = new Button { Content = "모델 저장 / 수정" }; var check = new Button { Content = "저장하고 연결 확인" }; var close = new Button { Content = "닫기" };
         buttons.Children.Add(save); buttons.Children.Add(check); buttons.Children.Add(close);
         content.Children.Add(status);
+        content.Children.Add(new TextBlock { Text = "실행 파일: " + Environment.ProcessPath, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4), ToolTip = Environment.ProcessPath });
         content.Children.Add(new TextBlock { Text = "연결 확인은 최대 출력 1토큰의 짧은 요청을 보냅니다. 지원하지 않는 경로만 같은 서버 안에서 확인하며 사용량이 발생할 수 있습니다.", TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(4, 0, 4, 12) });
         var details = new StackPanel { Margin = new Thickness(4) }; var advanced = new Expander { Header = "고급 설정 · 일반 연결에는 필요 없음", Content = details, IsExpanded = manual.IsChecked == true }; content.Children.Add(advanced);
         details.Children.Add(manual); var controls = new StackPanel(); details.Children.Add(controls);

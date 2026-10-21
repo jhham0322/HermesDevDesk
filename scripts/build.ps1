@@ -2,6 +2,10 @@ param([string]$DotnetPath, [string]$SevenZipPath, [switch]$SkipPublish, [string]
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $projectRoot
+[xml]$versionProject = Get-Content -LiteralPath (Join-Path $projectRoot 'src/Hermes.Desktop/Hermes.Desktop.csproj') -Raw
+$releaseVersion = [string]$versionProject.Project.PropertyGroup.Version
+$installerSource = Get-Content -LiteralPath (Join-Path $projectRoot 'installer/Setup3.cs') -Raw
+if (-not $installerSource.Contains('internal const string Version="' + $releaseVersion + '"')) { throw 'Installer/app version mismatch' }
 if (-not $DotnetPath) { $DotnetPath = (Get-Command dotnet -ErrorAction Stop).Source }
 if (-not $SevenZipPath) { $SevenZipPath = [IO.Path]::GetFullPath((Join-Path $projectRoot '../../.tools/7zip2604/portable/x64/7za.exe')) }
 if (-not (Test-Path -LiteralPath $DotnetPath)) { throw 'Provide the project-local .NET 10 SDK path with -DotnetPath.' }
@@ -21,6 +25,12 @@ if (-not $SkipPublish) {
     & $DotnetPath publish src/Hermes.Desktop/Hermes.Desktop.csproj -c Release -r win-x64 --self-contained true -o $appPath --nologo -p:NuGetAudit=false "-p:RestorePackagesPath=$packages" --source $PackageSource -p:DebugType=none -p:DebugSymbols=false "-p:PathMap=$projectRoot=/_/HermesDevDesk"
     if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
 }
+foreach ($binary in @('HermesDevDesk.exe','HermesDevDesk.dll')) {
+    $binaryVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $appPath $binary)).FileVersion
+    if ($binaryVersion -ne ($releaseVersion + '.0')) { throw "Published $binary version mismatch: expected $releaseVersion.0, got $binaryVersion" }
+}
+$releaseInfo = [ordered]@{ version = $releaseVersion; commit = (git rev-parse HEAD); app = 'HermesDevDesk.exe' }
+$releaseInfo | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $appPath 'release-info.json') -Encoding utf8
 if (-not $EnginePackagePath) { $EnginePackagePath = Join-Path $projectRoot 'vendor/codex-0.162.1' }
 if (-not (Test-Path -LiteralPath $EnginePackagePath)) { throw 'Official engine package required' }
 if (-not (Test-Path -LiteralPath (Join-Path $appPath 'engine'))) { Copy-Item -LiteralPath $EnginePackagePath -Destination (Join-Path $appPath 'engine') -Recurse }
@@ -39,7 +49,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $payload = Join-Path $outputPath ('HermesPayload-' + [guid]::NewGuid().ToString('N') + '.zip')
 [IO.Compression.ZipFile]::CreateFromDirectory($appPath, $payload, [IO.Compression.CompressionLevel]::NoCompression, $false)
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
-$setup = Join-Path $outputPath 'HermesDevDesk-0.8.9-win-x64-Setup.exe'
+$setup = Join-Path $outputPath ('HermesDevDesk-' + $releaseVersion + '-win-x64-Setup.exe')
 if (Test-Path -LiteralPath $setup) { throw 'Version artifact already exists; use a fresh version/build directory instead of overwriting.' }
 $manifestFile = Join-Path $projectRoot 'src/Hermes.Desktop/app.manifest'
 $iconFile = Join-Path $projectRoot 'src/Hermes.Desktop/Assets/Hermes.ico'
@@ -47,13 +57,13 @@ $setupSource = Join-Path $projectRoot 'installer/Setup3.cs'
 & $compiler /nologo /codepage:65001 /target:winexe /platform:x64 /optimize+ "/win32manifest:$manifestFile" "/win32icon:$iconFile" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll /reference:Microsoft.CSharp.dll "/resource:$payload,HermesPayload.zip" "/out:$setup" "$setupSource"
 if ($LASTEXITCODE -ne 0) { throw 'Installer compile failed' }
 if ($CompressInstaller -and (Test-Path -LiteralPath $SevenZipPath)) {
-    $installerArchive = Join-Path $outputPath 'HermesDevDesk-0.8.9-installer.7z'
+    $installerArchive = Join-Path $outputPath ('HermesDevDesk-' + $releaseVersion + '-installer.7z')
     & $SevenZipPath a -t7z -m0=LZMA2 -mx=9 -md=32m -mmt=2 $installerArchive $setup
     if ($LASTEXITCODE -ne 0) { throw 'Compression failed' }
     & $SevenZipPath t $installerArchive
     if ($LASTEXITCODE -ne 0) { throw 'Archive validation failed' }
 }
-$portable = Join-Path $outputPath 'HermesDevDesk-0.8.9-win-x64-Portable.zip'
+$portable = Join-Path $outputPath ('HermesDevDesk-' + $releaseVersion + '-win-x64-Portable.zip')
 if (Test-Path -LiteralPath $portable) { throw 'Portable artifact already exists; use a fresh build directory.' }
 [IO.Compression.ZipFile]::CreateFromDirectory($appPath, $portable, [IO.Compression.CompressionLevel]::Fastest, $false)
 Get-Item -LiteralPath $setup,$portable | Select-Object FullName,Length

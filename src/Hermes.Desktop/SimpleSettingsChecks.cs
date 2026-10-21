@@ -10,6 +10,16 @@ public sealed partial class SettingsWindow
     internal async Task<int> RunSimpleChecks(Func<string, bool> visible)
     {
         int checks = 0; void Check(bool value, string name) { if (!value) throw new IOException(name); checks++; }
+        static IEnumerable<System.Windows.DependencyObject> Descendants(System.Windows.DependencyObject node)
+        {
+            yield return node;
+            foreach (var child in System.Windows.LogicalTreeHelper.GetChildren(node).OfType<System.Windows.DependencyObject>())
+                foreach (var item in Descendants(child)) yield return item;
+        }
+        var labels = Descendants(this).OfType<System.Windows.Controls.Button>().Select(b => b.Content as string).ToList();
+        foreach (var label in new[] { "새 모델", "선택 모델 수정", "선택 모델 삭제", "JSON 내보내기", "JSON 가져오기", "모델 저장 / 수정" })
+            Check(labels.Contains(label), "installed model UI exposes " + label);
+        Check(Title.Contains(AppVersion.Current), "model settings shows loaded assembly version");
         Check(manual.IsChecked != true, "new profile uses simple connection");
         deployment.Text = "alpha-ui"; endpoint.Text = "https://alpha.invalid"; key.Password = "SYNTHETIC_UI_ALPHA_TOKEN"; Save();
         Check(desk.State.Provider.IsAnthropic && desk.State.Provider.Authentication == ProviderAuth.BearerKey, "three fields use Claude Messages and Bearer token");
@@ -43,7 +53,7 @@ public partial class MainWindow
             settings.UpdateLayout();
             var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)settings.ActualWidth, (int)settings.ActualHeight, 96, 96, System.Windows.Media.PixelFormats.Pbgra32); bitmap.Render(settings);
             var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap)); using (var output = File.Create(Path.Combine(data, "simple-settings.png"))) encoder.Save(output);
-            File.WriteAllText(Path.Combine(data, "simple-settings-report.json"), JsonSerializer.Serialize(new { passed = true, checks, simpleThreeFields = true, realCompanyRequests = 0 }));
+            File.WriteAllText(Path.Combine(data, "simple-settings-report.json"), JsonSerializer.Serialize(new { passed = true, checks, version = AppVersion.Current, executable = Environment.ProcessPath, simpleThreeFields = true, realCompanyRequests = 0 }));
         }
         finally { settings.Close(); }
     }

@@ -1,0 +1,81 @@
+name: Publish approved 0.8.10 Windows release
+
+on:
+  push:
+    tags: [v0.8.10]
+
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.repository == 'jhham0322/HermesDevDesk' && github.event.repository.private == false
+    runs-on: windows-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_ADD_GLOBAL_TOOLS_TO_PATH: 'false'
+      MSBuildEnableWorkloadResolver: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: v0.8.10
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.401'
+      - name: Fetch integrity-pinned unmodified official engine
+        shell: pwsh
+        run: ./scripts/fetch-engine.ps1
+      - name: Build clean source and Windows packages
+        shell: pwsh
+        run: ./scripts/build.ps1 -DotnetPath (Get-Command dotnet).Source -OutputDirectory artifacts/release-0.8.10
+      - name: Run no-model policy tests
+        shell: pwsh
+        run: |
+          dotnet build tests/Hermes.Tests/Hermes.Tests.csproj -c Release --nologo -p:NuGetAudit=false
+          if ($LASTEXITCODE -ne 0) { throw 'Policy test build failed' }
+          $testExecutable = Join-Path $PWD 'tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe'
+          Push-Location $env:RUNNER_TEMP
+          try {
+            & $testExecutable
+            if ($LASTEXITCODE -ne 0) { throw 'Policy tests failed' }
+          } finally { Pop-Location }
+          & ./tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe --maximize-bounds-only
+          if ($LASTEXITCODE -ne 0) { throw 'Maximize logic tests failed' }
+          & ./tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe --http-gateway-only --root artifacts/http-mock
+          if ($LASTEXITCODE -ne 0) { throw 'HTTP mock tests failed' }
+      - name: Verify selected model routing through official engine
+        shell: pwsh
+        run: |
+          $engine = Get-ChildItem vendor -Recurse -Filter codex.exe | Select-Object -First 1
+          & ./tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe --model-connections-engine --root (Join-Path $env:RUNNER_TEMP 'model-routing-release') --codex $engine.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Selected model routing failed' }
+      - name: Extract installer and verify actual installed runtime and UI
+        shell: pwsh
+        run: ./scripts/verify-installed-release.ps1 -ReleaseDirectory artifacts/release-0.8.10 -ExpectedVersion 0.8.10
+      - name: Verify installer without installing and inspect public payload
+        shell: pwsh
+        run: |
+          $root = Join-Path $PWD 'artifacts/release-0.8.10'
+          $check = Start-Process -FilePath (Join-Path $root 'HermesDevDesk-0.8.10-win-x64-Setup.exe') -ArgumentList @('/verify',('"'+(Join-Path $root 'installer-verify.txt')+'"')) -WindowStyle Hidden -PassThru
+          $check.WaitForExit()
+          if ($check.ExitCode -ne 0) { throw 'Installer verification failed' }
+          python scripts/verify-public-release.py --app (Join-Path $root 'app') --source $PWD
+          if ($LASTEXITCODE -ne 0) { throw 'Public payload verification failed' }
+          Get-Content (Join-Path $root 'installer-verify.txt')
+      - name: Publish only the approved installer and portable assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $repo = 'jhham0322/HermesDevDesk'
+          gh release view v0.8.10 --repo $repo --json tagName 2>$null
+          if ($LASTEXITCODE -eq 0) { throw 'Release already exists; no assets will be overwritten' }
+          gh release create v0.8.10 --repo $repo --verify-tag --title 'HermesDevDesk 0.8.10 (experimental)' --notes-file RELEASE-NOTES.md artifacts/release-0.8.10/HermesDevDesk-0.8.10-win-x64-Setup.exe artifacts/release-0.8.10/HermesDevDesk-0.8.10-win-x64-Portable.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
+          gh release view v0.8.10 --repo $repo --json url,tagName,assets
