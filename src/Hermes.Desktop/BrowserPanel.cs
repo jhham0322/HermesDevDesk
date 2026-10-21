@@ -22,8 +22,12 @@ public partial class MainWindow
     {
         browserHost.Content = browserSurface;
         if (!browserSurface.Children.Contains(view)) browserSurface.Children.Add(view);
-        foreach (var child in browserSurface.Children.OfType<WebView2>()) Panel.SetZIndex(child, ReferenceEquals(child, view) ? 1 : 0);
+        if (browserTabOwners.TryGetValue(view, out var taskOwner) && taskOwner != CurrentTask?.Id) { view.Visibility = Visibility.Hidden; RefreshBrowserTabs(); return; }
+        foreach (var child in browserSurface.Children.OfType<WebView2>()) { child.Visibility = child == view ? Visibility.Visible : Visibility.Hidden; Panel.SetZIndex(child, child == view ? 1 : 0); }
         activeBrowserView = view;
+        browserAddress.Text = view.Source?.AbsoluteUri ?? "";
+        if (browserTabOwners.TryGetValue(view, out var owner)) { if (owner == null) browserView = view; else chatBrowsers[owner] = view; }
+        RefreshBrowserTabs();
         UpdateBrowserNavigation(view);
         browserAttachSource.IsEnabled = selectedBrowserSourceTask == CurrentTask?.Id && selectedBrowserSource.Length > 0;
         if (view.CoreWebView2 != null) { browserAddress.Text = view.Source?.AbsoluteUri ?? browserAddress.Text; UpdateBrowserBookmark(view); }
@@ -37,14 +41,23 @@ public partial class MainWindow
         view.CoreWebView2.Settings.IsWebMessageEnabled = true;
         view.CoreWebView2.Settings.AreDevToolsEnabled = true;
         ConfigureLocalBrowser(view);
+        browserTabReady[view].TrySetResult();
         view.CoreWebView2.HistoryChanged += (_, _) => UpdateBrowserNavigation(view);
         view.CoreWebView2.Profile.IsPasswordAutosaveEnabled = desk.State.Browser.SavePasswords;
         view.CoreWebView2.Profile.IsGeneralAutofillEnabled = true;
         view.CoreWebView2.WebMessageReceived += (_, args) => { if (!closing) ReceiveBrowserSource(view, args); };
         view.CoreWebView2.SourceChanged += (_, _) => RememberBrowserPage(view);
-        view.CoreWebView2.DocumentTitleChanged += (_, _) => RememberBrowserPage(view);
+        view.CoreWebView2.DocumentTitleChanged += (_, _) => { RememberBrowserPage(view); RefreshBrowserTabs(); };
         view.CoreWebView2.PermissionRequested += (_, args) => { args.State = CoreWebView2PermissionState.Allow; args.Handled = true; };
-        view.CoreWebView2.NewWindowRequested += (_, args) => { args.Handled = true; try { view.CoreWebView2.Navigate(BrowserTools.ValidateUrl(args.Uri).AbsoluteUri); } catch (IOException) { } };
+        view.CoreWebView2.NewWindowRequested += async (_, args) => {
+            args.Handled = true; using var deferred = args.GetDeferral();
+            try {
+                // Keep popup authentication context and ownership in the originating chat.
+                if (browserTabOwners.GetValueOrDefault(view) != CurrentTask?.Id) { browserStatus.Text = "새 창을 열려면 해당 채팅의 브라우저를 선택하세요."; return; }
+                var popup = await AddBrowserTab(); args.NewWindow = popup.CoreWebView2;
+            } catch (Exception ex) { browserStatus.Text = Safety.Redact(ex.Message); }
+        };
+        view.CoreWebView2.WindowCloseRequested += (_, _) => Dispatcher.BeginInvoke(() => { if (browserTabOwners.ContainsKey(view)) TryCloseBrowserTab(view); });
         view.CoreWebView2.DownloadStarting += (_, args) =>
         {
             try
@@ -62,19 +75,24 @@ public partial class MainWindow
     private void ShowChatBrowser()
     {
         if (CurrentTask is { } task && chatBrowsers.TryGetValue(task.Id, out var view)) SetBrowserView(view);
-        else if (browserView != null) SetBrowserView(browserView);
+        else if (browserView != null && browserTabOwners.GetValueOrDefault(browserView) == CurrentTask?.Id) SetBrowserView(browserView);
+        else { activeBrowserView = null; foreach (var child in browserSurface.Children.OfType<WebView2>()) child.Visibility = Visibility.Hidden; browserAddress.Clear(); browserBack.IsEnabled = browserForward.IsEnabled = false; RefreshBrowserTabs(); }
     }
-    private void DisposeBrowsers() { browserSaveTimer.Stop(); sourcePickers.Clear(); browserNavigationTargets.Clear(); localHttpAttempts.Clear(); localBrowserRecoveries.Clear(); desk.Save(); foreach (var view in chatBrowsers.Values) view.Dispose(); browserView?.Dispose(); }
+    private void DisposeBrowsers() { browserSaveTimer.Stop(); desk.Save(); foreach (var view in browserTabOwners.Keys.ToArray()) RemoveBrowserTab(view); chatBrowsers.Clear(); sourcePickers.Clear(); browserNavigationTargets.Clear(); localHttpAttempts.Clear(); localBrowserRecoveries.Clear(); }
+
 
 
     private void InitializeBrowserPanel()
     {
         var panel = new DockPanel(); var toolbar = new StackPanel(); DockPanel.SetDock(toolbar, Dock.Top); panel.Children.Add(toolbar);
+        InitializeBrowserTabs(toolbar);
         var navigation = new WrapPanel(); foreach (var button in new[] { browserBack, browserForward, browserReload, browserDevTools }) navigation.Children.Add(button); toolbar.Children.Add(navigation);
         var address = new DockPanel(); var go = new Button { Content = "열기" }; DockPanel.SetDock(go, Dock.Right); address.Children.Add(go); address.Children.Add(browserAddress); toolbar.Children.Add(address);
         var capture = new Button { Content = "전체 캡처 · AI 첨부", ToolTip = "현재 로드된 페이지 전체를 PNG로 저장하고 AI 입력에 이미지로 첨부합니다." };
         capture.Click += async (_, _) => await Guard(CaptureBrowserToComposerAsync, "browser-full-capture");
-        toolbar.Children.Add(capture); InitializeBrowserExperience(toolbar); InitializeLocalBrowser(toolbar); toolbar.Children.Add(browserEnable); toolbar.Children.Add(browserStatus); panel.Children.Add(browserHost);
+        var extras = new StackPanel(); extras.Children.Add(capture); InitializeBrowserExperience(extras); InitializeLocalBrowser(extras); extras.Children.Add(browserEnable);
+        toolbar.Children.Add(new Expander { Header = "브라우저 추가 기능 · 북마크 / 캡처 / 도구 설정", Content = new ScrollViewer { Content = extras, MaxHeight = 320, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, IsExpanded = false });
+        toolbar.Children.Add(browserStatus); panel.Children.Add(browserHost);
         InspectorTabs.Items.Add(new TabItem { Header = "브라우저", Content = panel });
         go.Click += async (_, _) => await Guard(() => NavigateBrowser(browserAddress.Text));
         browserAddress.KeyDown += async (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; await Guard(() => NavigateBrowser(browserAddress.Text)); } };
@@ -89,35 +107,36 @@ public partial class MainWindow
     }
     private async Task EnsureBrowser()
     {
-        try { await (browserInitialization ??= InitializeBrowser()); }
+        browserView ??= browserTabOwners.FirstOrDefault(p => p.Value == null).Key;
+        try { if (browserView != null && browserTabOwners.GetValueOrDefault(browserView) == null) { await browserTabReady[browserView].Task; return; } await (browserInitialization ??= InitializeBrowser()); }
         catch { browserInitialization = null; throw; }
     }
     private async Task InitializeBrowser()
     {
         try
         {
-            browserView = new WebView2(); SetBrowserView(browserView);
-            var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(desk.DataDirectory, "browser-profile"));
+            browserView = CreateBrowserTab(null); SetBrowserView(browserView);
+            var environment = await BrowserEnvironment();
             await browserView.EnsureCoreWebView2Async(environment);
             ConfigureBrowser(browserView, () => CurrentProject?.Root);
             browserStatus.Text = "브라우저 준비 완료";
         }
-        catch (Exception ex) { browserInitialization = null; browserStatus.Text = "WebView2 초기화 실패. Microsoft Edge WebView2 Runtime이 필요합니다. " + Safety.Redact(ex.Message); throw new IOException(browserStatus.Text, ex); }
+        catch (Exception ex) { if (browserView != null) RemoveBrowserTab(browserView); browserInitialization = null; browserStatus.Text = "WebView2 초기화 실패. Microsoft Edge WebView2 Runtime이 필요합니다. " + Safety.Redact(ex.Message); throw new IOException(browserStatus.Text, ex); }
     }
     private async Task<WebView2> EnsureChatBrowser(WorkItem task, CancellationToken ct = default)
     {
-        if (chatBrowsers.TryGetValue(task.Id, out var existing) && existing.CoreWebView2 != null) return existing;
+        if (chatBrowsers.TryGetValue(task.Id, out var existing)) { await browserTabReady[existing].Task.WaitAsync(ct); return existing; }
         if (browserView?.CoreWebView2 != null && !chatBrowsers.Values.Contains(browserView))
-        { chatBrowsers[task.Id] = browserView; return browserView; }
-        var view = new WebView2(); SetBrowserView(view);
+        { var shared = browserView; browserView = null; browserInitialization = null; browserTabOwners[shared] = task.Id; chatBrowsers[task.Id] = shared; RefreshBrowserTabs(); return shared; }
+        var view = CreateBrowserTab(task.Id); SetBrowserView(view);
         try
         {
-            var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(desk.DataDirectory, "browser-profile")).WaitAsync(ct);
+            var environment = await BrowserEnvironment().WaitAsync(ct);
             await view.EnsureCoreWebView2Async(environment).WaitAsync(ct);
             ConfigureBrowser(view, () => desk.State.Projects.First(p => p.Id == task.ProjectId).Root);
             chatBrowsers[task.Id] = view; return view;
         }
-        catch { view.Dispose(); throw; }
+        catch { RemoveBrowserTab(view); throw; }
         finally { ShowChatBrowser(); }
     }
     private async Task NavigateBrowser(string address)
@@ -148,10 +167,12 @@ public partial class MainWindow
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
         var ct = timeout.Token;
         await gate.WaitAsync(ct);
+        WebView2? operationView = null;
         try
         {
             if (closing || task.Status != "실행 중") throw new IOException("작업이 중단되었습니다.");
             var view = await EnsureChatBrowser(task, ct);
+            operationView = view;
             OpenPanel(8);
             if (CurrentTask == task) SetBrowserView(view);
             UpdateLayout();
@@ -208,7 +229,7 @@ public partial class MainWindow
         }
         catch (Exception ex) when (ex is OperationCanceledException or TimeoutException)
         {
-            if (chatBrowsers.Remove(task.Id, out var failed)) { browserSurface.Children.Remove(failed); failed.Dispose(); if (ReferenceEquals(browserView, failed)) { browserView = null; browserInitialization = null; } }
+            if (operationView != null) RemoveBrowserTab(operationView);
             browserStatus.Text = "브라우저 응답 시간 초과 · 다음 요청에서 다시 연결합니다.";
             throw new IOException(browserStatus.Text, ex);
         }

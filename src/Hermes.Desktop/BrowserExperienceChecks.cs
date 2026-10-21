@@ -50,11 +50,12 @@ public partial class MainWindow
         while (activeBrowserView?.Source?.AbsolutePath != "/second" && navigationTimer.Elapsed < TimeSpan.FromSeconds(10)) await Task.Delay(30);
         Check(activeBrowserView?.Source?.AbsolutePath == "/second", "forward-page button restores real next page");
         Check(activeBrowserView!.CoreWebView2.Settings.AreDevToolsEnabled && browserDevTools.IsEnabled, "developer tools enabled and accessible from navigation toolbar");
-        chatBrowsers.Remove(chat.Id); browserSurface.Children.Remove(view); view.Dispose();
+        RemoveBrowserTab(view);
         browserAddress.Clear(); await OpenSavedBrowser();
         var restored = System.Diagnostics.Stopwatch.StartNew();
         while (activeBrowserView?.Source?.AbsolutePath != "/second" && restored.Elapsed < TimeSpan.FromSeconds(10)) await Task.Delay(30);
         Check(activeBrowserView?.Source?.AbsolutePath == "/second", "new browser instance restores persisted last page");
+        await CheckBrowserTabs(pages.BaseUri.AbsoluteUri, checks);
         var captionLabels = desk.State.Browser.History.Count;
         File.WriteAllText(Path.Combine(data, "browser-experience-report.json"), JsonSerializer.Serialize(new { passed = true, version = AppVersion.Current, checks, historyEntries = captionLabels, nativePasswordStore = true, actualPasswordLoginTested = false, realModelCalls = 0 }, new JsonSerializerOptions { WriteIndented = true }));
     }

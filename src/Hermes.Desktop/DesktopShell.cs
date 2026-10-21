@@ -244,12 +244,8 @@ public partial class MainWindow
         openChats.Remove(task.Id); closedChats.Remove(task.Id); navigation.RemoveAll(id => id == task.Id); navigationIndex = navigation.Count - 1;
         imageDrafts.Remove(task.Id); fileDrafts.Remove(task.Id); skillDrafts.Remove(task.Id); modelDrafts.Remove(task.Id);
         if (draftTaskId == task.Id) { draftTaskId = null; switchingDraft = true; Prompt.Clear(); switchingDraft = false; pendingImages.Clear(); pendingFiles.Clear(); pendingSkills.Clear(); Attachments.ItemsSource = null; }
-        if (chatBrowsers.Remove(task.Id, out var view))
-        {
-            if (ReferenceEquals(activeBrowserView, view)) activeBrowserView = null;
-            if (ReferenceEquals(browserView, view)) { browserView = null; browserInitialization = null; }
-            browserSurface.Children.Remove(view); view.Dispose(); ShowChatBrowser();
-        }
+        foreach (var view in browserTabOwners.Where(p => p.Value == task.Id).Select(p => p.Key).ToArray()) RemoveBrowserTab(view);
+        ShowChatBrowser();
         browserLocks.Remove(task.Id);
         desk.DeleteTask(task); Footer.Text = "채팅 삭제됨 · 프로젝트 파일과 Git 이력은 유지됨";
     }

@@ -377,6 +377,10 @@ public partial class MainWindow : Window
     }
     private async void Window_Closing(object? sender, CancelEventArgs e)
     {
+        // The pinned WPF WebView2 wrapper closes its containing Window before our
+        // Core WindowCloseRequested handler runs. Cancel only that synchronous
+        // wrapper call; BrowserPanel handles the request by closing the source tab.
+        if (new System.Diagnostics.StackTrace().GetFrames().Any(frame => frame.GetMethod() is { Name: "CoreWebView2_WindowCloseRequested", DeclaringType.Namespace: "Microsoft.Web.WebView2.Wpf" })) { e.Cancel = true; return; }
         if (closing) return;
         if (desk.State.Tasks.Any(DeskController.IsRunning) && MessageBox.Show(this, "Hermes의 실행 작업을 중단하고 종료할까요?", "종료", MessageBoxButton.YesNo) != MessageBoxResult.Yes) { e.Cancel = true; return; }
         e.Cancel = true; SaveWindowGeometry(); windowSaveTimer.Stop(); closing = true; draftTimer.Stop();

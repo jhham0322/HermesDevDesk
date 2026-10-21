@@ -101,11 +101,12 @@ public partial class MainWindow
         WebView2 view;
         if (CurrentTask is { } task) view = await EnsureChatBrowser(task); else { await EnsureBrowser(); view = browserView!; }
         SetBrowserView(view);
-        if (view.Source?.Scheme is not ("http" or "https"))
+        if (view.Source?.Scheme is not ("http" or "https") && browserTabOwners.Keys.Count(v => browserTabOwners[v] == CurrentTask?.Id) <= 1)
         {
             var url = CurrentTask?.BrowserLastUrl;
             if (string.IsNullOrWhiteSpace(url)) url = desk.State.Browser.LastUrl;
             if (string.IsNullOrWhiteSpace(url)) url = browserAddress.Text;
+            if (string.IsNullOrWhiteSpace(url)) url = "https://developers.openai.com";
             view.CoreWebView2.Navigate(BrowserTools.ValidateUrl(url).AbsoluteUri);
         }
         UpdateBrowserBookmark(view);

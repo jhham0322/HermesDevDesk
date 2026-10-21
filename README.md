@@ -1,4 +1,6 @@
-# Hermes DevDesk 0.8.15
+# Hermes DevDesk 0.8.16
+
+내장 브라우저에서 **+ 새 탭**으로 최대 10개(전체 채팅 합계)를 열 수 있습니다. 각 탭의 × 또는 **현재 탭 닫기 / 모든 탭 닫기**로 종료합니다. 탭은 채팅별로 구분되며, 북마크·캡처·로컬 HTTP·브라우저 도구 설정은 **브라우저 추가 기능**을 펼쳐 사용합니다.
 
 모델 관리 화면 위쪽의 **새 모델**로 연결을 추가하고, 목록에서 선택한 모델을 수정·삭제할 수 있습니다. 저장 후 및 설정을 다시 열 때 선택 상태를 유지하며, 마지막 모델을 삭제한 뒤에도 새 모델을 추가할 수 있습니다.
 
@@ -32,9 +34,9 @@
 
 로컬 검증은 합성 토큰과 로컬 서버만 사용했습니다. 공식 엔진으로 동일 채팅에서 A → B → A의 서버·모델·인증 전환을 확인했습니다. 5,001개 메시지의 WPF 검사에서 화면 컨트롤은 40개, 추가 렌더링은 약 7ms였습니다(이 PC의 측정값).
 
-[Windows 0.8.15 설치 파일](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.15/HermesDevDesk-0.8.15-win-x64-Setup.exe) · [0.8.15 Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.15/HermesDevDesk-0.8.15-win-x64-Portable.zip) · [릴리스 페이지](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.8.15)
+[Windows 0.8.16 설치 파일](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.16/HermesDevDesk-0.8.16-win-x64-Setup.exe) · [0.8.16 Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.16/HermesDevDesk-0.8.16-win-x64-Portable.zip) · [릴리스 페이지](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.8.16)
 
-0.8.15은 Chat API의 답변 조각을 즉시 전달합니다. 이전 구현은 Chat 요청을 비스트리밍으로 보내고 응답 전체를 기다리다가 4분 제한으로 실패할 수 있었습니다. 서버의 일시적인 지연이나 대기열도 시간 초과 원인이 될 수 있으므로 외부 장애로 단정하지 않습니다. 실행 요청은 `messages`의 텍스트를 문자열로 전달하고 `max_tokens`를 사용하며 불필요한 `parallel_tool_calls`를 보내지 않습니다. 실제 에이전트·도구 호출·후속 답변까지 스트리밍으로 검증합니다.
+0.8.16은 Chat API의 답변 조각을 즉시 전달합니다. 이전 구현은 Chat 요청을 비스트리밍으로 보내고 응답 전체를 기다리다가 4분 제한으로 실패할 수 있었습니다. 서버의 일시적인 지연이나 대기열도 시간 초과 원인이 될 수 있으므로 외부 장애로 단정하지 않습니다. 실행 요청은 `messages`의 텍스트를 문자열로 전달하고 `max_tokens`를 사용하며 불필요한 `parallel_tool_calls`를 보내지 않습니다. 실제 에이전트·도구 호출·후속 답변까지 스트리밍으로 검증합니다.
 
 설치 경로는 항상 `%LOCALAPPDATA%\Programs\HermesDevDesk\App`입니다. 새 설치본을 임시 폴더에서 검증한 뒤 기존 App 폴더를 전체 교체하므로 이전 앱 파일과 별도 파일이 남지 않습니다. 채팅 이력·모델 설정·토큰은 설치 폴더 밖에서 보존합니다. 예전 버전별 설치 폴더는 자동 정리하고 바로가기를 고정 App 경로로 갱신합니다.
 

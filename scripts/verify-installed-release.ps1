@@ -40,7 +40,7 @@ Run-Checked $app @('--conversation-performance-smoke', '--data-dir', ('"'+$perfo
 $browserData = Join-Path $fixture 'browser-data'
 Run-Checked $app @('--browser-experience-smoke', '--data-dir', ('"'+$browserData+'"'))
 $browser = Get-Content -LiteralPath (Join-Path $browserData 'browser-experience-report.json') -Raw | ConvertFrom-Json
-if (-not $browser.passed -or $browser.version -ne $ExpectedVersion -or $browser.checks.Count -lt 9) { throw 'Installed browser behavior failed' }
+if (-not $browser.passed -or $browser.version -ne $ExpectedVersion -or $browser.checks.Count -lt 28) { throw 'Installed browser behavior failed' }
 $learningData = Join-Path $fixture 'learning-data'
 Run-Checked $app @('--learning-panel-smoke', '--data-dir', ('"'+$learningData+'"'))
 $learning = Get-Content -LiteralPath (Join-Path $learningData 'learning-panel-report.json') -Raw | ConvertFrom-Json
