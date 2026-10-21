@@ -39,7 +39,7 @@ internal static class LearningEngineTests
         async Task Complete(WorkItem task) { var watch = System.Diagnostics.Stopwatch.StartNew(); while (DeskController.IsRunning(task) && watch.Elapsed < TimeSpan.FromSeconds(90)) { Pump(); await Task.Delay(20); } Pump(); if (task.Status != "완료") throw new IOException("Learning engine failed: " + JsonSerializer.Serialize(task.Transcript.TakeLast(8))); }
         await desk.ConnectAsync(exe, root); Pump(); var chat = desk.NewTask(project, "Learning fixture");
         await desk.StartAsync(chat, "repair dependency fixture", "learning-model", true); await Complete(chat);
-        if (!blocked || File.ReadAllLines(Path.Combine(root, "counter.txt")).Length != 2) throw new IOException("Third failed command was executed or not blocked");
+        if (!blocked || !File.Exists(Path.Combine(root, "counter.txt")) || File.ReadAllLines(Path.Combine(root, "counter.txt")).Length != 2) throw new IOException("Third failed command was executed or not blocked; calls=" + calls + "; blocked=" + blocked + "; evidence=" + JsonSerializer.Serialize(desk.Memory.Recent(ExecutionMemory.Scope(root))) + "; transcript=" + JsonSerializer.Serialize(chat.Transcript.TakeLast(15)));
         var guide = desk.Memory.Search(ExecutionMemory.Scope(root), "repair dependency fixture").Single(m => m.Tool == "command");
         if (guide.Notes != improvement) throw new IOException("Agent method improvement missing");
         var next = desk.NewTask(project, "Similar task"); await desk.StartAsync(next, "repair dependency fixture again", "learning-model", true); await Complete(next);
