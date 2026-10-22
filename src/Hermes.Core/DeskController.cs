@@ -415,7 +415,8 @@ public sealed partial class DeskController : IAsyncDisposable
         {
             case "item/started":
                 var started = p.GetProperty("item");
-                if (started.Text("type") is "commandExecution" or "mcpToolCall" or "dynamicToolCall" or "webSearch" or "fileChange")
+                if (started.Text("type") == "dynamicToolCall") ToolProgress.Start(task, started);
+                if (started.Text("type") is "commandExecution" or "mcpToolCall" or "webSearch" or "fileChange")
                     task.Transcript.Add(new("작업 진행", Safety.Redact(started.Text("type") + " · " + started.Text("command") + started.Text("tool")), DateTime.UtcNow, started.Text("id")));
                 if (started.Text("type") == "reasoning") task.Transcript.Add(new("작업 진행", "응답 준비 중 · 진행 요약을 기다리고 있습니다.", DateTime.UtcNow));
                 if (started.Text("type") == "fileChange" && started.Property("changes") is { ValueKind: JsonValueKind.Array } changes) pendingChanges[started.Text("id")] = changes.EnumerateArray().Select(c => c.Text("path")).ToList();
@@ -438,6 +439,7 @@ public sealed partial class DeskController : IAsyncDisposable
             case "turn/plan/updated": task.Transcript.Add(new("계획", Safety.Redact(p.GetProperty("plan").ToString()), DateTime.UtcNow)); break;
             case "item/completed":
                 var item = p.GetProperty("item");
+                if (item.Text("type") == "dynamicToolCall") ToolProgress.Complete(task, item);
                 if (item.Text("type") == "reasoning" && item.Property("summary") is { ValueKind: JsonValueKind.Array } summaries)
                 { var summaryIndex = 0; foreach (var summary in summaries.EnumerateArray()) ProgressMessages.Complete(task, item.Text("id"), (summaryIndex++).ToString(), summary.ValueKind == JsonValueKind.String ? summary.GetString() ?? "" : summary.Text("text")); }
                 if (item.Text("type") == "mcpToolCall") task.Transcript.Add(new("MCP 도구", Safety.Redact(item.GetRawText()), DateTime.UtcNow));

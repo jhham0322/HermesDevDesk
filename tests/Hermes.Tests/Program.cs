@@ -107,6 +107,16 @@ if (args.Contains("--multi-chat-only"))
 int count = 0;
 void Assert(bool truth, string label) { if (!truth) throw new Exception("FAIL: " + label); count++; Console.WriteLine("PASS: " + label); }
 void Reject(Action act, string label) { try { act(); } catch (IOException) { Assert(true, label); return; } throw new Exception("FAIL: " + label); }
+var toolTask = new WorkItem();
+using (var started = JsonDocument.Parse("""{"id":"memory-1","tool":"hermes_memory"}"""))
+    ToolProgress.Start(toolTask, started.RootElement);
+Assert(toolTask.Transcript.Single().Text == "작업 기록 검색·관리 중…", "memory tool uses readable progress label");
+using (var finished = JsonDocument.Parse("""{"id":"memory-1","tool":"hermes_memory","success":true,"status":"completed"}"""))
+    ToolProgress.Complete(toolTask, finished.RootElement);
+Assert(toolTask.Transcript.Count == 1 && toolTask.Transcript[0].Text.EndsWith("완료"), "tool completion replaces pending progress");
+using (var failed = JsonDocument.Parse("""{"id":"memory-1","tool":"hermes_memory","success":false,"status":"completed","contentItems":[{"type":"inputText","text":"개선 근거가 일치하지 않습니다."}]}"""))
+    ToolProgress.Complete(toolTask, failed.RootElement);
+Assert(toolTask.Transcript.Single().Kind == "도구 오류" && toolTask.Transcript[0].Text.Contains("개선 근거"), "actual tool failure exposes returned cause even when item completed");
 var progressTask = new WorkItem();
 ProgressMessages.Delta(progressTask, "one", "0", "Checking ");
 ProgressMessages.Delta(progressTask, "two", "0", "Other task");
