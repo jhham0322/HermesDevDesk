@@ -1,4 +1,6 @@
-# Hermes DevDesk 0.8.22
+# Hermes DevDesk 0.8.23
+
+설치 시 이전 앱·엔진과 설치 파일 점유 프로세스를 강제 종료하고 기존 설치 폴더를 완전히 교체합니다. 읽기 전용·추가·수정 파일도 제거하며, 채팅 이력과 모델 설정은 설치 폴더 밖에서 보존합니다.
 
 일반 채팅의 새 메시지는 매번 새 엔진 세션에서 **현재 메시지와 이번 첨부만** 전달합니다. 이전 대화와 RAG 기록을 자동으로 붙이지 않습니다. 화면의 대화는 보관하며, 진행 중인 요청은 그 요청에서 발생한 도구 호출·결과 문맥을 유지합니다. 과거 방법은 필요한 경우 hermes_memory 검색으로 조회합니다.
 
@@ -44,7 +46,7 @@
 
 로컬 검증은 합성 토큰과 로컬 서버만 사용했습니다. 공식 엔진으로 동일 채팅에서 A → B → A의 서버·모델·인증 전환을 확인했습니다. 5,001개 메시지의 WPF 검사에서 화면 컨트롤은 40개, 추가 렌더링은 약 7ms였습니다(이 PC의 측정값).
 
-[Windows 0.8.22 설치 파일](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.22/HermesDevDesk-0.8.22-win-x64-Setup.exe) · [0.8.22 Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.22/HermesDevDesk-0.8.22-win-x64-Portable.zip) · [릴리스 페이지](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.8.22)
+[Windows 0.8.23 설치 파일](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.23/HermesDevDesk-0.8.23-win-x64-Setup.exe) · [0.8.23 Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.23/HermesDevDesk-0.8.23-win-x64-Portable.zip) · [릴리스 페이지](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.8.23)
 
 0.8.18은 Chat API의 답변 조각을 즉시 전달합니다. 이전 구현은 Chat 요청을 비스트리밍으로 보내고 응답 전체를 기다리다가 4분 제한으로 실패할 수 있었습니다. 서버의 일시적인 지연이나 대기열도 시간 초과 원인이 될 수 있으므로 외부 장애로 단정하지 않습니다. 실행 요청은 `messages`의 텍스트를 문자열로 전달하고 `max_tokens`를 사용하며 불필요한 `parallel_tool_calls`를 보내지 않습니다. 실제 에이전트·도구 호출·후속 답변까지 스트리밍으로 검증합니다.
 
@@ -63,4 +65,4 @@ AI도 `hermes_browser`의 `screenshot` 동작으로 페이지 전체를 직접 �
 
 이전 버전의 이미지·파일 첨부, 공개 진행 요약, 전체 권한 기본값과 로컬 API 오류 처리 개선을 포함합니다. Windows 릴리스는 태그 소스에서 빌드하고 회귀·공식 엔진 연동·설치 파일 SHA256·공개 페이로드 검사를 통과한 뒤 게시합니다. 실제 회사 서버나 유료 모델은 검증에 사용하지 않았습니다.
 
-설치 완료 후 기본 설치 위치의 소유권 확인된 이전 앱 버전을 자동 제거하고 시작 메뉴 바로가기를 새 버전으로 갱신합니다. 채팅 이력·모델 설정·토큰·브라우저 프로필은 설치 폴더 밖에 보존합니다. 고정 App 폴더의 내용은 재설치 시 모두 교체하고, 예전 버전별 폴더의 별도 사용자 파일은 보존합니다. 실행 중인 이전 버전의 파일이 잠겨 있거나 앱 파일이 수정되어 있으면 해당 경로를 표시하고 정리를 중단합니다.
+설치 완료 후 기본 설치 위치의 소유권 확인된 이전 앱 버전을 자동 제거하고 시작 메뉴 바로가기를 새 버전으로 갱신합니다. 채팅 이력·모델 설정·토큰·브라우저 프로필은 설치 폴더 밖에 보존합니다. 고정 App 폴더의 내용은 재설치 시 모두 교체하고, 소유권이 확인된 예전 버전별 설치 폴더는 추가 파일까지 전체 제거합니다. 실행 중인 이전 앱과 설치 파일 점유 프로세스를 종료하고 읽기 전용·수정된 앱 파일도 교체합니다.

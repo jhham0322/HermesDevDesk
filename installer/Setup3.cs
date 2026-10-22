@@ -8,12 +8,12 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-[assembly: AssemblyVersion("0.8.22.0")]
-[assembly: AssemblyFileVersion("0.8.22.0")]
+[assembly: AssemblyVersion("0.8.23.0")]
+[assembly: AssemblyFileVersion("0.8.23.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
 internal static class Setup
 {
-    internal const string Version="0.8.22";
+    internal const string Version="0.8.23";
     internal static string Target=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","HermesDevDesk","App");
     [STAThread] static int Main(string[] args)
     {
@@ -46,11 +46,26 @@ internal static class Setup
         var identity=File.ReadAllText(marker).Trim();if(!System.Text.RegularExpressions.Regex.IsMatch(identity,@"^HermesDevDesk-\d+\.\d+\.\d+-[a-f0-9]{64}$"))return false;
         using(var stream=File.OpenRead(manifest))return identity.EndsWith("-"+Hash(stream),StringComparison.Ordinal);
     }
+    static bool ReplaceableInstallation(string root){
+        if(String.Equals(Path.GetFullPath(root).TrimEnd('\\'),Path.GetFullPath(Target).TrimEnd('\\'),StringComparison.OrdinalIgnoreCase))return true;
+        if(OwnsInstallation(root))return true;
+        var exe=FilePath(root,"HermesDevDesk.exe");
+        if(!File.Exists(exe))return false;
+        var info=System.Diagnostics.FileVersionInfo.GetVersionInfo(exe);
+        return String.Equals(info.ProductName,"HermesDevDesk",StringComparison.OrdinalIgnoreCase)&&String.Equals(info.OriginalFilename,"HermesDevDesk.dll",StringComparison.OrdinalIgnoreCase);
+    }
+    static void DeleteValidatedTree(string root){
+        root=Path.GetFullPath(root);Root(root);
+        var directories=new List<string>();CollectDirectories(root,directories);
+        foreach(var file in Directory.GetFiles(root,"*",SearchOption.AllDirectories)){Root(file);File.SetAttributes(file,FileAttributes.Normal);}
+        foreach(var directory in directories)File.SetAttributes(directory,FileAttributes.Directory);
+        File.SetAttributes(root,FileAttributes.Directory);Directory.Delete(root,true);
+    }
     static void DeleteOwnedTree(string root){
         root=Path.GetFullPath(root);Root(root);if(!OwnsInstallation(root))throw new IOException("Refusing to remove an unowned installation: "+root);
         var directories=new List<string>();CollectDirectories(root,directories);
         // Every path and descendant was validated above, including reparse-point rejection.
-        Directory.Delete(root,true);
+        DeleteValidatedTree(root);
     }
     static void WaitForExclusiveRead(string file,CancellationToken ct){
         for(var attempt=0;;attempt++){ct.ThrowIfCancellationRequested();try{using(var check=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.None)){}return;}catch(IOException error){var code=error.HResult&65535;if(attempt>=39||(code!=32&&code!=33))throw;Thread.Sleep(250);}}
@@ -58,17 +73,17 @@ internal static class Setup
     internal static void Install(string r,CancellationToken ct,Action<int,string> progress){
         r=Path.GetFullPath(r);Root(r);
         if(!Directory.Exists(r)||Directory.GetFileSystemEntries(r).Length==0){InstallPayload(r,ct,progress);ValidateInstalled(r);return;}
-        if(!OwnsInstallation(r))throw new IOException("설치 프로그램이 소유하지 않은 폴더는 비울 수 없습니다: "+r);
+        if(!ReplaceableInstallation(r))throw new IOException("Hermes 설치 폴더로 확인되지 않아 비우지 않았습니다: "+r);
         var stage=r+".staging-"+Guid.NewGuid().ToString("N");var backup=r+".previous-"+Guid.NewGuid().ToString("N");Root(stage);Root(backup);
         if(Path.GetDirectoryName(stage)!=Path.GetDirectoryName(r)||Path.GetDirectoryName(backup)!=Path.GetDirectoryName(r))throw new IOException("Upgrade destination escaped installation parent");
         bool moved=false;
         try{
-            InstallPayload(stage,ct,progress);ValidateInstalled(stage);ct.ThrowIfCancellationRequested();ClosePreviousApp(r);
-            var directories=new List<string>();CollectDirectories(r,directories);
+            InstallPayload(stage,ct,progress);ValidateInstalled(stage);ct.ThrowIfCancellationRequested();
+            var directories=new List<string>();CollectDirectories(r,directories);ClosePreviousApp(r);ReleaseFileLocks(r,ct);
             foreach(var file in Directory.GetFiles(r,"*",SearchOption.AllDirectories))WaitForExclusiveRead(file,ct);
             Directory.Move(r,backup);moved=true;
             try{Directory.Move(stage,r);}catch{Directory.Move(backup,r);moved=false;throw;}
-            ValidateInstalled(r);DeleteOwnedTree(backup);moved=false;
+            ValidateInstalled(r);DeleteValidatedTree(backup);moved=false;
         }finally{if(Directory.Exists(stage)&&OwnsInstallation(stage))DeleteOwnedTree(stage);if(moved&&!Directory.Exists(r)&&Directory.Exists(backup))Directory.Move(backup,r);}
     }
     static void InstallPayload(string r,CancellationToken ct,Action<int,string> progress){
@@ -93,34 +108,82 @@ using(var z=Payload()){var m=Manifest(z);var marker=FilePath(r,".hermes-owned");
             if(!File.Exists(marker)||!File.Exists(manifest))continue;
             var expected="HermesDevDesk-"+Path.GetFileName(absolute)+"-";using(var stream=File.OpenRead(manifest))expected+=Hash(stream);
             if(File.ReadAllText(marker).Trim()!=expected)continue;
-            ClosePreviousApp(absolute);
-            var owned=new List<string>();bool modified=false;
-            foreach(var line in File.ReadAllLines(manifest)){
-                if(String.IsNullOrWhiteSpace(line))continue;var fields=line.Split('\t');if(fields.Length!=2||fields[0].Length!=64)throw new IOException("Invalid previous installation manifest");
-                var file=FilePath(absolute,fields[1]);if(!File.Exists(file))continue;
-                using(var stream=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.None))if(Hash(stream)!=fields[0])modified=true;
-                owned.Add(file);
-            }
-            if(modified)throw new IOException("이전 버전의 수정 파일을 보존했습니다. 정리하지 못한 경로: "+absolute);
-            // Validate all descendants before deleting anything; reject junctions/reparse points.
             var directories=new List<string>();CollectDirectories(absolute,directories);
-            foreach(var file in owned)File.Delete(file);
-            File.Delete(manifest);File.Delete(marker);
-            directories.Sort(delegate(string a,string b){return b.Length.CompareTo(a.Length);});
-            foreach(var directory in directories)if(Directory.GetFileSystemEntries(directory).Length==0)Directory.Delete(directory);
-            if(Directory.GetFileSystemEntries(absolute).Length==0)Directory.Delete(absolute);
+            ClosePreviousApp(absolute);ReleaseFileLocks(absolute,CancellationToken.None);DeleteValidatedTree(absolute);
             removed++;
         }
         return removed;
     }
     static void CollectDirectories(string root,List<string> directories){foreach(var entry in Directory.GetFileSystemEntries(root)){Root(entry);if(Directory.Exists(entry)){CollectDirectories(entry,directories);directories.Add(entry);}}}
+    static void StopProcess(System.Diagnostics.Process process){
+        if(process.Id==System.Diagnostics.Process.GetCurrentProcess().Id)throw new IOException("설치 프로그램 자신이 파일을 사용 중입니다.");
+        try{
+            if(process.HasExited)return;
+            if(process.CloseMainWindow()&&process.WaitForExit(1500))return;
+            process.Kill();
+            if(!process.WaitForExit(10000))throw new IOException("프로세스 강제 종료 대기 실패: "+process.Id);
+        }catch(InvalidOperationException){}
+        catch(System.ComponentModel.Win32Exception e){throw new IOException("설치 파일 점유 프로세스를 종료하지 못했습니다: PID="+process.Id,e);}
+    }
     static void ClosePreviousApp(string folder){
-        foreach(var process in System.Diagnostics.Process.GetProcessesByName("HermesDevDesk"))using(process){
-            string executable;try{executable=process.MainModule.FileName;}catch(System.ComponentModel.Win32Exception){continue;}catch(InvalidOperationException){continue;}
-            if(!String.Equals(Path.GetDirectoryName(Path.GetFullPath(executable)),folder,StringComparison.OrdinalIgnoreCase))continue;
-            if(process.HasExited)continue;
-            if(!process.CloseMainWindow()||!process.WaitForExit(10000))throw new IOException("이전 앱이 종료되지 않아 파일을 보존했습니다. 작업을 마친 뒤 설치 / 재개를 누르세요: "+folder);
+        folder=Path.GetFullPath(folder).TrimEnd('\\')+"\\";
+        foreach(var process in System.Diagnostics.Process.GetProcesses())using(process){
+            if(process.Id==System.Diagnostics.Process.GetCurrentProcess().Id)continue;
+            string executable;try{var module=process.MainModule;if(module==null)continue;executable=module.FileName;}catch(System.ComponentModel.Win32Exception){continue;}catch(InvalidOperationException){continue;}
+            if(!Path.GetFullPath(executable).StartsWith(folder,StringComparison.OrdinalIgnoreCase))continue;
+            StopProcess(process);
         }
+    }
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    struct RmUniqueProcess{public int ProcessId;public System.Runtime.InteropServices.ComTypes.FILETIME StartTime;}
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential,CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
+    struct RmProcessInfo{
+        public RmUniqueProcess Process;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.ByValTStr,SizeConst=256)]public string AppName;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.ByValTStr,SizeConst=64)]public string ServiceName;
+        public int ApplicationType;public uint AppStatus;public uint SessionId;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]public bool Restartable;
+    }
+    [System.Runtime.InteropServices.DllImport("rstrtmgr.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
+    static extern int RmStartSession(out uint handle,int flags,StringBuilder key);
+    [System.Runtime.InteropServices.DllImport("rstrtmgr.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
+    static extern int RmRegisterResources(uint handle,uint count,string[] files,uint applications,IntPtr app,uint services,IntPtr names);
+    [System.Runtime.InteropServices.DllImport("rstrtmgr.dll")]
+    static extern int RmGetList(uint handle,out uint needed,ref uint count,[System.Runtime.InteropServices.In, System.Runtime.InteropServices.Out] RmProcessInfo[] processes,ref uint reasons);
+    [System.Runtime.InteropServices.DllImport("rstrtmgr.dll")]
+    static extern int RmEndSession(uint handle);
+    static void ReleaseFileLocks(string root,CancellationToken ct){
+        Root(root);var directories=new List<string>();CollectDirectories(root,directories);
+        var files=Directory.GetFiles(root,"*",SearchOption.AllDirectories);
+        if(files.Length==0)return;
+        uint handle;int status=RmStartSession(out handle,0,new StringBuilder(33));
+        if(status!=0)throw new IOException("파일 점유 확인 시작 실패: "+status);
+        try{
+            for(int offset=0;offset<files.Length;offset+=100){
+                ct.ThrowIfCancellationRequested();var count=Math.Min(100,files.Length-offset);var batch=new string[count];Array.Copy(files,offset,batch,0,count);
+                status=RmRegisterResources(handle,(uint)count,batch,0,IntPtr.Zero,0,IntPtr.Zero);if(status!=0)throw new IOException("파일 점유 등록 실패: "+status);
+            }
+            for(int attempt=0;attempt<4;attempt++){
+                uint needed=0,count=0,reasons=0;status=RmGetList(handle,out needed,ref count,null,ref reasons);
+                if(status==0)return;
+                if(status!=234)throw new IOException("파일 점유 확인 실패: "+status);
+                var processes=new RmProcessInfo[needed];count=needed;
+                status=RmGetList(handle,out needed,ref count,processes,ref reasons);
+                if(status==234)continue;
+                if(status!=0)throw new IOException("파일 점유 목록 확인 실패: "+status);
+                for(int index=0;index<count;index++){
+                    ct.ThrowIfCancellationRequested();var info=processes[index];
+                    if(info.ApplicationType==3||info.ApplicationType==1000)throw new IOException("시스템 서비스가 설치 파일을 사용 중입니다: "+info.AppName);
+                    try{using(var process=System.Diagnostics.Process.GetProcessById(info.Process.ProcessId)){
+                        long stamp=((long)(uint)info.Process.StartTime.dwHighDateTime<<32)|(uint)info.Process.StartTime.dwLowDateTime;
+                        if(process.StartTime.ToFileTimeUtc()!=stamp)continue;
+                        StopProcess(process);
+                    }}catch(ArgumentException){}catch(InvalidOperationException){}
+                }
+                return; // Restart Manager may retain exited process entries; exclusive file checks below verify release.
+            }
+            throw new IOException("설치 파일 점유가 반복됩니다: "+root);
+        }finally{RmEndSession(handle);}
     }
     internal static void UpdateShortcut(string target){
         var shortcutPath=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu),"Programs","Hermes DevDesk.lnk");Root(shortcutPath);
@@ -144,10 +207,10 @@ using(var z=Payload()){var m=Manifest(z);var marker=FilePath(r,".hermes-owned");
         var data=Path.Combine(root,"HermesDevDesk","data");Directory.CreateDirectory(data);File.WriteAllText(Path.Combine(data,"state.json"),"USER_HISTORY");
         var count=CleanupPreviousVersions(installations,current);
         if(count!=2||Directory.Exists(Path.Combine(installations,"0.8.8"))||Directory.Exists(Path.Combine(installations,"0.8.9"))||!File.Exists(Path.Combine(current,"keep.txt"))||!Directory.Exists(Path.Combine(installations,"99.0.0"))||File.ReadAllText(Path.Combine(data,"state.json"))!="USER_HISTORY"||!File.Exists(Path.Combine(unknown,"keep.txt")))throw new IOException("Old-version cleanup boundary/preservation failed");
-        fixture("0.8.9");var old=Path.Combine(installations,"0.8.9");File.WriteAllText(Path.Combine(old,"user.txt"),"KEEP_USER_FILE");CleanupPreviousVersions(installations,current);if(File.Exists(Path.Combine(old,"HermesDevDesk.exe"))||File.ReadAllText(Path.Combine(old,"user.txt"))!="KEEP_USER_FILE")throw new IOException("Unlisted user file preservation failed");
-        File.Delete(Path.Combine(old,"user.txt"));Directory.Delete(old);fixture("0.8.9");var locked=Path.Combine(old,"HermesDevDesk.exe");bool refused=false;using(var stream=new FileStream(locked,FileMode.Open,FileAccess.Read,FileShare.None)){try{CleanupPreviousVersions(installations,current);}catch(IOException){refused=true;}}
+        fixture("0.8.9");var old=Path.Combine(installations,"0.8.9");File.WriteAllText(Path.Combine(old,"user.txt"),"KEEP_USER_FILE");CleanupPreviousVersions(installations,current);if(Directory.Exists(old))throw new IOException("Previous installation was not fully removed");
+        fixture("0.8.9");var locked=Path.Combine(old,"HermesDevDesk.exe");bool refused=false;using(var stream=new FileStream(locked,FileMode.Open,FileAccess.Read,FileShare.None)){try{CleanupPreviousVersions(installations,current);}catch(IOException){refused=true;}}
         if(!refused||!File.Exists(locked)||!File.Exists(Path.Combine(old,"README.md")))throw new IOException("Locked old version was partially deleted");
-        File.WriteAllText(report,"PASS old owned versions removed; current/future/unowned/data/unknown user files preserved; locked version remains intact. Isolated fixtures only.\n");
+        File.WriteAllText(report,"PASS old owned versions removed; current/future/unowned/data preserved; previous install fully removed; installer-owned lock remains intact. Isolated fixtures only.\n");
     }
     static void Wait(SetupForm f){while(f.Last!=null&&!f.Last.IsCompleted){Application.DoEvents();Thread.Sleep(10);}Application.DoEvents();}
     static void Tests(string root,string report){
@@ -168,8 +231,8 @@ internal sealed class SetupForm:Form{
     internal Button InstallButton=new Button{Text="설치 / 재개"},RemoveButton=new Button{Text="이 버전 제거"},CancelControl=new Button{Text="작업 취소",Enabled=false};
     internal Button LaunchButton=new Button{Text="설치한 "+Setup.Version+" 실행"};
     internal Task Last;internal string Error;internal bool Cancelled,CancelAfterProgress;bool test;CancellationTokenSource cancellation;TextBox path=new TextBox();Label status=new Label();ProgressBar progress=new ProgressBar();
-    internal SetupForm(string target,bool testing){test=testing;Text="Hermes DevDesk 0.8.22 설치";Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);Width=700;Height=440;StartPosition=FormStartPosition.CenterScreen;MaximizeBox=false;
-        Controls.Add(new Label{Left=24,Top=20,Width=640,Height=100,Text="독립 Windows 개발 에이전트 앱 · 사내 중계서버 연결\n.NET 런타임과 공식 CLI 포함. 고정 App 폴더를 새 설치본으로 전체 교체합니다. 이력·설정은 별도 보존합니다.\n관리자 권한·방화벽·전역 설정 변경 없이 선택한 폴더에 설치합니다.\n회사 URL/모델명/API 키는 설치 후 앱에 직접 입력하세요."});
+    internal SetupForm(string target,bool testing){test=testing;Text="Hermes DevDesk 0.8.23 설치";Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);Width=700;Height=440;StartPosition=FormStartPosition.CenterScreen;MaximizeBox=false;
+        Controls.Add(new Label{Left=24,Top=20,Width=640,Height=100,Text="독립 Windows 개발 에이전트 앱 · 사내 중계서버 연결\n.NET 런타임과 공식 CLI 포함. 실행 중인 이전 앱과 설치 파일 점유 프로세스를 강제 종료하고 App 폴더의 모든 파일을 교체합니다. 이력·설정은 별도 보존합니다.\n관리자 권한·방화벽·전역 설정 변경 없이 선택한 폴더에 설치합니다.\n회사 URL/모델명/API 키는 설치 후 앱에 직접 입력하세요."});
         path.SetBounds(24,130,530,28);path.Text=target;path.ReadOnly=true;var browse=new Button{Text="폴더 선택"};browse.SetBounds(565,128,100,30);browse.Enabled=false;browse.Click+=delegate{using(var d=new FolderBrowserDialog())if(d.ShowDialog(this)==DialogResult.OK)path.Text=d.SelectedPath;};
         progress.SetBounds(24,177,640,22);status.SetBounds(24,210,640,65);InstallButton.SetBounds(24,290,190,38);RemoveButton.SetBounds(237,290,190,38);CancelControl.SetBounds(450,290,215,38);var close=new Button{Text="닫기"};close.SetBounds(550,340,115,32);close.Click+=delegate{Close();};LaunchButton.SetBounds(24,340,190,32);
         Controls.AddRange(new Control[]{path,browse,progress,status,InstallButton,RemoveButton,CancelControl,LaunchButton,close});
