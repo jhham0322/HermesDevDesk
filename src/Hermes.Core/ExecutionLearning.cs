@@ -42,8 +42,19 @@ public sealed partial class DeskController
         }
         catch (Exception ex)
         {
-            var evidence = Memory.Record(MemoryScope(task), task.Id, request.Params.Text("turnId") + "/" + request.Id, MemoryPurpose(task), tool == "hermes_command" ? "command" : "memory", tool == "hermes_command" ? args.Text("command") : args.Text("action"), false, ex.Message);
-            var failure = ExecutionMemory.Clean(ex.Message) + Memory.RecoveryContext(MemoryScope(task), task.Id, evidence);
+            var failure = ExecutionMemory.Clean(ex.Message);
+            // RunLearnedCommand records actual executions. A rejected third/fourth request
+            // must not become a new attempt and displace the two matching failures.
+            if (tool == "hermes_command")
+            {
+                var prior = Memory.Recent(MemoryScope(task), task.Id).FirstOrDefault(e => e.Tool == "command" && e.Method == ExecutionMemory.Clean(args.Text("command")));
+                if (prior != null) failure += Memory.RecoveryContext(MemoryScope(task), task.Id, prior);
+            }
+            else
+            {
+                var evidence = Memory.Record(MemoryScope(task), task.Id, request.Params.Text("turnId") + "/" + request.Id, MemoryPurpose(task), "memory", args.Text("action"), false, ex.Message);
+                failure += Memory.RecoveryContext(MemoryScope(task), task.Id, evidence);
+            }
             if (engine == Engine) try { await engine.RespondAsync(request, new { success = false, contentItems = new[] { new { type = "inputText", text = failure } } }); } catch (IOException) { }
         }
         finally { gate.Release(); }

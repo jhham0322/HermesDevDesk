@@ -7,7 +7,7 @@ internal static class TaskLoopEngineTests
 {
     internal static async Task Run(string root, string exe)
     {
-        Directory.CreateDirectory(root); var queue = new ConcurrentQueue<Action>(); var calls = 0; var recovered = false;
+        Directory.CreateDirectory(root); var queue = new ConcurrentQueue<Action>(); var calls = 0; var recovered = false; var repeatedBlocked = true;
         var counter = Path.Combine(root, "counter.txt").Replace("'", "''");
         var failed = "Add-Content -LiteralPath '" + counter + "' -Value attempt; Write-Output 'Error: missing dependency'; exit 7";
         await using var server = new LoopbackHttp(async (request, stream, ct) =>
@@ -18,18 +18,17 @@ internal static class TaskLoopEngineTests
             var lastTool = body.GetProperty("messages").EnumerateArray().LastOrDefault(m => m.Text("role") == "tool");
             object? call = null;
             if (n is 2 or 3) call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "dependency repair", command = failed, timeoutMs = 90000 }) };
-            if (n == 4)
-            {
-                recovered = lastTool.Text("content").Contains("자동 개선 전환");
-                call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "dependency repair", command = "Write-Output LOOP_VERIFIED_RESULT", timeoutMs = 90000 }) };
-            }
-            if (n == 5)
+            if (n == 4) recovered = lastTool.Text("content").Contains("자동 개선 전환");
+            if (n is 4 or 5) call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "dependency repair", command = failed, timeoutMs = 90000 }) };
+            if (n is 5 or 6) repeatedBlocked &= lastTool.Text("content").Contains("2회 반복");
+            if (n == 6) call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "dependency repair", command = "Write-Output LOOP_VERIFIED_RESULT", timeoutMs = 90000 }) };
+            if (n == 7)
             {
                 var evidence = long.Parse(Regex.Match(lastTool.Text("content"), @"evidenceId=(\d+)").Groups[1].Value);
                 call = new { name = Name("hermes_task"), arguments = JsonSerializer.Serialize(new { action = "complete", verification = "Changed the command and observed LOOP_VERIFIED_RESULT, verifying the fixture objective.", evidenceId = evidence }) };
             }
-            if (n == 8) call = new { name = Name("hermes_task"), arguments = JsonSerializer.Serialize(new { action = "blocked", verification = "Fixture requires a credential supplied by the user before further work." }) };
-            if (n == 10) call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "pending command stop fixture", command = "Start-Sleep -Seconds 25; Write-Output SHOULD_NOT_COMPLETE" }) };
+            if (n == 10) call = new { name = Name("hermes_task"), arguments = JsonSerializer.Serialize(new { action = "blocked", verification = "Fixture requires a credential supplied by the user before further work." }) };
+            if (n == 12) call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "pending command stop fixture", command = "Start-Sleep -Seconds 25; Write-Output SHOULD_NOT_COMPLETE" }) };
             object response = call == null
                 ? new { id = "loop" + n, model = "loop-model", choices = new[] { new { message = new { role = "assistant", content = "Fixture response " + n }, finish_reason = "stop" } } }
                 : new { id = "loop" + n, model = "loop-model", choices = new[] { new { message = new { role = "assistant", tool_calls = new[] { new { id = "loop-call-" + n, type = "function", function = call } } }, finish_reason = "tool_calls" } } };
@@ -45,18 +44,18 @@ internal static class TaskLoopEngineTests
         await desk.StartAsync(task, "Repair dependency and verify fixture output until complete.", "loop-model", true, continueUntilComplete: true);
         await Wait(() => desk.Processes.Single().State == "완료");
         var scope = ExecutionMemory.Scope(root);
-        if (!recovered || calls != 6 || desk.Processes.Single().Round != 2 || File.ReadAllLines(Path.Combine(root, "counter.txt")).Length != 2 || desk.Memory.Errors(scope).Single().Occurrences != 2 || desk.Memory.Recoveries(scope).Count != 1)
-            throw new IOException("Loop/recovery mismatch: " + JsonSerializer.Serialize(new { calls, recovered, processes = desk.Processes, counter = File.Exists(Path.Combine(root, "counter.txt")) ? File.ReadAllLines(Path.Combine(root, "counter.txt")).Length : -1, errors = desk.Memory.Errors(scope), recoveries = desk.Memory.Recoveries(scope), attempts = desk.Memory.Recent(scope), transcript = task.Transcript.TakeLast(18) }));
+        if (!recovered || !repeatedBlocked || calls != 8 || desk.Processes.Single().Round != 2 || File.ReadAllLines(Path.Combine(root, "counter.txt")).Length != 2 || desk.Memory.Errors(scope).Single().Occurrences != 2 || desk.Memory.Recoveries(scope).Count != 1)
+            throw new IOException("Loop/recovery mismatch: " + JsonSerializer.Serialize(new { calls, recovered, repeatedBlocked, processes = desk.Processes, counter = File.Exists(Path.Combine(root, "counter.txt")) ? File.ReadAllLines(Path.Combine(root, "counter.txt")).Length : -1, errors = desk.Memory.Errors(scope), recoveries = desk.Memory.Recoveries(scope), attempts = desk.Memory.Recent(scope), transcript = task.Transcript.TakeLast(18) }));
         var stop = desk.NewTask(project, "stop queued loop"); await desk.StartAsync(stop, "Remain incomplete until user stops.", "loop-model", true, continueUntilComplete: true);
         await Wait(() => stop.Status == "계속 실행 대기"); var stopProcess = desk.Processes.Single(p => p.TaskId == stop.Id); await desk.StopProcessAsync(stopProcess.Id);
-        await Task.Delay(1400); Pump(); if (calls != 7 || stopProcess.Active) throw new IOException("Stopped queued loop restarted");
+        await Task.Delay(1400); Pump(); if (calls != 9 || stopProcess.Active) throw new IOException("Stopped queued loop restarted");
         var blocked = desk.NewTask(project, "external blocker"); await desk.StartAsync(blocked, "Work requires fixture credential.", "loop-model", true, continueUntilComplete: true);
         await Wait(() => blocked.Status == "사용자 확인 필요");
         var active = desk.NewTask(project, "stop running command"); await desk.StartAsync(active, "Run fixture command until stopped.", "loop-model", true, continueUntilComplete: true);
         await Wait(() => active.Transcript.Any(t => t.Kind == "작업 진행" && t.Text.Contains("Start-Sleep")));
         await desk.StopProcessAsync(desk.Processes.Single(p => p.TaskId == active.Id).Id); await Wait(() => active.Status == "중단됨");
         await Task.Delay(1200); Pump(); if (desk.Processes.Single(p => p.TaskId == active.Id).Active) throw new IOException("Stopped active command loop resurrected");
-        File.WriteAllText(Path.Combine(root, "task-loop-engine-report.json"), JsonSerializer.Serialize(new { passed = true, calls, completionLoopRounds = 2, errorCount = 2, recovered, queuedStop = true, activeCommandStop = true, blocked = true, actualOfficialEngine = true, realModelCalls = 0 }));
+        File.WriteAllText(Path.Combine(root, "task-loop-engine-report.json"), JsonSerializer.Serialize(new { passed = true, calls, completionLoopRounds = 2, errorCount = 2, recovered, repeatedBlocked, queuedStop = true, activeCommandStop = true, blocked = true, actualOfficialEngine = true, realModelCalls = 0 }));
         Console.WriteLine("PASS official engine: completion loop, automatic recovery, error/improvement RAG, queued and active process stop, external blocker");
     }
 }
