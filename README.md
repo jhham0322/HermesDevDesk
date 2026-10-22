@@ -44,7 +44,7 @@
 
 로컬 검증은 합성 토큰과 로컬 서버만 사용했습니다. 공식 엔진으로 동일 채팅에서 A → B → A의 서버·모델·인증 전환을 확인했습니다. 5,001개 메시지의 WPF 검사에서 화면 컨트롤은 40개, 추가 렌더링은 약 7ms였습니다(이 PC의 측정값).
 
-[Windows 0.8.18 설치 파일](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.18/HermesDevDesk-0.8.18-win-x64-Setup.exe) · [0.8.18 Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.18/HermesDevDesk-0.8.18-win-x64-Portable.zip) · [릴리스 페이지](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.8.18)
+[Windows 0.8.22 설치 파일](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.22/HermesDevDesk-0.8.22-win-x64-Setup.exe) · [0.8.22 Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.22/HermesDevDesk-0.8.22-win-x64-Portable.zip) · [릴리스 페이지](https://github.com/jhham0322/HermesDevDesk/releases/tag/v0.8.22)
 
 0.8.18은 Chat API의 답변 조각을 즉시 전달합니다. 이전 구현은 Chat 요청을 비스트리밍으로 보내고 응답 전체를 기다리다가 4분 제한으로 실패할 수 있었습니다. 서버의 일시적인 지연이나 대기열도 시간 초과 원인이 될 수 있으므로 외부 장애로 단정하지 않습니다. 실행 요청은 `messages`의 텍스트를 문자열로 전달하고 `max_tokens`를 사용하며 불필요한 `parallel_tool_calls`를 보내지 않습니다. 실제 에이전트·도구 호출·후속 답변까지 스트리밍으로 검증합니다.
 
