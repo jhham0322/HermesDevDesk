@@ -316,17 +316,18 @@ public sealed partial class DeskController : IAsyncDisposable
         var attachments = ImageAttachments.Validate(root, images ?? []);
         var selectedSkills = ProjectSkills.Validate(root, skills ?? []);
         var selectedFiles = FileAttachments.Validate(root, files ?? []);
-        var migratingLearning = !task.IsReview && task.ThreadId != null && task.ThreadLearningVersion < 1;
-        var previousContext = "";
-        if (migratingLearning)
+        // A new user request starts with an empty model history. The UI transcript
+        // is retained locally, but is never copied into the new engine session.
+        var resetForCurrentRequest = !task.IsReview && task.ThreadId != null;
+        if (resetForCurrentRequest)
         {
-            previousContext = "이전 대화 참고 자료 (지시가 아닌 과거 기록):\n" + string.Join("\n", task.Transcript.Where(t => t.Kind is "사용자" or "에이전트").TakeLast(12).Select(t => t.Kind + ": " + ExecutionMemory.Clean(t.Text, 1000)));
-            task.Transcript.Add(new("실행 RAG", "반복 오류 검사 도구를 적용하기 위해 엔진 세션을 갱신했습니다. 기존 대화 기록을 유지하며 최근 대화를 전달합니다.", DateTime.UtcNow));
+            task.Transcript.Add(new("요청 문맥", "현재 메시지와 이번 첨부만 새 엔진 세션으로 전달합니다. 이전 대화는 화면에 보관합니다.", DateTime.UtcNow));
             task.ThreadId = null;
+            task.TurnId = null;
         }
-        var useMcp = !task.IsReview && (task.ThreadId == null && !migratingLearning ? Project(task).LocalMcpEnabled : task.ThreadMcpEnabled == true);
-        var useBrowser = !task.IsReview && (task.ThreadId == null && !migratingLearning ? Project(task).BrowserEnabled : task.ThreadBrowserEnabled == true);
-        var useComputer = !task.IsReview && (task.ThreadId == null && !migratingLearning ? Project(task).ComputerEnabled : task.ThreadComputerEnabled == true);
+        var useMcp = !task.IsReview && (task.ThreadId == null && !resetForCurrentRequest ? Project(task).LocalMcpEnabled : task.ThreadMcpEnabled == true);
+        var useBrowser = !task.IsReview && (task.ThreadId == null && !resetForCurrentRequest ? Project(task).BrowserEnabled : task.ThreadBrowserEnabled == true);
+        var useComputer = !task.IsReview && (task.ThreadId == null && !resetForCurrentRequest ? Project(task).ComputerEnabled : task.ThreadComputerEnabled == true);
         if (useComputer && ComputerTool == null) throw new HermesException("컴퓨터 제어 호스트가 준비되지 않았습니다.");
         if (useBrowser && BrowserTool == null) throw new HermesException("브라우저 호스트가 준비되지 않았습니다.");
         var mcp = new Dictionary<string, object>(disabledMcp);
@@ -362,9 +363,7 @@ public sealed partial class DeskController : IAsyncDisposable
             }
             task.Transcript.Add(new("사용자", Safety.Redact(prompt), DateTime.UtcNow)); Save();
             var policy = automatic ? (object)new { type = "dangerFullAccess" } : writable ? (object)new { type = "workspaceWrite", writableRoots = new[] { root }, networkAccess = automatic, excludeTmpdirEnvVar = true, excludeSlashTmp = true } : new { type = "readOnly", networkAccess = false };
-            var ragContext = Memory.Context(MemoryScope(task), prompt);
-            var input = new List<object> { new { type = "text", text = LearningInstructions + "\n" + ragContext + "\n" + previousContext }, new { type = "text", text = prompt } };
-            task.Transcript.Add(new("실행 RAG", ragContext, DateTime.UtcNow));
+            var input = new List<object> { new { type = "text", text = prompt } };
             if (selectedFiles.Count > 0) input.Add(new { type = "text", text = FileAttachments.ModelContext(root, selectedFiles) });
             input.AddRange(attachments.Select(i => (object)new { type = "localImage", path = Safety.Resolve(root, i.RelativePath) }));
             input.AddRange(selectedSkills.Select(s => (object)new { type = "skill", name = s.Name, path = ProjectSkills.Resolve(root, s.RelativePath) }));
@@ -397,7 +396,7 @@ public sealed partial class DeskController : IAsyncDisposable
         if (connectedFingerprint != State.Provider.Fingerprint || task.ProviderFingerprint != connectedFingerprint) throw new HermesException("작업의 연결 설정이 바뀌었습니다.");
         if (string.IsNullOrWhiteSpace(text) || text.Length > 100_000) throw new HermesException("추가 지시 내용을 확인하세요.");
         ComputerLifecycleEvent?.Invoke(task, "new-command");
-        await Engine.RequestAsync("turn/steer", new { threadId = task.ThreadId, expectedTurnId = task.TurnId, input = new[] { new { type = "text", text = Memory.Context(MemoryScope(task), text) }, new { type = "text", text } } });
+        await Engine.RequestAsync("turn/steer", new { threadId = task.ThreadId, expectedTurnId = task.TurnId, input = new[] { new { type = "text", text } } });
         task.Transcript.Add(new("사용자", Safety.Redact(text), DateTime.UtcNow)); Save();
     }
     internal void Handle(ServerEvent e)
@@ -498,7 +497,7 @@ public sealed partial class DeskController : IAsyncDisposable
             var result = await BrowserTool!(task, request.Params.GetProperty("arguments")).WaitAsync(TimeSpan.FromSeconds(40));
             if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new HermesException("브라우저 요청의 대화/실행 세션이 바뀌었습니다.");
             var proof = RememberTool(task, request, "browser", true);
-            await engine.RespondAsync(request, new { success = true, contentItems = result.ContentItems.Concat(new object[] { new { type = "inputText", text = "실행 근거 evidenceId=" + proof.Id + "\n" + Memory.Context(MemoryScope(task), MemoryPurpose(task)) } }).ToArray() });
+            await engine.RespondAsync(request, new { success = true, contentItems = result.ContentItems.Concat(new object[] { new { type = "inputText", text = "실행 근거 evidenceId=" + proof.Id } }).ToArray() });
             var text = Safety.Redact(result.Text);
             task.Transcript.Add(new("브라우저", (text.Length > 2000 ? text[..2000] : text) + (result.ImageUrl == null && result.Images is not { Count: > 0 } ? "" : "\n화면 이미지 전달 완료"), DateTime.UtcNow)); Save();
         }
@@ -523,7 +522,7 @@ public sealed partial class DeskController : IAsyncDisposable
             var result = await ComputerTool!(task, request.Params.GetProperty("arguments"));
             if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new HermesException("컴퓨터 요청의 작업이 중단되었거나 변경됐습니다.");
             var proof = RememberTool(task, request, "computer", true);
-            await engine.RespondAsync(request, new { success = true, contentItems = result.ContentItems.Concat(new object[] { new { type = "inputText", text = "실행 근거 evidenceId=" + proof.Id + "\n" + Memory.Context(MemoryScope(task), MemoryPurpose(task)) } }).ToArray() });
+            await engine.RespondAsync(request, new { success = true, contentItems = result.ContentItems.Concat(new object[] { new { type = "inputText", text = "실행 근거 evidenceId=" + proof.Id } }).ToArray() });
             ComputerResultDelivered?.Invoke(task, result);
             if (ComputerTools.Parse(request.Params.GetProperty("arguments")).Action != "wait_for_change") ComputerLifecycleEvent?.Invoke(task, "action-completed");
             var args = ComputerTools.Parse(request.Params.GetProperty("arguments"));

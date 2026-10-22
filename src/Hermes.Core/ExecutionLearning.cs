@@ -41,7 +41,7 @@ public sealed partial class DeskController
         }
         catch (Exception ex)
         {
-            if (engine == Engine) try { await engine.RespondAsync(request, new { success = false, contentItems = new[] { new { type = "inputText", text = ExecutionMemory.Clean(ex.Message) + "\n" + Memory.Context(MemoryScope(task), args.Text("purpose") + " " + args.Text("command")) } } }); } catch (IOException) { }
+            if (engine == Engine) try { await engine.RespondAsync(request, new { success = false, contentItems = new[] { new { type = "inputText", text = ExecutionMemory.Clean(ex.Message) } } }); } catch (IOException) { }
         }
         finally { gate.Release(); }
     }
@@ -68,7 +68,7 @@ public sealed partial class DeskController
             var summary = $"evidenceId={evidence.Id}; exit={result.Property("exitCode")}\n" + ExecutionMemory.Clean(output, 20000);
             task.Transcript.Add(new("명령 결과", ExecutionMemory.Clean(command) + "\n" + summary, DateTime.UtcNow)); Save();
             if (task.TurnId != turnId || task.Status != "실행 중") return "명령 결과를 기록했지만 원래 실행은 중단되었습니다.";
-            return summary + "\n" + Memory.Context(MemoryScope(task), purpose);
+            return summary;
         }
         catch (Exception ex)
         {

@@ -15,6 +15,10 @@ internal static class SimpleGatewayEngineTests
             using var probe = JsonDocument.Parse(request.Body);
             if (probe.RootElement.Property("max_tokens")?.GetInt32() == 1) { await LoopbackHttp.Reply(stream, 200, "application/json", AnthropicTests.Message().ToJsonString(), ct); return; }
             using var doc = JsonDocument.Parse(request.Body); var body = doc.RootElement; var count = Interlocked.Increment(ref requests); var output = new JsonArray();
+            var wire = body.GetRawText();
+            if (wire.Contains("OLD_UI_ONLY_SENTINEL") || wire.Contains("OLD_MEMORY_ONLY_SENTINEL")) throw new IOException("old UI or automatic RAG history leaked");
+            if (count == 3 && (wire.Contains("Inspect approved computer fixture") || wire.Contains("COMPUTER_HOST_FIXTURE") || !wire.Contains("Pending computer fixture")))
+                throw new IOException("previous request history leaked into the new user request");
             if (count is 1 or 3)
             {
                 var name = body.GetProperty("tools").EnumerateArray().Select(t => t.Text("name")).FirstOrDefault(n => n.EndsWith("hermes_computer", StringComparison.Ordinal)) ?? "";
@@ -34,14 +38,17 @@ internal static class SimpleGatewayEngineTests
         desk.Configure(new() { Endpoint = mock.BaseUri.AbsoluteUri, Deployment = "computer-fixture", Protocol = ProviderProtocol.GatewayAuto, Authentication = ProviderAuth.BearerKey }, "SYNTHETIC_COMPUTER_ENGINE_KEY");
         desk.ComputerTool = (_, args) => { ComputerTools.Parse(args); callbacks++; return callbacks == 1 ? Task.FromResult(new ComputerToolResult("COMPUTER_HOST_FIXTURE", "data:image/png;base64," + NativeFeatureTests.Png)) : pending.Task; };
         desk.ComputerStopRequested += task => { if (task != null && stopPhase) { stop = true; pending.TrySetException(new IOException("fixture emergency stop")); } };
-        var project = desk.Register(root); project.ComputerEnabled = true; await desk.ConnectAsync(exe, root);
+        var project = desk.Register(root); project.ComputerEnabled = true; project.BrowserEnabled = false; project.LocalMcpEnabled = false; await desk.ConnectAsync(exe, root);
         void Pump() { while (queue.TryDequeue(out var action)) action(); }
         async Task Wait(Func<bool> until) { var clock = System.Diagnostics.Stopwatch.StartNew(); while (!until() && clock.Elapsed < TimeSpan.FromSeconds(20)) { Pump(); await Task.Delay(20); } Pump(); if (!until()) throw new IOException("Computer engine fixture timed out: callbacks=" + callbacks + ";requests=" + requests); }
-        var chat = desk.NewTask(project, "Computer tool fixture"); await desk.StartAsync(chat, "Inspect approved computer fixture", "computer-fixture", false); await Wait(() => chat.Status == "완료");
+        var chat = desk.NewTask(project, "Computer tool fixture");
+        chat.Transcript.Add(new("사용자", "OLD_UI_ONLY_SENTINEL", DateTime.UtcNow));
+        desk.Memory.Record(ExecutionMemory.Scope(root), chat.Id, "old-memory", "Inspect approved computer fixture", "command", "OLD_MEMORY_ONLY_SENTINEL", true, "OLD_MEMORY_ONLY_SENTINEL");
+        await desk.StartAsync(chat, "Inspect approved computer fixture", "computer-fixture", false); await Wait(() => chat.Status == "완료");
         if (!catalog || !image || !result || callbacks != 1 || requests != 2) throw new IOException($"Computer round trip failed: catalog={catalog} image={image} result={result} calls={callbacks} requests={requests}");
         Console.WriteLine("PASS official engine through Anthropic: computer tool catalog, call correlation and screenshot image round trip");
-        stopPhase = true; await desk.StartAsync(chat, "Pending computer fixture", "computer-fixture", false); await Wait(() => callbacks == 2); await desk.StopAsync(chat); await Wait(() => chat.Status == "중단됨");
+        var previousThread = chat.ThreadId; stopPhase = true; await desk.StartAsync(chat, "Pending computer fixture", "computer-fixture", false); if (previousThread == chat.ThreadId || !chat.Transcript.Any(t => t.Text.Contains("OLD_UI_ONLY_SENTINEL"))) throw new IOException("new model session or local transcript preservation failed"); await Wait(() => callbacks == 2); await desk.StopAsync(chat); await Wait(() => chat.Status == "중단됨");
         if (!stop) throw new IOException("Computer stop callback missing"); Console.WriteLine("PASS interrupt stops pending computer host request");
-        File.WriteAllText(reportPath, JsonSerializer.Serialize(new { version = "0.8.8", catalog, image, result, callbacks, stop, status = chat.Status, actualOfficialEngine = true, syntheticProviderOnly = true, realModelCalls = false }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(reportPath, JsonSerializer.Serialize(new { version = "0.8.22", latestRequestOnly = true, localTranscriptPreserved = true, catalog, image, result, callbacks, stop, status = chat.Status, actualOfficialEngine = true, syntheticProviderOnly = true, realModelCalls = false }, new JsonSerializerOptions { WriteIndented = true }));
     }
 }
