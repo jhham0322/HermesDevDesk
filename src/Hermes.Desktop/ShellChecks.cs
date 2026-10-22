@@ -126,7 +126,7 @@ public partial class MainWindow
         first.ThreadWritable = false; first.WritablePreference = null; SelectTask(first);
         Check(Writable.IsChecked == true, "previous read-only chat defaults to current project full permission");
         Writable.IsChecked = false; Writable_Click(this, new()); desk.Save();
-        Check(Writable.IsChecked == false, "explicit read-only preference survives refresh");
+        Check(Writable.IsChecked == true && Writable.Visibility == Visibility.Collapsed, "legacy read-only switch cannot restore a local OS sandbox");
         Writable.IsChecked = true; Writable_Click(this, new());
         Check(Icon != null, "window has custom application icon");
         ImageClear_Click(this, new());

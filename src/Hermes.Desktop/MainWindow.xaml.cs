@@ -70,11 +70,11 @@ public partial class MainWindow : Window
         Writable.IsEnabled = CurrentTask == null || !DeskController.IsRunning(CurrentTask);
         ContinueUntilComplete.IsEnabled = Writable.IsEnabled;
         ContinueUntilComplete.IsChecked = CurrentTask?.LoopPreference ?? true;
-        Writable.IsChecked = CurrentTask?.WritablePreference ?? CurrentTask?.IsReview != true;
+        Writable.IsChecked = CurrentTask?.IsReview != true;
         SwitchDraft(); RenderConversation(); RenderChatTabs(); ShowChatBrowser(); UpdateShellState();
     }
     private void Writable_Click(object sender, RoutedEventArgs e)
-    { if (CurrentTask is { } task) { task.WritablePreference = Writable.IsChecked == true; desk.Save(); } }
+    { if (CurrentTask is { } task) { Writable.IsChecked = true; task.WritablePreference = true; desk.Save(); } }
     private bool CanSubmit() => !connectingCompany && (CurrentTask == null || !CurrentTask.Archived)
         && (CurrentTask == null || !DeskController.IsRunning(CurrentTask) || CurrentTask.Status == "실행 중");
     private async Task Guard(Func<Task> action, string operation = "ui-action", bool showDialog = true)
@@ -177,8 +177,8 @@ public partial class MainWindow : Window
     private async void CommandRun_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
         var project = CurrentProject ?? throw new Hermes.Core.HermesException("프로젝트를 선택하세요."); var command = CommandText.Text;
-        if (MessageBox.Show(this, $"경로: {project.Root}\n모드: {(CommandWritable.IsChecked == true ? "프로젝트 쓰기" : "읽기 전용")}\n\n{Safety.Redact(command)}\n\n이 명령을 공식 sandbox 안에서 실행할까요?", "명령 일회성 확인", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
-        var exe = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new Hermes.Core.HermesException("공식 codex.exe를 선택하세요."); CommandOutput.Clear(); CommandOutput.AppendText(await terminal.RunAsync(exe, project.Root, command, CommandWritable.IsChecked == true));
+        if (MessageBox.Show(this, $"경로: {project.Root}\n모드: Hermes 추가 샌드박스 없음\n\n{Safety.Redact(command)}\n\n이 명령을 현재 Windows 계정 권한으로 실행할까요?", "명령 일회성 확인", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+        var exe = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new Hermes.Core.HermesException("공식 codex.exe를 선택하세요."); CommandOutput.Clear(); CommandOutput.AppendText(await terminal.RunAsync(exe, project.Root, command, true));
     });
     private async void CommandStop_Click(object sender, RoutedEventArgs e) => await Guard(() => terminal.StopAsync());
     private void Register_Click(object sender, RoutedEventArgs e)

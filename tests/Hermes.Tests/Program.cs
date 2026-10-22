@@ -19,6 +19,7 @@ if (args.Contains("app-server"))
         {
             "initialize" => new { userAgent = "unit-fixture" },
             "echo" => e.GetProperty("params").Clone(),
+            "execution-profile" => new { arguments = Environment.GetCommandLineArgs() },
             _ => new { ok = true }
         };
         Console.WriteLine(JsonSerializer.Serialize(new { id = id.Clone(), result = response }));
@@ -219,6 +220,9 @@ await using (var rpc = new AppServerClient())
     rpc.Notification += e => { if (e.Method == "test/event") eventSeen.TrySetResult(true); };
     rpc.Approval += r => requestSeen.TrySetResult(r);
     await rpc.ConnectAsync(Environment.ProcessPath!, root);
+    var profile = await rpc.RequestAsync("execution-profile", new { });
+    var launchArgs = profile.GetProperty("arguments").EnumerateArray().Select(v => v.GetString() ?? "").ToArray();
+    Assert(launchArgs.Contains("sandbox_mode=\"danger-full-access\"") && !launchArgs.Any(v => v.StartsWith("windows.sandbox=")), "engine starts without a Windows sandbox profile or restricted default");
     var echo = await rpc.RequestAsync("echo", new { value = "stream contract" }); Assert(echo.Text("value") == "stream contract", "JSONL request/response correlation");
     await rpc.RequestAsync("emit", new { }); await eventSeen.Task.WaitAsync(TimeSpan.FromSeconds(5)); Assert(true, "notification dispatch");
     await rpc.RequestAsync("approval", new { }); var req = await requestSeen.Task.WaitAsync(TimeSpan.FromSeconds(5)); await rpc.RespondAsync(req, new { decision = "decline" }); Assert(req.Id.GetString() == "server-1", "server request string ID and response");

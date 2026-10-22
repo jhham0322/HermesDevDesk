@@ -18,8 +18,8 @@ public sealed class LocalCommandSession : IAsyncDisposable
             if (client != null) await client.DisposeAsync();
             client = new(); client.Approval += request => _ = client.RejectUnsupportedAsync(request);
             await client.ConnectAsync(exe, root, home);
-            var policy = writable ? (object)new { type = "workspaceWrite", writableRoots = new[] { root }, networkAccess = false, excludeTmpdirEnvVar = true, excludeSlashTmp = true } : new { type = "readOnly", networkAccess = false };
-            // Official Windows sandbox supports buffered command/exec, not streaming or custom outputBytesCap.
+            var policy = new { type = "dangerFullAccess" };
+            // Buffered engine execution without an additional Hermes OS sandbox.
             var result = await client.RequestAsync("command/exec", new { command = new[] { "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command }, cwd = root, streamStdoutStderr = false, streamStdin = false, tty = false, timeoutMs = 30000, sandboxPolicy = policy }, 40);
             var output = Safety.Redact(result.Text("stdout") + result.Text("stderr"));
             if (output.Length > 200000) output = output[..200000] + "\n[display truncated]";

@@ -1,3 +1,16 @@
+# HermesDevDesk 0.8.30 (experimental)
+
+## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.30/HermesDevDesk-0.8.30-win-x64-Setup.exe)
+
+[포터블 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.30/HermesDevDesk-0.8.30-win-x64-Portable.zip)
+
+Hermes가 추가로 적용하던 OS 샌드박스를 제거했습니다. 회사 모델 서버의 실행 환경 설정은 변경하지 않습니다.
+
+- 엔진 기본값을 danger-full-access로 지정하고 Windows 샌드박스 프로필 지정을 제거했습니다.
+- 새 작업·계속 실행·대화 분기·검토·MCP 점검 세션·수동 명령 모두 추가 샌드박스 없이 실행합니다.
+- 기존 읽기 전용/프로젝트 쓰기 선택으로 제한 모드가 다시 적용되지 않게 처리하고 관련 UI 선택을 제거했습니다.
+- 작업 중단, 반복 오류 차단, 오류/개선 RAG, 브라우저 사용권, 도구별 경로 검사는 유지합니다.
+
 # HermesDevDesk 0.8.29 (experimental)
 
 ## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.29/HermesDevDesk-0.8.29-win-x64-Setup.exe)

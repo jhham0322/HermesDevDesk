@@ -1,12 +1,14 @@
-# Hermes DevDesk 0.8.29
+# Hermes DevDesk 0.8.30
 
-## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.29/HermesDevDesk-0.8.29-win-x64-Setup.exe)
+## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.30/HermesDevDesk-0.8.30-win-x64-Setup.exe)
 
 Windows 64비트용 설치 프로그램입니다. 위 링크를 누르면 설치 파일 다운로드가 시작됩니다.
 
-[설치 없이 실행하는 포터블 ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.29/HermesDevDesk-0.8.29-win-x64-Portable.zip) · [최신 릴리스 보기](https://github.com/jhham0322/HermesDevDesk/releases/latest)
+[설치 없이 실행하는 포터블 ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.30/HermesDevDesk-0.8.30-win-x64-Portable.zip) · [최신 릴리스 보기](https://github.com/jhham0322/HermesDevDesk/releases/latest)
 
 ---
+
+Hermes는 추가 OS 샌드박스를 적용하지 않습니다. AI 작업, 자동 계속 실행, 대화 분기와 수동 명령은 현재 Windows 계정 권한으로 실행합니다. 기존 읽기 전용/프로젝트 쓰기 선택도 추가 샌드박스를 켜지 않습니다. 회사 모델 서버의 설정은 변경하지 않습니다.
 
 # 공통 브라우저 · 0.8.28
 
@@ -66,7 +68,7 @@ Windows 64비트용 설치 프로그램입니다. 위 링크를 누르면 설치
 
 로컬 검증은 합성 토큰과 로컬 서버만 사용했습니다. 공식 엔진으로 동일 채팅에서 A → B → A의 서버·모델·인증 전환을 확인했습니다. 5,001개 메시지의 WPF 검사에서 화면 컨트롤은 40개, 추가 렌더링은 약 7ms였습니다(이 PC의 측정값).
 
-[Windows 설치 파일 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.29/HermesDevDesk-0.8.29-win-x64-Setup.exe) · [Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.29/HermesDevDesk-0.8.29-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
+[Windows 설치 파일 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.30/HermesDevDesk-0.8.30-win-x64-Setup.exe) · [Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.30/HermesDevDesk-0.8.30-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
 
 0.8.18은 Chat API의 답변 조각을 즉시 전달합니다. 이전 구현은 Chat 요청을 비스트리밍으로 보내고 응답 전체를 기다리다가 4분 제한으로 실패할 수 있었습니다. 서버의 일시적인 지연이나 대기열도 시간 초과 원인이 될 수 있으므로 외부 장애로 단정하지 않습니다. 실행 요청은 `messages`의 텍스트를 문자열로 전달하고 `max_tokens`를 사용하며 불필요한 `parallel_tool_calls`를 보내지 않습니다. 실제 에이전트·도구 호출·후속 답변까지 스트리밍으로 검증합니다.
 

@@ -99,8 +99,8 @@ public sealed partial class DeskController
                 throw new HermesException("연결 상태가 바뀌었습니다. 같은 모델에 다시 연결한 뒤 실행하세요.");
             process.State = "실행 중"; process.Round++; process.Updated = DateTime.UtcNow; task.Status = "시작 중";
             var root = Safety.ProjectRoot(Project(task).Root);
-            var automatic = task.Writable && Project(task).FullPermissions;
-            var policy = automatic ? (object)new { type = "dangerFullAccess" } : task.Writable ? (object)new { type = "workspaceWrite", writableRoots = new[] { root }, networkAccess = false, excludeTmpdirEnvVar = true, excludeSlashTmp = true } : new { type = "readOnly", networkAccess = false };
+            var automatic = !task.IsReview;
+            var policy = new { type = "dangerFullAccess" };
             var prompt = "Continue the original authorized objective. Do the remaining work and verify its outcome; do not merely repeat a status message. " + LoopInstructions + "\nOriginal objective:\n" + process.Goal + "\n" + Memory.Context(MemoryScope(task), process.Goal);
             task.Transcript.Add(new("자동 계속", $"{process.Round}회차 · 미완료 작업을 이어서 수행합니다.", DateTime.UtcNow)); Save();
             var result = await engine.RequestAsync("turn/start", new { threadId = task.ThreadId, cwd = root, model = task.Model, effort = task.ReasoningEffort.Length == 0 ? null : task.ReasoningEffort, summary = "auto", approvalPolicy = automatic ? "never" : "on-request", approvalsReviewer = "user", sandboxPolicy = policy, input = new[] { new { type = "text", text = prompt } } });

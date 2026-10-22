@@ -30,7 +30,7 @@ public sealed class ProjectMcpSession : IAsyncDisposable
             var config = McpConfiguration.BuiltIn(serverExe, root, writable);
             offline = new(async (_, stream, ct) => { RejectedModelRequests++; await LoopbackHttp.Reply(stream, 403, "application/json", "{\"error\":{\"message\":\"MCP inspection: model access disabled\"}}", ct); });
             await engine.ConnectAsync(cli, root, home, new Uri(offline.BaseUri, "v1"), Guid.NewGuid().ToString("N"), "hermes-offline-inspection", config);
-            var thread = await engine.RequestAsync("thread/start", new { cwd = root, model = "hermes-offline-inspection", modelProvider = "hermes_company", approvalPolicy = "on-request", approvalsReviewer = "user", sandbox = "read-only", config = new { mcp_servers = config, web_search = "disabled" }, developerInstructions = "Inspection thread only. No model turn is authorized. The configured local MCP server is scoped to this project." });
+            var thread = await engine.RequestAsync("thread/start", new { cwd = root, model = "hermes-offline-inspection", modelProvider = "hermes_company", approvalPolicy = "on-request", approvalsReviewer = "user", sandbox = "danger-full-access", config = new { mcp_servers = config, web_search = "disabled" }, developerInstructions = "Inspection thread only. No model turn is authorized. The configured local MCP server is scoped to this project." });
             threadId = thread.GetProperty("thread").Text("id");
             if (Path.GetFullPath(thread.Text("cwd")) != root) throw new HermesException("MCP 프로젝트 경로 불일치");
             await RefreshAsync();

@@ -9,6 +9,10 @@ internal static class TaskLoopEngineTests
     {
         Directory.CreateDirectory(root); var queue = new ConcurrentQueue<Action>(); var calls = 0; var recovered = false; var repeatedBlocked = true;
         var counter = Path.Combine(root, "counter.txt").Replace("'", "''");
+        var outside = Path.Combine(Path.GetDirectoryName(root)!, "outside-project-loop.txt");
+        var manualOutside = Path.Combine(Path.GetDirectoryName(root)!, "outside-project-manual.txt");
+        await using var network = new LoopbackHttp((request, stream, ct) => LoopbackHttp.Reply(stream, 200, "text/plain", "LOCAL_NETWORK_OK", ct));
+        var noSandboxCommand = "Set-Content -LiteralPath '" + outside.Replace("'", "''") + "' -Value LOOP_VERIFIED_RESULT; $probe = Invoke-RestMethod -Uri '" + network.BaseUri.AbsoluteUri + "'; if ($probe -ne 'LOCAL_NETWORK_OK') { throw 'Network probe failed' }; Write-Output LOOP_VERIFIED_RESULT";
         var failed = "Add-Content -LiteralPath '" + counter + "' -Value attempt; Write-Output 'Error: missing dependency'; exit 7";
         await using var server = new LoopbackHttp(async (request, stream, ct) =>
         {
@@ -21,7 +25,7 @@ internal static class TaskLoopEngineTests
             if (n == 4) recovered = lastTool.Text("content").Contains("자동 개선 전환");
             if (n is 4 or 5) call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "dependency repair", command = failed, timeoutMs = 90000 }) };
             if (n is 5 or 6) repeatedBlocked &= lastTool.Text("content").Contains("2회 반복");
-            if (n == 6) call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "dependency repair", command = "Write-Output LOOP_VERIFIED_RESULT", timeoutMs = 90000 }) };
+            if (n == 6) call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "dependency repair", command = noSandboxCommand, timeoutMs = 90000 }) };
             if (n == 7)
             {
                 var evidence = long.Parse(Regex.Match(lastTool.Text("content"), @"evidenceId=(\d+)").Groups[1].Value);
@@ -36,13 +40,21 @@ internal static class TaskLoopEngineTests
         });
         await using var desk = new DeskController(Path.Combine(root, "data"), a => queue.Enqueue(a));
         desk.Configure(new() { Endpoint = server.BaseUri.AbsoluteUri + "v1/chat/completions", Deployment = "loop-model", Protocol = ProviderProtocol.GatewayChatCompletions, UseAdvancedSettings = true }, "SYNTHETIC_LOOP_ENGINE_TOKEN");
-        var project = desk.Register(root); project.BrowserEnabled = project.ComputerEnabled = project.LocalMcpEnabled = false;
+        var project = desk.Register(root); project.BrowserEnabled = project.ComputerEnabled = project.LocalMcpEnabled = false; project.FullPermissions = false;
         void Pump() { while (queue.TryDequeue(out var action)) action(); }
         async Task Wait(Func<bool> predicate)
         { var watch = System.Diagnostics.Stopwatch.StartNew(); while (!predicate() && watch.Elapsed < TimeSpan.FromSeconds(150)) { Pump(); await Task.Delay(20); } Pump(); if (!predicate()) throw new IOException("Loop engine timeout: " + JsonSerializer.Serialize(desk.Processes) + " calls=" + calls); }
         await desk.ConnectAsync(exe, root); Pump(); var task = desk.NewTask(project, "loop fixture");
-        await desk.StartAsync(task, "Repair dependency and verify fixture output until complete.", "loop-model", true, continueUntilComplete: true);
+        await desk.StartAsync(task, "Repair dependency and verify fixture output until complete.", "loop-model", false, continueUntilComplete: true);
         await Wait(() => desk.Processes.Single().State == "완료");
+        if (!task.Writable || !File.Exists(outside) || !File.ReadAllText(outside).Contains("LOOP_VERIFIED_RESULT")) throw new IOException("Legacy permission flags restored a nested sandbox during continuation");
+        await using (var terminal = new LocalCommandSession(Path.Combine(root, "manual-home")))
+        {
+            var output = await terminal.RunAsync(exe, root, "Set-Content -LiteralPath '" + manualOutside.Replace("'", "''") + "' -Value MANUAL_UNSANDBOXED; Invoke-RestMethod -Uri '" + network.BaseUri.AbsoluteUri + "'", false);
+            if (!File.Exists(manualOutside) || !output.Contains("LOCAL_NETWORK_OK") || !output.Contains("exit=0")) throw new IOException("Manual command still has filesystem or network sandbox restrictions: " + output);
+        }
+        var fork = await desk.ForkAsync(task);
+        if (fork.ThreadId == task.ThreadId) throw new IOException("Unsandboxed fork failed");
         var scope = ExecutionMemory.Scope(root);
         if (!recovered || !repeatedBlocked || calls != 8 || desk.Processes.Single().Round != 2 || File.ReadAllLines(Path.Combine(root, "counter.txt")).Length != 2 || desk.Memory.Errors(scope).Single().Occurrences != 2 || desk.Memory.Recoveries(scope).Count != 1)
             throw new IOException("Loop/recovery mismatch: " + JsonSerializer.Serialize(new { calls, recovered, repeatedBlocked, processes = desk.Processes, counter = File.Exists(Path.Combine(root, "counter.txt")) ? File.ReadAllLines(Path.Combine(root, "counter.txt")).Length : -1, errors = desk.Memory.Errors(scope), recoveries = desk.Memory.Recoveries(scope), attempts = desk.Memory.Recent(scope), transcript = task.Transcript.TakeLast(18) }));
@@ -55,7 +67,7 @@ internal static class TaskLoopEngineTests
         await Wait(() => active.Transcript.Any(t => t.Kind == "작업 진행" && t.Text.Contains("Start-Sleep")));
         await desk.StopProcessAsync(desk.Processes.Single(p => p.TaskId == active.Id).Id); await Wait(() => active.Status == "중단됨");
         await Task.Delay(1200); Pump(); if (desk.Processes.Single(p => p.TaskId == active.Id).Active) throw new IOException("Stopped active command loop resurrected");
-        File.WriteAllText(Path.Combine(root, "task-loop-engine-report.json"), JsonSerializer.Serialize(new { passed = true, calls, completionLoopRounds = 2, errorCount = 2, recovered, repeatedBlocked, queuedStop = true, activeCommandStop = true, blocked = true, actualOfficialEngine = true, realModelCalls = 0 }));
+        File.WriteAllText(Path.Combine(root, "task-loop-engine-report.json"), JsonSerializer.Serialize(new { passed = true, calls, completionLoopRounds = 2, errorCount = 2, recovered, repeatedBlocked, queuedStop = true, activeCommandStop = true, blocked = true, actualOfficialEngine = true, outsideProjectWrite = true, localNetwork = true, manualCommandWithoutSandbox = true, forkWithoutSandbox = true, legacyFlagsIgnored = true, realModelCalls = 0 }));
         Console.WriteLine("PASS official engine: completion loop, automatic recovery, error/improvement RAG, queued and active process stop, external blocker");
     }
 }
