@@ -32,6 +32,7 @@ public partial class MainWindow : Window
         InitializeWindowPersistence();
         InitializeShell();
         InitializeAttachments();
+        InitializeOfficeAddins();
         terminal = new(Path.Combine(data, "terminal-home")); terminal.Output += text => Dispatcher.BeginInvoke(() => { CommandOutput.AppendText(text); if (CommandOutput.Text.Length > 300000) CommandOutput.Text = CommandOutput.Text[^200000..]; CommandOutput.ScrollToEnd(); });
         UsageStart.SelectedDate = DateTime.UtcNow.Date.AddDays(-6); UsageEnd.SelectedDate = DateTime.UtcNow.Date;
         desk.Diagnostic += s => { Logs.AppendText(s + "\n"); if (Logs.Text.Length > 200_000) Logs.Text = Logs.Text[^100_000..]; Logs.ScrollToEnd(); };

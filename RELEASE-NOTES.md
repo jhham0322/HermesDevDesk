@@ -1,3 +1,18 @@
+# HermesDevDesk 0.8.31 (experimental)
+
+## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.31/HermesDevDesk-0.8.31-win-x64-Setup.exe)
+
+[포터블 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.31/HermesDevDesk-0.8.31-win-x64-Portable.zip)
+
+Office에 등록된 추가 기능을 Office 실행 시 자동으로 로드합니다.
+
+- 설치 시 현재 사용자 로그인 자동 시작을 등록합니다. Hermes 창이 닫혀 있어도 Office를 감지합니다. 포터블은 Hermes 실행 시 로더가 시작됩니다.
+- Excel·Word·PowerPoint 등의 COM/VSTO 추가 기능을 연결합니다. Excel XLL/XLA/XLAM, Word 추가 기능 템플릿, PowerPoint PPA/PPAM도 앱의 추가 기능 목록에서 로드합니다.
+- 이미 연결된 항목은 유지하며, 한 항목이 실패해도 다음 항목을 계속 처리합니다. 로드 실패 항목을 같은 Office 세션에서 반복 실행하지 않습니다.
+- Office 연동 탭에서 앱별 모듈 상태, 실제 오류 원인, 검색 가능한 오류 RAG와 자동 로드 시작·중지를 제공합니다.
+- 별도 로더에 30초 응답 제한을 적용합니다. 회사 정책·보호 모드·서명 설정은 변경하지 않습니다. 웹 스토어 작업창 추가 기능 및 등록되지 않은 임의 DLL은 대상이 아닙니다.
+- 추가 OS 샌드박스 제거는 0.8.30 동작을 유지합니다.
+
 # HermesDevDesk 0.8.30 (experimental)
 
 ## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.30/HermesDevDesk-0.8.30-win-x64-Setup.exe)

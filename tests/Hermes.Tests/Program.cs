@@ -243,6 +243,7 @@ await SimpleGatewayTests.Run(baseDir, Assert);
 await DesktopFeatureTests.Run(baseDir, Assert);
 await ChatGitTests.Run(Path.Combine(baseDir, "chat-git"), Assert);
 ComputerFeatureTests.Run(Assert);
+OfficeAddinTests.Run(Assert);
 Console.WriteLine($"PASS {count} total checks including synthetic company server/security/usage. No real company endpoint or key used.");
 
 if (args.Contains("--company-engine-smoke"))

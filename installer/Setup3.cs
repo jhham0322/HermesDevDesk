@@ -8,12 +8,12 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-[assembly: AssemblyVersion("0.8.30.0")]
-[assembly: AssemblyFileVersion("0.8.30.0")]
+[assembly: AssemblyVersion("0.8.31.0")]
+[assembly: AssemblyFileVersion("0.8.31.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
 internal static class Setup
 {
-    internal const string Version="0.8.30";
+    internal const string Version="0.8.31";
     internal static string Target=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","HermesDevDesk","App");
     [STAThread] static int Main(string[] args)
     {
@@ -94,7 +94,7 @@ internal static class Setup
         Directory.CreateDirectory(r);if(!File.Exists(marker))File.WriteAllText(marker,id,new UTF8Encoding(false));if(!File.Exists(manifest))using(var s=z.GetEntry(".hermes-manifest.tsv").Open())using(var f=new FileStream(manifest,FileMode.CreateNew))s.CopyTo(f);
         int count=0;foreach(var pair in m){ct.ThrowIfCancellationRequested();var p=FilePath(r,pair.Key);if(!File.Exists(p)){Directory.CreateDirectory(Path.GetDirectoryName(p));var tmp=Path.Combine(Path.GetDirectoryName(p),".hermes-"+Guid.NewGuid().ToString("N")+".partial");try{using(var s=z.GetEntry(pair.Key).Open())using(var f=new FileStream(tmp,FileMode.CreateNew,FileAccess.Write,FileShare.None)){var buffer=new byte[1024*1024];int n;while((n=s.Read(buffer,0,buffer.Length))!=0){ct.ThrowIfCancellationRequested();f.Write(buffer,0,n);}}using(var f=File.OpenRead(tmp))if(Hash(f)!=pair.Value)throw new IOException("Written hash mismatch");ct.ThrowIfCancellationRequested();File.Move(tmp,p);}finally{if(File.Exists(tmp))File.Delete(tmp);}}count++;if(progress!=null)progress(count*100/m.Count,pair.Key);}}
     }
-    internal static void Remove(string r,CancellationToken ct,Action<int,string> progress){Root(r);r=Path.GetFullPath(r);using(var z=Payload()){var m=Manifest(z);Verify(z,m);var marker=FilePath(r,".hermes-owned");if(!File.Exists(marker)||File.ReadAllText(marker).Trim()!=Identity(z))throw new IOException("This installer does not own that destination");int count=0;foreach(var pair in m){ct.ThrowIfCancellationRequested();var p=FilePath(r,pair.Key);if(File.Exists(p)){bool same;using(var f=File.OpenRead(p))same=Hash(f)==pair.Value;if(same)File.Delete(p);}count++;if(progress!=null)progress(count*100/m.Count,pair.Key);}}}
+    internal static void Remove(string r,CancellationToken ct,Action<int,string> progress){Root(r);r=Path.GetFullPath(r);using(var z=Payload()){var m=Manifest(z);Verify(z,m);var marker=FilePath(r,".hermes-owned");if(!File.Exists(marker)||File.ReadAllText(marker).Trim()!=Identity(z))throw new IOException("This installer does not own that destination");ClosePreviousApp(r);ReleaseFileLocks(r,ct);int count=0;foreach(var pair in m){ct.ThrowIfCancellationRequested();var p=FilePath(r,pair.Key);if(File.Exists(p)){bool same;using(var f=File.OpenRead(p))same=Hash(f)==pair.Value;if(same)File.Delete(p);}count++;if(progress!=null)progress(count*100/m.Count,pair.Key);}}}
     internal static void ValidateInstalled(string r){Root(r);r=Path.GetFullPath(r);
         foreach(var name in new[]{"HermesDevDesk.exe","HermesDevDesk.dll"})if(System.Diagnostics.FileVersionInfo.GetVersionInfo(Path.Combine(r,name)).FileVersion!=Version+".0")throw new IOException("Installed app version differs from installer: "+name);
 using(var z=Payload()){var m=Manifest(z);var marker=FilePath(r,".hermes-owned");if(!File.Exists(marker)||File.ReadAllText(marker).Trim()!=Identity(z))throw new IOException("Install this exact version first");foreach(var pair in m){var p=FilePath(r,pair.Key);if(!File.Exists(p))throw new IOException("Incomplete installation: "+pair.Key);using(var s=File.OpenRead(p))if(Hash(s)!=pair.Value)throw new IOException("Modified app file: "+pair.Key);}}}
@@ -199,6 +199,21 @@ using(var z=Payload()){var m=Manifest(z);var marker=FilePath(r,".hermes-owned");
         }
         finally{System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shortcut);System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell);}
     }
+    internal static void RegisterOfficeLoader(string target){
+        var exe=Path.Combine(target,"HermesDevDesk.exe");Root(exe);
+        using(var key=Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"))key.SetValue("HermesDevDesk.OfficeAddins","\""+exe+"\" --office-addin-monitor");
+        var disabled=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesDevDesk","office-addins","disabled");
+        if(!File.Exists(disabled))System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe,"--office-addin-monitor"){UseShellExecute=false,CreateNoWindow=true,WindowStyle=System.Diagnostics.ProcessWindowStyle.Hidden}).Dispose();
+    }
+    internal static void UnregisterOfficeLoader(string target){
+        using(var key=Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run",true)){
+            var expected="\""+Path.Combine(target,"HermesDevDesk.exe")+"\" --office-addin-monitor";
+            if(key!=null&&String.Equals(key.GetValue("HermesDevDesk.OfficeAddins") as string,expected,StringComparison.OrdinalIgnoreCase)){
+                key.DeleteValue("HermesDevDesk.OfficeAddins",false);
+                var directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesDevDesk","office-addins");Directory.CreateDirectory(directory);File.WriteAllText(Path.Combine(directory,"disabled"),"설치 제거로 중지됨");
+            }
+        }
+    }
     static void CleanupTests(string root,string report){
         Root(root);if(Directory.Exists(root)&&Directory.GetFileSystemEntries(root).Length!=0)throw new IOException("Cleanup test requires an empty isolated directory");Directory.CreateDirectory(root);
         var installations=Path.Combine(root,"Programs","HermesDevDesk");Directory.CreateDirectory(installations);var current=Path.Combine(installations,Version);Directory.CreateDirectory(current);File.WriteAllText(Path.Combine(current,"keep.txt"),"CURRENT");
@@ -231,7 +246,7 @@ internal sealed class SetupForm:Form{
     internal Button InstallButton=new Button{Text="설치 / 재개"},RemoveButton=new Button{Text="이 버전 제거"},CancelControl=new Button{Text="작업 취소",Enabled=false};
     internal Button LaunchButton=new Button{Text="설치한 "+Setup.Version+" 실행"};
     internal Task Last;internal string Error;internal bool Cancelled,CancelAfterProgress;bool test;CancellationTokenSource cancellation;TextBox path=new TextBox();Label status=new Label();ProgressBar progress=new ProgressBar();
-    internal SetupForm(string target,bool testing){test=testing;Text="Hermes DevDesk 0.8.30 설치";Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);Width=700;Height=440;StartPosition=FormStartPosition.CenterScreen;MaximizeBox=false;
+    internal SetupForm(string target,bool testing){test=testing;Text="Hermes DevDesk 0.8.31 설치";Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);Width=700;Height=440;StartPosition=FormStartPosition.CenterScreen;MaximizeBox=false;
         Controls.Add(new Label{Left=24,Top=20,Width=640,Height=100,Text="독립 Windows 개발 에이전트 앱 · 사내 중계서버 연결\n.NET 런타임과 공식 CLI 포함. 실행 중인 이전 앱과 설치 파일 점유 프로세스를 강제 종료하고 App 폴더의 모든 파일을 교체합니다. 이력·설정은 별도 보존합니다.\n관리자 권한·방화벽·전역 설정 변경 없이 선택한 폴더에 설치합니다.\n회사 URL/모델명/API 키는 설치 후 앱에 직접 입력하세요."});
         path.SetBounds(24,130,530,28);path.Text=target;path.ReadOnly=true;var browse=new Button{Text="폴더 선택"};browse.SetBounds(565,128,100,30);browse.Enabled=false;browse.Click+=delegate{using(var d=new FolderBrowserDialog())if(d.ShowDialog(this)==DialogResult.OK)path.Text=d.SelectedPath;};
         progress.SetBounds(24,177,640,22);status.SetBounds(24,210,640,65);InstallButton.SetBounds(24,290,190,38);RemoveButton.SetBounds(237,290,190,38);CancelControl.SetBounds(450,290,215,38);var close=new Button{Text="닫기"};close.SetBounds(550,340,115,32);close.Click+=delegate{Close();};LaunchButton.SetBounds(24,340,190,32);
@@ -243,7 +258,7 @@ internal sealed class SetupForm:Form{
     async Task Run(bool remove){Error=null;Cancelled=false;cancellation=new CancellationTokenSource();var target=path.Text;InstallButton.Enabled=RemoveButton.Enabled=path.Enabled=false;CancelControl.Enabled=true;progress.Value=0;status.Text="무결성 검사 중…";
         try{Action<int,string> update=(n,file)=>{BeginInvoke((Action)(()=>{progress.Value=n;status.Text=file;if(test&&CancelAfterProgress)CancelControl.PerformClick();}));if(test&&CancelAfterProgress)Thread.Sleep(40);};
         int removedVersions=0;
-        await Task.Run(()=>{if(remove)Setup.Remove(target,cancellation.Token,update);else {Setup.Install(target,cancellation.Token,update);Setup.ValidateInstalled(target);if(!test){removedVersions=Setup.CleanupPreviousVersions(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","HermesDevDesk"),target);Setup.UpdateShortcut(target);}}});status.Text=remove?"제거 완료. 사용자 데이터는 보존했습니다.":"설치 완료 · 이전 버전 "+removedVersions+"개 정리 · 이력/설정 보존: "+Path.Combine(target,"HermesDevDesk.exe");}
+        await Task.Run(()=>{if(remove){if(!test)Setup.UnregisterOfficeLoader(target);Setup.Remove(target,cancellation.Token,update);}else {Setup.Install(target,cancellation.Token,update);Setup.ValidateInstalled(target);if(!test){removedVersions=Setup.CleanupPreviousVersions(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","HermesDevDesk"),target);Setup.UpdateShortcut(target);Setup.RegisterOfficeLoader(target);}}});status.Text=remove?"제거 완료. 사용자 데이터는 보존했습니다.":"설치 완료 · 이전 버전 "+removedVersions+"개 정리 · 이력/설정 보존: "+Path.Combine(target,"HermesDevDesk.exe");}
         catch(OperationCanceledException){Cancelled=true;status.Text="취소됨. 같은 경로에 설치 / 재개로 복구하세요.";}catch(Exception e){Error=e.Message;status.Text="실패: "+e.Message;if(!test)MessageBox.Show(this,e.Message,"복구 가능한 오류");}
         finally{cancellation.Dispose();cancellation=null;InstallButton.Enabled=RemoveButton.Enabled=path.Enabled=true;CancelControl.Enabled=false;}
     }
