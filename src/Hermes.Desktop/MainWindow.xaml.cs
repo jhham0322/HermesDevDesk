@@ -57,6 +57,7 @@ public partial class MainWindow : Window
             StartButton.IsEnabled = CanSubmit();
             RenderTask();
             RenderSidebar(); UpdateShellState();
+            if (InspectorTabs.SelectedItem == processTab) RefreshProcesses();
         }
         finally { refreshing = false; }
     }
@@ -67,6 +68,8 @@ public partial class MainWindow : Window
         TaskStatus.Text = CurrentTask == null ? "" : CurrentTask.Status + "  /  " + CurrentTask.Updated.ToLocalTime().ToString("g");
         TaskDetails.Text = CurrentTask == null ? "선택한 작업 없음" : Review.Detail(desk.State, CurrentTask);
         Writable.IsEnabled = CurrentTask == null || !DeskController.IsRunning(CurrentTask);
+        ContinueUntilComplete.IsEnabled = Writable.IsEnabled;
+        ContinueUntilComplete.IsChecked = CurrentTask?.LoopPreference ?? true;
         Writable.IsChecked = CurrentTask?.WritablePreference ?? CurrentTask?.IsReview != true;
         SwitchDraft(); RenderConversation(); RenderChatTabs(); ShowChatBrowser(); UpdateShellState();
     }
@@ -246,7 +249,7 @@ public partial class MainWindow : Window
             return;
         }
         if (task.Transcript.Count == 0) task.Title = Safety.Redact(prompt.Length > 45 ? prompt[..45] + "…" : prompt);
-        await desk.StartAsync(task, prompt, chosenModel, Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList(), effort: Effort.SelectedIndex > 0 ? Effort.SelectedItem as string : null, files: pendingFiles.ToList());
+        await desk.StartAsync(task, prompt, chosenModel, Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList(), effort: Effort.SelectedIndex > 0 ? Effort.SelectedItem as string : null, files: pendingFiles.ToList(), continueUntilComplete: ContinueUntilComplete.IsChecked == true);
         if (CurrentTask == task && Prompt.Text == prompt) { Prompt.Clear(); ImageClear_Click(this, new RoutedEventArgs()); SkillClear_Click(this, new RoutedEventArgs()); }
         else if (CurrentTask != task)
         {

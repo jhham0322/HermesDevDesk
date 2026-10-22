@@ -6,6 +6,7 @@ internal static class ToolProgress
 {
     private static string Label(JsonElement item) => item.Text("tool") switch
     {
+        "hermes_task" => "작업 완료·차단 확인",
         "hermes_memory" => "작업 기록 검색·관리",
         "hermes_command" => "명령 실행",
         "hermes_browser" => "브라우저 작업",

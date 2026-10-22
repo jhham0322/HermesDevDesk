@@ -26,7 +26,8 @@ public sealed partial class DeskController
         {
             if (engine != Engine || task.TurnId != turnId || task.Status != "실행 중") throw new HermesException("도구 요청의 실행이 중단되었거나 변경되었습니다.");
             string text;
-            if (tool == "hermes_memory")
+            if (tool == "hermes_task") text = DecideProcess(task, args, turnId ?? "");
+            else if (tool == "hermes_memory")
             {
                 if (args.Text("action") == "search") text = Memory.Context(MemoryScope(task), args.Text("query"));
                 else if (args.Text("action") == "improve")
@@ -41,7 +42,9 @@ public sealed partial class DeskController
         }
         catch (Exception ex)
         {
-            if (engine == Engine) try { await engine.RespondAsync(request, new { success = false, contentItems = new[] { new { type = "inputText", text = ExecutionMemory.Clean(ex.Message) } } }); } catch (IOException) { }
+            var evidence = Memory.Record(MemoryScope(task), task.Id, request.Params.Text("turnId") + "/" + request.Id, MemoryPurpose(task), tool == "hermes_command" ? "command" : "memory", tool == "hermes_command" ? args.Text("command") : args.Text("action"), false, ex.Message);
+            var failure = ExecutionMemory.Clean(ex.Message) + Memory.RecoveryContext(MemoryScope(task), task.Id, evidence);
+            if (engine == Engine) try { await engine.RespondAsync(request, new { success = false, contentItems = new[] { new { type = "inputText", text = failure } } }); } catch (IOException) { }
         }
         finally { gate.Release(); }
     }
@@ -51,7 +54,7 @@ public sealed partial class DeskController
         if (command.Length is < 1 or > 20000 || purpose.Length is < 3 or > 1000) throw new HermesException("명령과 구체적인 작업 목적을 입력하세요.");
         if (Memory.BlockReason(MemoryScope(task), task.Id, "command", command) is { } blocked)
         {
-            task.Transcript.Add(new("반복 실행 차단", blocked, DateTime.UtcNow)); Save(); throw new HermesException(blocked);
+            task.Transcript.Add(new("반복 실행 차단", blocked, DateTime.UtcNow)); Save(); throw new HermesException(blocked + "\n" + Memory.Context(MemoryScope(task), purpose));
         }
         var root = Safety.ProjectRoot(Project(task).Root);
         var automatic = task.Writable && !task.IsReview && Project(task).FullPermissions;
@@ -68,7 +71,7 @@ public sealed partial class DeskController
             var summary = $"evidenceId={evidence.Id}; exit={result.Property("exitCode")}\n" + ExecutionMemory.Clean(output, 20000);
             task.Transcript.Add(new("명령 결과", ExecutionMemory.Clean(command) + "\n" + summary, DateTime.UtcNow)); Save();
             if (task.TurnId != turnId || task.Status != "실행 중") return "명령 결과를 기록했지만 원래 실행은 중단되었습니다.";
-            return summary;
+            return summary + Memory.RecoveryContext(MemoryScope(task), task.Id, evidence);
         }
         catch (Exception ex)
         {

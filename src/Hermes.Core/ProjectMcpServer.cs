@@ -101,11 +101,12 @@ public sealed class ProjectMcpServer
             if (memory.BlockReason(scope, memoryTask, "mcp", method) is { } reason) return Result(reason + "\n" + memory.Context(scope, method), true);
             var result = await CallCore(parameters); var json = JsonSerializer.SerializeToElement(result);
             var success = json.Property("isError")?.ValueKind != JsonValueKind.True;
-            memory.Record(scope, memoryTask, key, name, "mcp", method, success, success ? "MCP 호출 완료. 목표 달성은 별도 확인." : "MCP tool returned error");
-            return result;
+            var error = success ? "" : json.Property("content") is { ValueKind: JsonValueKind.Array } content ? string.Join("\n", content.EnumerateArray().Select(c => c.Text("text"))) : "MCP tool returned error";
+            var evidence = memory.Record(scope, memoryTask, key, name, "mcp", method, success, success ? "MCP 호출 완료. 목표 달성은 별도 확인." : error);
+            return success ? result : Result(error + memory.RecoveryContext(scope, memoryTask, evidence), true);
         }
         catch (Exception ex)
-        { memory.Record(scope, memoryTask, key, name, "mcp", method, false, ex.Message); throw; }
+        { var evidence = memory.Record(scope, memoryTask, key, name, "mcp", method, false, ex.Message); return Result(ExecutionMemory.Clean(ex.Message) + memory.RecoveryContext(scope, memoryTask, evidence), true); }
         finally { calls.Release(); }
     }
     private async Task<object> CallCore(JsonElement parameters)

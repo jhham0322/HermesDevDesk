@@ -36,6 +36,7 @@ public partial class MainWindow
         InitializeBrowserPanel();
         InitializeComputerPanel();
         InitializeLearningPanel();
+        InitializeProcessPanel();
         GitRunner.Executable = desk.State.Desktop.GitExecutable;
         refreshTimer.Tick += (_, _) => { refreshTimer.Stop(); Refresh(); };
         InspectorSplitter.DragCompleted += (_, _) => SaveInspectorWidth();

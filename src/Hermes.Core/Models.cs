@@ -23,6 +23,8 @@ public sealed class WorkItem
     public string? ThreadId { get; set; }
     public string? TurnId { get; set; }
     public string Status { get; set; } = "대기";
+    public bool? LoopPreference { get; set; }
+    public long ProcessEvidenceStart { get; set; }
     public DateTime Updated { get; set; } = DateTime.UtcNow;
     public bool? WritablePreference { get; set; }
     public bool Writable { get; set; }
@@ -57,6 +59,7 @@ public sealed class AppState
     public string? CodexPath { get; set; }
     public List<ProjectEntry> Projects { get; set; } = [];
     public List<WorkItem> Tasks { get; set; } = [];
+    public List<TaskProcess> Processes { get; set; } = [];
     public ProviderSettings Provider { get; set; } = new();
     public List<ScheduledDraft> ScheduledDrafts { get; set; } = [];
     public List<UsageEntry> Usage { get; set; } = [];
@@ -80,17 +83,21 @@ public sealed class StateStore
 {
     public int SaveCount { get; private set; }
     private readonly string path;
+    private readonly object sync = new();
     public StateStore(string directory) { Directory.CreateDirectory(directory); path = Path.Combine(directory, "state.json"); }
     public AppState Load()
     {
         if (!File.Exists(path)) return new();
         var state = JsonSerializer.Deserialize<AppState>(File.ReadAllText(path)) ?? throw new HermesException("이력 파일 손상: 원본을 보존했습니다.");
         foreach (var entry in state.Usage.Where(e => e.Status == "started")) { entry.Status = "unknown-after-restart"; entry.Requests = null; entry.Note = "연결 종료 전 최종 usage를 받지 못함"; }
-        foreach (var task in state.Tasks.Where(t => t.Status is "실행 중" or "승인 대기" or "시작 중" or "중단 중")) { task.Status = "연결 끊김 · 재개 가능"; task.TurnId = null; }
+        foreach (var task in state.Tasks.Where(t => t.Status is "실행 중" or "승인 대기" or "시작 중" or "중단 중" or "계속 실행 대기")) { task.Status = "연결 끊김 · 재개 가능"; task.TurnId = null; }
+        foreach (var process in state.Processes.Where(p => p.Active)) { process.State = "앱 종료로 중단됨"; process.Detail = "앱이 다시 시작되었습니다. 작업을 확인한 뒤 다시 실행하세요."; }
         return state;
     }
     public void Save(AppState state)
     {
+        lock (sync)
+        {
         foreach (var id in state.Desktop.Drafts.Keys.ToList()) state.Desktop.Drafts[id] = Safety.Redact(state.Desktop.Drafts[id]);
         foreach (var draft in state.ScheduledDrafts) { draft.Title = Safety.Redact(draft.Title); draft.Prompt = Safety.Redact(draft.Prompt); }
         foreach (var task in state.Tasks)
@@ -98,12 +105,14 @@ public sealed class StateStore
             task.Title = Safety.Redact(task.Title); task.Diff = Safety.Redact(task.Diff);
             task.Transcript = task.Transcript.Select(e => e with { Text = Safety.Redact(e.Text) }).ToList();
         }
+        foreach (var process in state.Processes) { process.Goal = ExecutionMemory.Clean(process.Goal, 100000); process.Detail = ExecutionMemory.Clean(process.Detail, 4000); }
         var json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
         var pending = path + ".new";
         File.WriteAllText(pending, json);
         if (File.Exists(path)) File.Copy(path, path + ".backup", true);
         File.Move(pending, path, true);
         SaveCount++;
+        }
     }
 }
 public static class Json

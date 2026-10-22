@@ -64,6 +64,8 @@ if (args.Contains("--anthropic-engine-smoke"))
 {
     await AnthropicEngineTests.Run(Path.Combine(baseDir, "anthropic-engine"), args[Array.IndexOf(args, "--codex") + 1], args[Array.IndexOf(args, "--report") + 1]); return;
 }
+if (args.Contains("--task-loop-engine"))
+{ await TaskLoopEngineTests.Run(Path.Combine(baseDir, "task-loop-engine"), args[Array.IndexOf(args, "--codex") + 1]); return; }
 if (args.Contains("--computer-engine-smoke"))
 {
     await ComputerEngineTests.Run(Path.Combine(baseDir, "computer-engine"), args[Array.IndexOf(args, "--codex") + 1], args[Array.IndexOf(args, "--report") + 1]); return;
@@ -117,6 +119,7 @@ Assert(toolTask.Transcript.Count == 1 && toolTask.Transcript[0].Text.EndsWith("�
 using (var failed = JsonDocument.Parse("""{"id":"memory-1","tool":"hermes_memory","success":false,"status":"completed","contentItems":[{"type":"inputText","text":"개선 근거가 일치하지 않습니다."}]}"""))
     ToolProgress.Complete(toolTask, failed.RootElement);
 Assert(toolTask.Transcript.Single().Kind == "도구 오류" && toolTask.Transcript[0].Text.Contains("개선 근거"), "actual tool failure exposes returned cause even when item completed");
+await TaskLoopTests.Run(Path.Combine(baseDir, "task-loop"), Assert);
 var progressTask = new WorkItem();
 ProgressMessages.Delta(progressTask, "one", "0", "Checking ");
 ProgressMessages.Delta(progressTask, "two", "0", "Other task");
