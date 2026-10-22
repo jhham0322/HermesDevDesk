@@ -1,7 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using Microsoft.Web.WebView2.Wpf;
+using WebView2 = Microsoft.Web.WebView2.Wpf.WebView2CompositionControl;
 namespace Hermes.Desktop;
 public partial class MainWindow
 {
@@ -15,7 +15,7 @@ public partial class MainWindow
         await first.ExecuteScriptAsync("window.__tabMarker='FIRST_ONLY'");
         Check(await second.ExecuteScriptAsync("typeof window.__tabMarker") == "\"undefined\"", "tabs have independent page script state");
         var selectFirst = ((StackPanel)browserTabStrip.Children[0]).Children.OfType<Button>().First(); selectFirst.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        Check(activeBrowserView == first && first.Visibility == Visibility.Visible && second.Visibility == Visibility.Hidden && browserAddress.Text == first.Source.AbsoluteUri, "tab button restores correct visible page and address");
+        Check(activeBrowserView == first && BrowserVisible(first) && !BrowserVisible(second) && !second.IsHitTestVisible && browserAddress.Text == first.Source.AbsoluteUri, "tab button restores correct visible page and address");
         Check(chatBrowsers[CurrentTask!.Id] == first, "agent browser follows selected tab of its own chat");
         for (var i = browserTabOwners.Count; i < BrowserTabLimit; i++) await AddBrowserTab();
         Check(browserTabOwners.Count == 10 && !browserNewTab.IsEnabled, "ten browser tabs allowed and add button disabled at limit");
@@ -31,7 +31,7 @@ public partial class MainWindow
         Check(browserTabOwners.Count == 10 && activeBrowserView == last, "busy agent tab cannot be closed during request");
         gate.Release(); browserLocks.Remove(CurrentTask.Id); gate.Dispose();
         browserCloseTab.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        Check(browserTabOwners.Count == 9 && !browserSurface.Children.Contains(last) && activeBrowserView != last && browserNewTab.IsEnabled, "current-tab close disposes view and selects remaining tab");
+        Check(browserTabOwners.Count == 9 && !browserContainers.ContainsKey(last) && activeBrowserView != last && browserNewTab.IsEnabled, "current-tab close disposes view and selects remaining tab");
         var replacement = await AddBrowserTab();
         Check(browserTabOwners.Count == 10 && activeBrowserView == replacement && browserAddress.Text.Length == 0, "closed tab frees capacity for a new blank tab with empty address");
         browserCloseAll.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -45,12 +45,35 @@ public partial class MainWindow
         await Wait(() => browserTabOwners.Count == 1);
         Check(activeBrowserView == popupParent, "script close request closes popup and restores parent tab");
         var ownTask = CurrentTask!;
-        var other = desk.NewTask(CurrentProject!, "탭 격리 검사"); Tasks.ItemsSource = new[] { ownTask, other }; Tasks.SelectedItem = other;
+        var otherRoot = Path.Combine(desk.DataDirectory, "shared-browser-other-project"); Directory.CreateDirectory(otherRoot);
+        var otherProject = desk.Register(otherRoot);
+        var other = desk.NewTask(otherProject, "공통 탭 검사"); Tasks.ItemsSource = new[] { ownTask, other }; Tasks.SelectedItem = other;
         var otherView = await AddBrowserTab();
-        Check(browserTabStrip.Children.Count == 1 && chatBrowsers[ownTask.Id] == popupParent, "chat tab strip and agent browser remain isolated");
+        Check(browserTabStrip.Children.Count == 2 && chatBrowsers[ownTask.Id] == popupParent, "idle browser tabs are shared across chats without replacing per-chat selection");
+        ownTask.Status = "실행 중"; ownTask.ThreadBrowserEnabled = true;
+        ClaimBrowser(popupParent, ownTask); ShowChatBrowser();
+        Check(browserTabStrip.Children.Count == 1 && !BrowserVisible(popupParent) && !popupParent.IsHitTestVisible && activeBrowserView == otherView, "browser used by another running chat is removed from tabs and visible surface");
+        Check(BrowserProjectRoot(popupParent) == desk.State.Projects.Single(p => p.Id == ownTask.ProjectId).Root, "leased browser download context follows background owner project");
+        SetBrowserView(popupParent);
+        Check(activeBrowserView == otherView && browserAddress.Text.Length == 0, "stale tab selection cannot expose another chat's leased browser");
+        var reused = await EnsureChatBrowser(other);
+        Check(reused == otherView && browserTabOwners.Count == 2, "second chat reuses free common browser while first chat holds another");
+        var read = await BrowserAction(ownTask, System.Text.Json.JsonSerializer.SerializeToElement(new { action = "read" }));
+        Check(read.Text.Length > 0 && read.ImageUrl?.StartsWith("data:image/png;base64,") == true && activeBrowserView == otherView && !BrowserVisible(popupParent) && !popupParent.IsHitTestVisible, "background browser tool reads its leased page without showing it in foreground chat");
+        browserCloseAll.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(browserTabOwners.Count == 1 && browserTabOwners.ContainsKey(popupParent), "close visible tabs preserves browsers leased by another chat");
+        ownTask.Status = "완료"; ShowChatBrowser();
+        Check(browserTabStrip.Children.Count == 1 && activeBrowserView == popupParent && browserTabOwners[popupParent] == null, "completed task returns same live page to common browser pool");
+        Check(await EnsureChatBrowser(other) == popupParent && browserTabOwners.Count == 1, "different chat reuses returned browser without creating a new WebView");
+        Check(BrowserProjectRoot(popupParent) == otherRoot, "returned browser switches download context to new borrowing project");
         Tasks.SelectedItem = ownTask; ShowChatBrowser();
-        Check(activeBrowserView == popupParent && otherView.Visibility == Visibility.Hidden, "returning to chat restores its selected browser");
-        RemoveBrowserTab(otherView);
+        Check(activeBrowserView == popupParent, "returning to chat restores shared selected browser");
+        ownTask.Status = "계속 실행 대기"; ClaimBrowser(popupParent, ownTask);
+        Tasks.SelectedItem = other; ShowChatBrowser();
+        Check(browserTabStrip.Children.Count == 0 && activeBrowserView == null && browserAddress.Text.Length == 0, "completion-loop wait retains browser lease and clears other chat address");
+        ownTask.Status = "중단됨"; ShowChatBrowser();
+        Check(activeBrowserView == popupParent && browserTabOwners[popupParent] == null, "stopped task releases browser for other chats");
+        Tasks.SelectedItem = ownTask; ShowChatBrowser();
         var extras = browserControls.Children.OfType<Expander>().Single();
         Check(!extras.IsExpanded && ((StackPanel)((ScrollViewer)extras.Content).Content).Children.Contains(browserEnable), "bookmark capture and browser tool options start collapsed");
         extras.IsExpanded = true; Check(extras.IsExpanded, "browser extra features can expand"); extras.IsExpanded = false;

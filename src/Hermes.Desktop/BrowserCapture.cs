@@ -4,7 +4,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Hermes.Core;
-using Microsoft.Web.WebView2.Wpf;
+using WebView2 = Microsoft.Web.WebView2.Wpf.WebView2CompositionControl;
 
 namespace Hermes.Desktop;
 public partial class MainWindow
@@ -48,7 +48,7 @@ public partial class MainWindow
             tiles.Add(tile); spans.Add(new { part = tiles.Count, x = 0, y, width = tile.PixelWidth, height = tile.PixelHeight });
         }
         var description = JsonSerializer.Serialize(new { kind = "fullPage", url = Safety.Redact(view.Source.AbsoluteUri), originalPath = destination, originalWidth = frame.PixelWidth, originalHeight = frame.PixelHeight, imageScale = scale, tiles = spans, note = "이미지는 위에서 아래 순서이며 현재 로드된 페이지 전체를 빠짐없이 나눈 것입니다." });
-        browserStatus.Text = $"전체 캡처 완료 · {frame.PixelWidth}×{frame.PixelHeight} · 이미지 {tiles.Count}개 · 원본 저장: {relative}";
+        if (activeBrowserView == view) browserStatus.Text = $"전체 캡처 완료 · {frame.PixelWidth}×{frame.PixelHeight} · 이미지 {tiles.Count}개 · 원본 저장: {relative}";
         return new(relative, frame.PixelWidth, frame.PixelHeight, tiles, description);
     }
     private async Task CaptureBrowserToComposerAsync()
@@ -69,6 +69,6 @@ public partial class MainWindow
             catch { pendingImages.Clear(); pendingImages.AddRange(original); RefreshAttachments(); throw; }
             Footer.Text = $"전체 페이지 캡처 이미지 {page.Tiles.Count}개를 AI 입력에 첨부했습니다. 전송 버튼으로 보내세요. 원본: {page.RelativePath}";
         }
-        finally { gate.Release(); }
+        finally { gate.Release(); ShowChatBrowser(); }
     }
 }

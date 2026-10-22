@@ -2,7 +2,7 @@ using System.IO;
 using System.Windows.Controls;
 using Hermes.Core;
 using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
+using WebView2 = Microsoft.Web.WebView2.Wpf.WebView2CompositionControl;
 namespace Hermes.Desktop;
 public partial class MainWindow
 {
@@ -28,7 +28,7 @@ public partial class MainWindow
     {
         desk.State.Browser.LocalDevelopmentMode = enabled; browserLocalDevelopment.IsChecked = enabled; desk.Save();
         if (!enabled) localBrowserRecoveries.Clear();
-        foreach (var view in browserSurface.Children.OfType<WebView2>()) if (view.CoreWebView2 != null) await view.CoreWebView2.ClearServerCertificateErrorActionsAsync();
+        foreach (var view in browserTabOwners.Keys) if (view.CoreWebView2 != null) await view.CoreWebView2.ClearServerCertificateErrorActionsAsync();
     }
     private void ConfigureLocalBrowser(WebView2 view)
     {

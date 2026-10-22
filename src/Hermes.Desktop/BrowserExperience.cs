@@ -5,7 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Threading;
 using Hermes.Core;
 using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
+using WebView2 = Microsoft.Web.WebView2.Wpf.WebView2CompositionControl;
 namespace Hermes.Desktop;
 public partial class MainWindow
 {
@@ -31,7 +31,7 @@ public partial class MainWindow
         browserPasswords.IsChecked = desk.State.Browser.SavePasswords;
         browserPasswords.Click += (_, _) => {
             desk.State.Browser.SavePasswords = browserPasswords.IsChecked == true;
-            foreach (var view in browserSurface.Children.OfType<WebView2>()) if (view.CoreWebView2 != null) view.CoreWebView2.Profile.IsPasswordAutosaveEnabled = desk.State.Browser.SavePasswords;
+            foreach (var view in browserTabOwners.Keys) if (view.CoreWebView2 != null) view.CoreWebView2.Profile.IsPasswordAutosaveEnabled = desk.State.Browser.SavePasswords;
             desk.Save();
         };
         browserBack.Click += (_, _) => { if (activeBrowserView?.CoreWebView2?.CanGoBack == true) activeBrowserView.CoreWebView2.GoBack(); };
@@ -62,7 +62,7 @@ public partial class MainWindow
         var last = desk.State.Browser.LastUrl;
         BrowserLibrary.Visit(desk.State.Browser, view.Source.AbsoluteUri, view.CoreWebView2.DocumentTitle);
         var url = desk.State.Browser.LastUrl;
-        var id = chatBrowsers.FirstOrDefault(p => ReferenceEquals(p.Value, view)).Key;
+        var id = browserTabOwners.GetValueOrDefault(view) ?? (activeBrowserView == view ? CurrentTask?.Id : null);
         if (id != null && desk.State.Tasks.FirstOrDefault(t => t.Id == id) is { } task) task.BrowserLastUrl = url;
         if (activeBrowserView != view) desk.State.Browser.LastUrl = last;
         else { browserAddress.Text = url; UpdateBrowserBookmark(view); }
@@ -101,7 +101,7 @@ public partial class MainWindow
         WebView2 view;
         if (CurrentTask is { } task) view = await EnsureChatBrowser(task); else { await EnsureBrowser(); view = browserView!; }
         SetBrowserView(view);
-        if (view.Source?.Scheme is not ("http" or "https") && browserTabOwners.Keys.Count(v => browserTabOwners[v] == CurrentTask?.Id) <= 1)
+        if (view.Source?.Scheme is not ("http" or "https") && browserTabOwners.Keys.Count(v => CanUseBrowser(v, CurrentTask?.Id)) <= 1)
         {
             var url = CurrentTask?.BrowserLastUrl;
             if (string.IsNullOrWhiteSpace(url)) url = desk.State.Browser.LastUrl;

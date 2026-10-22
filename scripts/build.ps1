@@ -41,6 +41,7 @@ Copy-Item -LiteralPath (Join-Path $packages 'microsoft.windowsdesktop.app.runtim
 Copy-Item -LiteralPath (Join-Path $packages 'microsoft.web.webview2/1.0.4258.31/LICENSE.txt') -Destination (Join-Path $appPath 'WEBVIEW2-LICENSE.txt')
 Copy-Item -LiteralPath (Join-Path $packages 'microsoft.web.webview2/1.0.4258.31/NOTICE.txt') -Destination (Join-Path $appPath 'WEBVIEW2-NOTICE.txt')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'design/icons/LICENSE.txt') -Destination (Join-Path $appPath 'FLUENT-ICONS-LICENSE.txt')
+[IO.File]::WriteAllText((Join-Path $appPath 'WINDOWS-SDK-NOTICE.txt'), "Microsoft.Windows.SDK.NET.Ref 10.0.17763.57 includes Microsoft.Windows.SDK.NET.dll and WinRT.Runtime.dll for WebView2 composition support. Windows SDK license: https://aka.ms/WinSDKLicenseURL", [Text.UTF8Encoding]::new($false))
 $manifestPath = Join-Path $appPath '.hermes-manifest.tsv'
 $files = Get-ChildItem -LiteralPath $appPath -File -Recurse | Where-Object { $_.Name -ne '.hermes-manifest.tsv' }
 $manifestLines = $files | Sort-Object FullName | ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + [char]9 + [IO.Path]::GetRelativePath($appPath, $_.FullName).Replace('\','/') }

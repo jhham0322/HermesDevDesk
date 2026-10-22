@@ -50,7 +50,7 @@ jobs:
       - name: Check WPF model management and long conversation
         shell: pwsh
         run: |
-          $app = Join-Path $PWD 'src/Hermes.Desktop/bin/Release/net10.0-windows/HermesDevDesk.exe'
+          $app = Join-Path $PWD 'src/Hermes.Desktop/bin/Release/net10.0-windows10.0.17763.0/HermesDevDesk.exe'
           foreach ($test in @('simple-settings','conversation-performance')) {
             $data = Join-Path $env:RUNNER_TEMP $test
             $process = Start-Process $app -ArgumentList @("--$test-smoke", '--data-dir', ('"'+$data+'"')) -WindowStyle Hidden -PassThru

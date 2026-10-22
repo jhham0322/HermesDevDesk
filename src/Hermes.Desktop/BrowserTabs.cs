@@ -2,7 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
+using WebView2 = Microsoft.Web.WebView2.Wpf.WebView2CompositionControl;
 namespace Hermes.Desktop;
 public partial class MainWindow
 {
@@ -14,33 +14,40 @@ public partial class MainWindow
     private readonly WrapPanel browserTabStrip = new();
     private readonly Button browserNewTab = new() { Content = "+ 새 탭" };
     private readonly Button browserCloseTab = new() { Content = "현재 탭 닫기" };
-    private readonly Button browserCloseAll = new() { Content = "모든 탭 닫기" };
+    private readonly Button browserCloseAll = new() { Content = "표시된 탭 모두 닫기" };
     private WebView2 CreateBrowserTab(string? owner)
     {
         if (browserTabOwners.Count >= BrowserTabLimit) throw new Hermes.Core.HermesException("브라우저는 최대 10개까지 열 수 있습니다. 사용하지 않는 탭을 닫으세요.");
-        var view = new WebView2(); browserTabOwners.Add(view, owner); browserTabReady[view] = new(TaskCreationOptions.RunContinuationsAsynchronously); return view;
+        var view = new WebView2 { IsHitTestVisible = false, Focusable = false };
+        var container = new Border { Child = view, Opacity = 0, IsHitTestVisible = false };
+        browserContainers[view] = container; browserSurface.Children.Add(container);
+        browserTabOwners.Add(view, owner); browserTabReady[view] = new(TaskCreationOptions.RunContinuationsAsynchronously); return view;
     }
     private void RefreshBrowserTabs()
     {
+        ReleaseIdleBrowsers();
         browserTabStrip.Children.Clear();
         foreach (var (view, owner) in browserTabOwners)
         {
-            if (owner != CurrentTask?.Id) continue;
+            if (!CanUseBrowser(view, CurrentTask?.Id)) continue;
             var row = new StackPanel { Orientation = Orientation.Horizontal };
             var title = view.CoreWebView2?.DocumentTitle;
             var select = new Button { Content = string.IsNullOrWhiteSpace(title) ? "새 탭" : title.Length > 22 ? title[..22] + "…" : title,
                 ToolTip = view.Source?.AbsoluteUri ?? "새 탭", FontWeight = activeBrowserView == view ? FontWeights.Bold : FontWeights.Normal };
             select.Click += (_, _) => SetBrowserView(view);
-            var close = new Button { Content = "×", ToolTip = "이 탭 닫기" }; close.Click += (_, _) => TryCloseBrowserTab(view);
+            var close = new Button { Content = "×", ToolTip = "이 탭 닫기", IsEnabled = !BrowserTabBusy(view) }; close.Click += (_, _) => TryCloseBrowserTab(view);
             row.Children.Add(select); row.Children.Add(close); browserTabStrip.Children.Add(row);
         }
         browserNewTab.IsEnabled = browserTabOwners.Count < BrowserTabLimit;
         browserNewTab.ToolTip = $"열린 브라우저 {browserTabOwners.Count}/{BrowserTabLimit} (전체 채팅 합계)";
-        browserCloseTab.IsEnabled = activeBrowserView != null;
+        browserCloseTab.IsEnabled = activeBrowserView != null && CanUseBrowser(activeBrowserView, CurrentTask?.Id) && !BrowserTabBusy(activeBrowserView);
     }
-    private bool BrowserTabBusy(WebView2 view) => (browserTabReady.TryGetValue(view, out var ready) && !ready.Task.IsCompleted) || (browserTabOwners.TryGetValue(view, out var owner) && owner != null && browserLocks.TryGetValue(owner, out var gate) && gate.CurrentCount == 0);
+    private bool BrowserTabBusy(WebView2 view) => (browserTabReady.TryGetValue(view, out var ready) && !ready.Task.IsCompleted)
+        || (browserTabOwners.TryGetValue(view, out var owner) && owner != null && (desk.State.Tasks.Any(t => t.Id == owner && Hermes.Core.DeskController.IsRunning(t)) || (browserLocks.TryGetValue(owner, out var gate) && gate.CurrentCount == 0)))
+        || chatBrowsers.Any(p => p.Value == view && browserLocks.TryGetValue(p.Key, out var active) && active.CurrentCount == 0);
     private void TryCloseBrowserTab(WebView2 view)
     {
+        if (!CanUseBrowser(view, CurrentTask?.Id)) return;
         if (BrowserTabBusy(view)) { browserStatus.Text = "에이전트의 브라우저 요청이 끝난 뒤 탭을 닫으세요."; return; }
         RemoveBrowserTab(view);
     }
@@ -49,13 +56,14 @@ public partial class MainWindow
         if (!browserTabOwners.ContainsKey(view)) return;
         var owner = browserTabOwners.GetValueOrDefault(view);
         var active = activeBrowserView == view;
-        browserTabOwners.Remove(view); browserSurface.Children.Remove(view);
+        browserTabOwners.Remove(view);
+        if (browserContainers.Remove(view, out var container)) { browserSurface.Children.Remove(container); container.Child = null; }
         if (browserTabReady.Remove(view, out var ready)) ready.TrySetCanceled();
-        sourcePickers.Remove(view); browserNavigationTargets.Remove(view); ResetLocalBrowserAttempts(view);
+        sourcePickers.Remove(view); browserProjectRoots.Remove(view); browserNavigationTargets.Remove(view); ResetLocalBrowserAttempts(view);
         foreach (var id in chatBrowsers.Where(p => p.Value == view).Select(p => p.Key).ToArray()) chatBrowsers.Remove(id);
         if (browserView == view) { browserView = null; browserInitialization = null; }
         view.Dispose();
-        var replacement = browserTabOwners.FirstOrDefault(p => p.Value == owner).Key;
+        var replacement = browserTabOwners.Keys.FirstOrDefault(v => CanUseBrowser(v, CurrentTask?.Id));
         if (owner != null && replacement != null && !chatBrowsers.ContainsKey(owner)) chatBrowsers[owner] = replacement;
         else if (owner == null && browserView == null) browserView = replacement;
         if (active)
@@ -66,19 +74,23 @@ public partial class MainWindow
         }
         RefreshBrowserTabs();
     }
-    private async Task<WebView2> AddBrowserTab(string? address = null)
+    private async Task<WebView2> AddBrowserTab(string? address = null, Hermes.Core.WorkItem? ownerTask = null)
     {
-        var owner = CurrentTask?.Id;
-        var view = CreateBrowserTab(owner); SetBrowserView(view);
+        var origin = ownerTask ?? CurrentTask;
+        var owner = origin?.Id;
+        var view = CreateBrowserTab(owner);
+        if (origin != null) { chatBrowsers[origin.Id] = view; browserProjectRoots[view] = desk.State.Projects.First(p => p.Id == origin.ProjectId).Root; }
+        if (CurrentTask?.Id == owner) SetBrowserView(view);
         try
         {
             var environment = await BrowserEnvironment();
             await view.EnsureCoreWebView2Async(environment);
-            ConfigureBrowser(view, () => owner == null ? CurrentProject?.Root : desk.State.Projects.FirstOrDefault(p => p.Id == desk.State.Tasks.FirstOrDefault(t => t.Id == owner)?.ProjectId)?.Root);
+            ConfigureBrowser(view, () => BrowserProjectRoot(view));
             if (owner == null) browserView = view; else chatBrowsers[owner] = view;
             if (CurrentTask?.Id == owner) SetBrowserView(view);
             if (address != null) view.CoreWebView2.Navigate(Hermes.Core.BrowserTools.ValidateUrl(address).AbsoluteUri);
-            else browserStatus.Text = "새 탭 · 주소를 입력하세요.";
+            else if (CurrentTask?.Id == owner) browserStatus.Text = "새 탭 · 주소를 입력하세요.";
+            ReleaseIdleBrowsers(); RefreshBrowserTabs();
             return view;
         }
         catch { RemoveBrowserTab(view); throw; }
@@ -90,7 +102,7 @@ public partial class MainWindow
         browserNewTab.Click += async (_, _) => await Guard(async () => { await AddBrowserTab(); }, "browser-new-tab");
         browserCloseTab.Click += (_, _) => { if (activeBrowserView != null) TryCloseBrowserTab(activeBrowserView); };
         browserCloseAll.Click += (_, _) => {
-            var views = browserTabOwners.Keys.ToArray();
+            var views = browserTabOwners.Keys.Where(v => CanUseBrowser(v, CurrentTask?.Id)).ToArray();
             if (views.Any(BrowserTabBusy)) { browserStatus.Text = "에이전트의 브라우저 요청이 끝난 뒤 모든 탭을 닫으세요."; return; }
             foreach (var view in views) RemoveBrowserTab(view);
         };

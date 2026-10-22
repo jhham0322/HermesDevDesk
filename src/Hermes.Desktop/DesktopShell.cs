@@ -241,11 +241,12 @@ public partial class MainWindow
     private void DeleteChat(WorkItem task, bool confirm)
     {
         if (DeskController.IsRunning(task)) throw new Hermes.Core.HermesException("삭제할 채팅을 먼저 중단하세요.");
+        if (browserLocks.TryGetValue(task.Id, out var browserGate) && browserGate.CurrentCount == 0) throw new Hermes.Core.HermesException("브라우저 작업이 끝난 뒤 채팅을 삭제하세요.");
         if (confirm && MessageBox.Show(this, "이 채팅의 대화 기록과 초안을 삭제할까요?\n프로젝트 파일, Git 이력과 사용량은 유지됩니다.", "채팅 삭제", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         openChats.Remove(task.Id); closedChats.Remove(task.Id); navigation.RemoveAll(id => id == task.Id); navigationIndex = navigation.Count - 1;
         imageDrafts.Remove(task.Id); fileDrafts.Remove(task.Id); skillDrafts.Remove(task.Id); modelDrafts.Remove(task.Id);
         if (draftTaskId == task.Id) { draftTaskId = null; switchingDraft = true; Prompt.Clear(); switchingDraft = false; pendingImages.Clear(); pendingFiles.Clear(); pendingSkills.Clear(); Attachments.ItemsSource = null; }
-        foreach (var view in browserTabOwners.Where(p => p.Value == task.Id).Select(p => p.Key).ToArray()) RemoveBrowserTab(view);
+        ReleaseIdleBrowsers(); chatBrowsers.Remove(task.Id);
         ShowChatBrowser();
         browserLocks.Remove(task.Id);
         desk.DeleteTask(task); Footer.Text = "채팅 삭제됨 · 프로젝트 파일과 Git 이력은 유지됨";
