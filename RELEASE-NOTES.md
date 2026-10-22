@@ -1,3 +1,11 @@
+# HermesDevDesk 0.8.29 (experimental)
+
+## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.29/HermesDevDesk-0.8.29-win-x64-Setup.exe)
+
+[포터블 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.29/HermesDevDesk-0.8.29-win-x64-Portable.zip)
+
+저장소 메인 README와 릴리스 설명 맨 위에 직접 다운로드 링크를 추가했습니다. README 아래쪽의 오래된 0.8.23 링크도 현재 설치 파일로 교체했습니다. 앱 기능은 0.8.28과 같습니다.
+
 # HermesDevDesk 0.8.28 (experimental)
 
 브라우저 탭을 여러 채팅에서 재사용하는 공통 목록으로 바꿨습니다. 각 채팅은 마지막 선택을 기억하며 비어 있는 탭의 페이지와 로그인 상태, 탐색 이력을 유지한 채 사용할 수 있습니다.
