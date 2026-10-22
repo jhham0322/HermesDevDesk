@@ -8,6 +8,7 @@ public static class ChatAdapter
 {
     public static ChatAdaptation Request(JsonObject responseRequest)
     {
+        responseRequest = ToolHistoryRecovery.Prepare(responseRequest);
         var messages = new JsonArray(); var mapping = new Dictionary<string, ChatTool>(StringComparer.Ordinal); var tools = new JsonArray();
         if (responseRequest["instructions"] is { } instructions) messages.Add(new JsonObject { ["role"] = "system", ["content"] = instructions.DeepClone() });
         if (responseRequest["input"] is JsonValue text) messages.Add(new JsonObject { ["role"] = "user", ["content"] = text.DeepClone() });
@@ -76,7 +77,7 @@ public static class ChatAdapter
         if (responseRequest["max_output_tokens"] != null) body["max_tokens"] = responseRequest["max_output_tokens"]!.DeepClone();
         return new(body, mapping);
     }
-    private static string Encoded(string? ns, string name)
+    internal static string Encoded(string? ns, string name)
     {
         var value = ns == null ? name : ns + "__" + name;
         if (value.Length > 64 || value.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '_' or '-'))) throw new HermesException("Chat tool name is incompatible; use Responses protocol");

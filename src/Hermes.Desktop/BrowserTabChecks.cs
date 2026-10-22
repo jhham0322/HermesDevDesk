@@ -51,7 +51,7 @@ public partial class MainWindow
         Tasks.SelectedItem = ownTask; ShowChatBrowser();
         Check(activeBrowserView == popupParent && otherView.Visibility == Visibility.Hidden, "returning to chat restores its selected browser");
         RemoveBrowserTab(otherView);
-        var extras = ((StackPanel)((DockPanel)((TabItem)InspectorTabs.Items[8]).Content).Children[0]).Children.OfType<Expander>().Single();
+        var extras = browserControls.Children.OfType<Expander>().Single();
         Check(!extras.IsExpanded && ((StackPanel)((ScrollViewer)extras.Content).Content).Children.Contains(browserEnable), "bookmark capture and browser tool options start collapsed");
         extras.IsExpanded = true; Check(extras.IsExpanded, "browser extra features can expand"); extras.IsExpanded = false;
     }

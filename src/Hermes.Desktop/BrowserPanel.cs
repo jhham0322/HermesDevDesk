@@ -11,6 +11,19 @@ namespace Hermes.Desktop;
 
 public partial class MainWindow
 {
+    private readonly StackPanel browserControls = new();
+    private readonly Button browserControlsToggle = new() {
+        MinHeight = 24, Padding = new Thickness(8, 2, 8, 2),
+        HorizontalAlignment = HorizontalAlignment.Right,
+        ToolTip = "탭 · 주소 · 탐색 · 추가 기능 · 상태 표시를 접거나 펼칩니다."
+    };
+    private void SetBrowserControlsCollapsed(bool collapsed)
+    {
+        browserControls.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        browserControlsToggle.Content = collapsed ? "도구 표시 ▾" : "도구 숨기기 ▴";
+        System.Windows.Automation.AutomationProperties.SetName(browserControlsToggle, collapsed ? "브라우저 도구 표시" : "브라우저 도구 숨기기");
+        desk.State.Browser.ControlsCollapsed = collapsed;
+    }
     private WebView2? browserView;
     private readonly TextBox browserAddress = new() { Text = "https://developers.openai.com", MinWidth = 120 };
     private readonly TextBlock browserStatus = new() { Text = "앱 전용 브라우저 · 기존 브라우저 계정을 가져오지 않습니다.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(6), FontSize = 12 };
@@ -85,7 +98,15 @@ public partial class MainWindow
 
     private void InitializeBrowserPanel()
     {
-        var panel = new DockPanel(); var toolbar = new StackPanel(); DockPanel.SetDock(toolbar, Dock.Top); panel.Children.Add(toolbar);
+        var panel = new DockPanel();
+        var header = new StackPanel(); DockPanel.SetDock(header, Dock.Top); panel.Children.Add(header);
+        header.Children.Add(browserControlsToggle); header.Children.Add(browserControls);
+        var toolbar = browserControls;
+        SetBrowserControlsCollapsed(desk.State.Browser.ControlsCollapsed);
+        browserControlsToggle.Click += (_, _) => {
+            SetBrowserControlsCollapsed(!desk.State.Browser.ControlsCollapsed);
+            desk.Save();
+        };
         InitializeBrowserTabs(toolbar);
         var navigation = new WrapPanel(); foreach (var button in new[] { browserBack, browserForward, browserReload, browserDevTools }) navigation.Children.Add(button); toolbar.Children.Add(navigation);
         var address = new DockPanel(); var go = new Button { Content = "열기" }; DockPanel.SetDock(go, Dock.Right); address.Children.Add(go); address.Children.Add(browserAddress); toolbar.Children.Add(address);

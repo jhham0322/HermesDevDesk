@@ -211,6 +211,8 @@ await using (var rpc = new AppServerClient())
     await rpc.RequestAsync("approval", new { }); var req = await requestSeen.Task.WaitAsync(TimeSpan.FromSeconds(5)); await rpc.RespondAsync(req, new { decision = "decline" }); Assert(req.Id.GetString() == "server-1", "server request string ID and response");
 }
 Console.WriteLine($"PASS {count} checks. Fixture transport is unit testing, not engine verification. Scratch: {baseDir}");
+await RecoveryTests.Run(Assert);
+await ToolHistoryRecoveryTests.Run(baseDir, Assert);
 await ChatCompatibilityTests.Run(Assert);
 await ResponseWaitingTests.Run(baseDir, Assert);
 BrowserLibraryTests.Run(Assert);

@@ -25,6 +25,14 @@ public partial class MainWindow
             RememberBrowserPage(view); await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
         }
         await Navigate("/first"); var view = activeBrowserView!;
+        SetBrowserControlsCollapsed(false); UpdateLayout();
+        var expandedHeight = browserHost.ActualHeight;
+        browserControlsToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); UpdateLayout();
+        Check(browserControls.Visibility == Visibility.Collapsed && browserControlsToggle.IsVisible, "all browser controls collapse while restore toggle remains visible");
+        Check(browserHost.ActualHeight > expandedHeight && ReferenceEquals(activeBrowserView, view), "collapsing controls increases page height without recreating active browser");
+        Check(new StateStore(data).Load().Browser.ControlsCollapsed, "collapsed browser controls preference survives state reload");
+        browserControlsToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); UpdateLayout();
+        Check(browserControls.Visibility == Visibility.Visible && !desk.State.Browser.ControlsCollapsed, "toggle restores browser controls");
         Check(view.CoreWebView2.Profile.IsPasswordAutosaveEnabled && view.CoreWebView2.Profile.IsGeneralAutofillEnabled, "native password-save/autofill enabled without reading credentials");
         ToggleCurrentBookmark();
         Check(desk.State.Browser.Bookmarks.Any(p => p.Url.EndsWith("/first")), "bookmark stores current URL/title");

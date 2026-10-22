@@ -10,7 +10,7 @@ internal static class ChatCompatibilityTests
         var adaptation = ChatAdapter.Request(request);
         check(adaptation.Body["messages"]![0]!["content"]!.GetValue<string>() == "Hello!", "text-only chat gateway receives curl-compatible string content");
         check(adaptation.Body["stream"]!.GetValue<bool>() && adaptation.Body["max_tokens"]!.GetValue<int>() == 100 && adaptation.Body["max_completion_tokens"] == null && adaptation.Body["parallel_tool_calls"] == null, "chat gateway receives streaming and legacy token field without optional parallel flag");
-        var grouped = ChatAdapter.Request(JsonNode.Parse("""{"input":[{"type":"function_call","name":"one","call_id":"a","arguments":"{}"},{"type":"function_call","name":"two","call_id":"b","arguments":"{}"}]}""")!.AsObject());
+        var grouped = ChatAdapter.Request(JsonNode.Parse("""{"tools":[{"type":"function","name":"one"},{"type":"function","name":"two"}],"input":[{"type":"function_call","name":"one","call_id":"a","arguments":"{}"},{"type":"function_call","name":"two","call_id":"b","arguments":"{}"}]}""")!.AsObject());
         check(grouped.Body["messages"]!.AsArray().Count == 1 && grouped.Body["messages"]![0]!["tool_calls"]!.AsArray().Count == 2, "parallel calls share one assistant tool-call message");
         using var empty = JsonDocument.Parse("""{"choices":[{"message":{"role":"assistant","content":null,"reasoning_content":"PRIVATE"},"finish_reason":"length"}]}""");
         var rejected = false; try { ChatAdapter.Response(empty.RootElement, adaptation); } catch (IOException ex) { rejected = ex.Message.Contains("finish_reason=length"); }

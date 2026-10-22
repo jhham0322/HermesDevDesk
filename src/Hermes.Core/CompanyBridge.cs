@@ -130,6 +130,7 @@ public sealed class CompanyBridge : IAsyncDisposable
         {
             if (incoming.Headers.ContainsKey("Content-Encoding")) throw new HermesException("Compressed request body not supported by the local adapter");
             var body = JsonNode.Parse(incoming.Body)?.AsObject() ?? throw new HermesException("Invalid request JSON"); body["model"] = context?.Model ?? activeModel; body["store"] = false;
+            body = ToolHistoryRecovery.Prepare(body);
             var wantsStream = body["stream"]?.GetValue<bool>() == true;
             ChatAdaptation? adaptation = settings.IsChat ? ChatAdapter.Request(body) : null;
             if (adaptation != null)
@@ -138,9 +139,14 @@ public sealed class CompanyBridge : IAsyncDisposable
                 adaptation.Body["max_tokens"] = Math.Clamp(requested, 1, settings.MaxOutputTokens);
             }
             AnthropicAdaptation? anthropic = settings.IsAnthropic ? AnthropicAdapter.Request(body, settings.MaxOutputTokens) : null;
-            using var request = Request(HttpMethod.Post, settings.RequestUri(false, testLoopback));
-            request.Content = new StringContent((anthropic?.Body ?? adaptation?.Body ?? body).ToJsonString(), Encoding.UTF8, "application/json");
-            entry.Requests = 1; using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token); entry.HttpStatus = (int)response.StatusCode;
+            var payload = (anthropic?.Body ?? adaptation?.Body ?? body).ToJsonString();
+            using var response = await TransientHttp.Send(http, () =>
+            {
+                var request = Request(HttpMethod.Post, settings.RequestUri(false, testLoopback));
+                request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+                return request;
+            }, () => entry.Requests = (entry.Requests ?? 0) + 1, linked.Token);
+            entry.HttpStatus = (int)response.StatusCode;
             if (!response.IsSuccessStatusCode)
             {
                 using var errorBody = await response.Content.ReadAsStreamAsync(linked.Token);

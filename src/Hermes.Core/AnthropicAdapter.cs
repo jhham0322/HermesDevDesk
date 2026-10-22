@@ -8,6 +8,7 @@ public static class AnthropicAdapter
 {
     public static AnthropicAdaptation Request(JsonObject input, int maxTokens)
     {
+        input = ToolHistoryRecovery.Prepare(input);
         // Reuse the exact namespace/custom-tool name contract used by the existing bridge.
         var catalogInput = new JsonObject { ["tools"] = input["tools"]?.DeepClone() };
         var catalog = ChatAdapter.Request(catalogInput);
@@ -36,7 +37,8 @@ public static class AnthropicAdapter
                 case "function_call": case "custom_tool_call":
                     var name = item["name"]!.GetValue<string>(); var ns = item["namespace"]?.GetValue<string>();
                     var encoded = catalog.Tools.FirstOrDefault(t => t.Value.Name == name && t.Value.Namespace == ns).Key;
-                    if (encoded == null) throw new HermesException("Historical tool not present in tool catalog");
+                    // Historical calls remain context; they do not grant permission to call removed tools.
+                    encoded ??= ChatAdapter.Encoded(ns, name);
                     JsonNode args = item["type"]!.GetValue<string>() == "custom_tool_call" ? new JsonObject { ["input"] = item["input"]?.DeepClone() } : JsonNode.Parse(item["arguments"]?.GetValue<string>() ?? "{}")!;
                     if (args is not JsonObject) throw new HermesException("Tool arguments must be an object");
                     Append("assistant", new(new JsonObject { ["type"] = "tool_use", ["id"] = item["call_id"]?.DeepClone(), ["name"] = encoded, ["input"] = args }));
