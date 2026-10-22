@@ -17,11 +17,11 @@ internal static class TaskLoopEngineTests
             string Name(string suffix) => tools.Single(t => t.EndsWith(suffix, StringComparison.Ordinal));
             var lastTool = body.GetProperty("messages").EnumerateArray().LastOrDefault(m => m.Text("role") == "tool");
             object? call = null;
-            if (n is 2 or 3) call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "dependency repair", command = failed }) };
+            if (n is 2 or 3) call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "dependency repair", command = failed, timeoutMs = 90000 }) };
             if (n == 4)
             {
                 recovered = lastTool.Text("content").Contains("자동 개선 전환");
-                call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "dependency repair", command = "Write-Output LOOP_VERIFIED_RESULT" }) };
+                call = new { name = Name("hermes_command"), arguments = JsonSerializer.Serialize(new { purpose = "dependency repair", command = "Write-Output LOOP_VERIFIED_RESULT", timeoutMs = 90000 }) };
             }
             if (n == 5)
             {
@@ -46,7 +46,7 @@ internal static class TaskLoopEngineTests
         await Wait(() => desk.Processes.Single().State == "완료");
         var scope = ExecutionMemory.Scope(root);
         if (!recovered || calls != 6 || desk.Processes.Single().Round != 2 || File.ReadAllLines(Path.Combine(root, "counter.txt")).Length != 2 || desk.Memory.Errors(scope).Single().Occurrences != 2 || desk.Memory.Recoveries(scope).Count != 1)
-            throw new IOException("Loop/recovery did not match expected two turns, two failures and successful alternative");
+            throw new IOException("Loop/recovery mismatch: " + JsonSerializer.Serialize(new { calls, recovered, processes = desk.Processes, counter = File.Exists(Path.Combine(root, "counter.txt")) ? File.ReadAllLines(Path.Combine(root, "counter.txt")).Length : -1, errors = desk.Memory.Errors(scope), recoveries = desk.Memory.Recoveries(scope), attempts = desk.Memory.Recent(scope), transcript = task.Transcript.TakeLast(18) }));
         var stop = desk.NewTask(project, "stop queued loop"); await desk.StartAsync(stop, "Remain incomplete until user stops.", "loop-model", true, continueUntilComplete: true);
         await Wait(() => stop.Status == "계속 실행 대기"); var stopProcess = desk.Processes.Single(p => p.TaskId == stop.Id); await desk.StopProcessAsync(stopProcess.Id);
         await Task.Delay(1400); Pump(); if (calls != 7 || stopProcess.Active) throw new IOException("Stopped queued loop restarted");
