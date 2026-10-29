@@ -182,7 +182,7 @@ public sealed partial class DeskController : IAsyncDisposable
                 if (State.Provider.Authentication != ProviderAuth.None && !KeyStore.HasKey) throw new HermesException("회사 키를 앱 설정에서 직접 입력하세요. 기존 키를 추출하지 않습니다.");
                 if (State.Provider.Protocol == ProviderProtocol.GatewayAuto || !State.Provider.UseAdvancedSettings) await ResolveGateway(CancellationToken.None);
                 var savedModels = Models.ToList();
-                company = new(State.Provider, KeyStore, allowTestLoopback); company.Usage += e => dispatch(() => { ObserveCompanyUsage(e); if (e.Status == "failed" && State.Tasks.FirstOrDefault(t => t.Id == e.TaskId) is { } failedTask && !failedTask.Transcript.Any(t => t.ItemId == "gateway-error-" + e.Id)) failedTask.Transcript.Add(new("오류", ProviderErrors.ReadableMessage(e.Note), DateTime.UtcNow, "gateway-error-" + e.Id)); Save(); });
+                company = new(State.Provider, KeyStore, allowTestLoopback); company.Usage += e => dispatch(() => { ObserveCompanyUsage(e); if (e.Status == "failed" && State.Tasks.FirstOrDefault(t => t.Id == e.TaskId) is { } failedTask && !failedTask.Transcript.Any(t => t.ItemId == "gateway-error-" + e.Id)) failedTask.Transcript.Add(new TranscriptEntry("오류", ProviderErrors.ReadableMessage(e.Note), DateTime.UtcNow, "gateway-error-" + e.Id) { Origin = "회사 API", Stage = "에러원인" }); Save(); });
                 await client.ConnectAsync(exe, cwd, Path.Combine(DataDirectory, "engine-home"), company.BaseUri, company.Capability, State.Provider.Deployment);
                 var providerAccount = await client.RequestAsync("account/read", new { refreshToken = false });
                 if (providerAccount.Property("requiresOpenaiAuth") is { ValueKind: JsonValueKind.True }) throw new HermesException("회사 provider가 외부 OpenAI 인증을 요구해 차단했습니다.");
@@ -470,15 +470,15 @@ public sealed partial class DeskController : IAsyncDisposable
             case "item/agentMessage/delta": ChatMessages.Delta(task, p.Text("itemId"), p.Text("delta")); break;
             case "item/commandExecution/outputDelta": Append(task, "명령 출력", p.Text("delta")); break;
             case "turn/diff/updated": task.Diff = Safety.Redact(p.Text("diff")); break;
-            case "turn/plan/updated": task.Transcript.Add(new("계획", Safety.Redact(p.GetProperty("plan").ToString()), DateTime.UtcNow)); break;
+            case "turn/plan/updated": task.Transcript.Add(TranscriptPresentation.Model(task, new("계획", Safety.Redact(p.GetProperty("plan").ToString()), DateTime.UtcNow), "분석")); break;
             case "item/completed":
                 var item = p.GetProperty("item");
                 if (item.Text("type") == "dynamicToolCall") ToolProgress.Complete(task, item);
                 if (item.Text("type") == "reasoning" && item.Property("summary") is { ValueKind: JsonValueKind.Array } summaries)
                 { var summaryIndex = 0; foreach (var summary in summaries.EnumerateArray()) ProgressMessages.Complete(task, item.Text("id"), (summaryIndex++).ToString(), summary.ValueKind == JsonValueKind.String ? summary.GetString() ?? "" : summary.Text("text")); }
-                if (item.Text("type") == "mcpToolCall") task.Transcript.Add(new("MCP 도구", Safety.Redact(item.GetRawText()), DateTime.UtcNow));
+                if (item.Text("type") == "mcpToolCall") task.Transcript.Add(new TranscriptEntry("MCP 도구", Safety.Redact(item.GetRawText()), DateTime.UtcNow, item.Text("id")) { Origin = "도구: MCP/" + item.Text("server") + "/" + item.Text("tool"), Stage = "검증" });
                 if (item.Text("type") is "enteredReviewMode" or "exitedReviewMode") task.Transcript.Add(new("AI 검토", Safety.Redact(item.GetRawText()), DateTime.UtcNow));
-                if (item.Text("type") == "commandExecution") task.Transcript.Add(new("명령 결과", Safety.Redact($"{item.Text("command")}\n{item.Text("aggregatedOutput")}\nexit: {item.Property("exitCode")}"), DateTime.UtcNow));
+                if (item.Text("type") == "commandExecution") task.Transcript.Add(new TranscriptEntry("명령 결과", Safety.Redact($"{item.Text("command")}\n{item.Text("aggregatedOutput")}\nexit: {item.Property("exitCode")}"), DateTime.UtcNow, item.Text("id")) { Origin = "도구: commandExecution", Stage = item.Property("exitCode") is { ValueKind: JsonValueKind.Number } code && code.GetInt32() == 0 ? "완료" : "에러원인" });
                 if (item.Text("type") == "agentMessage") ChatMessages.Complete(task, item.Text("id"), item.Text("text"));
                 if (item.Text("type") == "fileChange" && item.Property("changes") is { ValueKind: JsonValueKind.Array } fileChanges)
                 {

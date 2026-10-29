@@ -15,7 +15,7 @@ Usage metrics store header latency, first useful public output/tool arguments, t
 ## Local checks
 
 - Release solution build: zero warnings/errors; `artifacts/execution-build.log`.
-- Synthetic regression: 366 checks; `artifacts/execution-regression.log`. Includes missing model metadata, alias mismatch, delayed response, model switch, immutable completion metadata, untrusted stage tags, tool/host origin, state migration, time/round/tool budgets, stagnation, checkpoint persistence and buffered/stream timing.
+- Synthetic regression: 368 checks; `artifacts/execution-regression.log`. Includes missing model metadata, alias mismatch, delayed response, model switch, immutable completion metadata, untrusted stage tags, tool/host origin, state migration, time/round/tool budgets, stagnation, checkpoint persistence and buffered/stream timing.
 - Official bundled engine with local synthetic company API: existing completion/recovery/RAG, queued and active stop and external blocker tests; `artifacts/execution-engine.log`.
 - Separate official engine processes: budget pause followed by explicit resume preserves original thread, per-stage round limit, partial result and observed model origin; `artifacts/budget-resume-engine.log`.
 - Actual isolated WPF controls: 13 report-visibility assertions plus 8 source/budget assertions; `artifacts/execution-ui-reviewed/execution-ui.json` and `progress-visibility.json`. Includes source label, request alias, live text-control retention, budget checkpoint, report hide/show, settings dialog persistence and inspector details. Screenshot `progress-execution-sources.png` was visually inspected.

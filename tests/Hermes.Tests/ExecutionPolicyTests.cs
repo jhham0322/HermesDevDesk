@@ -27,6 +27,10 @@ internal static class ExecutionPolicyTests
         check(TranscriptPresentation.Label(TranscriptPresentation.Host("중간보고","facts")).StartsWith("[Hermes]"),"host report never appears as model output");
         using(var tool=JsonDocument.Parse("""{"id":"cmd","tool":"hermes_command","success":true,"status":"completed"}""")) ToolProgress.Complete(task,tool.RootElement);
         check(TranscriptPresentation.Label(task.Transcript.Last()).StartsWith("[도구: hermes_command][완료]"),"observed completed tool has its own source and operation completion stage");
+        using(var plan=JsonDocument.Parse("""{"threadId":"source-thread","plan":[]}"""))desk.Handle(new("turn/plan/updated",plan.RootElement));
+        check(task.Transcript.Last().Origin=="model"&&task.Transcript.Last().Stage=="분석","engine plan retains model origin instead of impersonating a host report");
+        using(var mcp=JsonDocument.Parse("""{"threadId":"source-thread","item":{"id":"owned-mcp","type":"mcpToolCall","server":"project","tool":"read_file"}}"""))desk.Handle(new("item/completed",mcp.RootElement));
+        check(task.Transcript.Last().Origin=="도구: MCP/project/read_file","native MCP result preserves its actual server and tool origin");
         var before=task.Transcript.Count; desk.State.Desktop.ShowProgressSummaries=false;
         check(task.Transcript.Count(e=>!ProgressMessages.IsSummary(e)) < before && task.Transcript.Any(e=>e.Text=="first complete"),"hiding reports preserves final answer and original records");
         desk.Save();var restored=new StateStore(desk.DataDirectory).Load();
