@@ -35,9 +35,20 @@ if (-not $EnginePackagePath) { $EnginePackagePath = Join-Path $projectRoot 'vend
 if (-not (Test-Path -LiteralPath $EnginePackagePath)) { throw 'Official engine package required' }
 if (-not (Test-Path -LiteralPath (Join-Path $appPath 'engine'))) { Copy-Item -LiteralPath $EnginePackagePath -Destination (Join-Path $appPath 'engine') -Recurse }
 foreach ($name in @('README.md','LICENSE')) { Copy-Item -LiteralPath (Join-Path $projectRoot $name) -Destination $appPath }
-Copy-Item -LiteralPath (Join-Path $packages 'microsoft.netcore.app.runtime.win-x64/10.0.12/LICENSE.TXT') -Destination (Join-Path $appPath 'DOTNET-LICENSE.txt')
-Copy-Item -LiteralPath (Join-Path $packages 'microsoft.netcore.app.runtime.win-x64/10.0.12/THIRD-PARTY-NOTICES.TXT') -Destination (Join-Path $appPath 'DOTNET-THIRD-PARTY-NOTICES.txt')
-Copy-Item -LiteralPath (Join-Path $packages 'microsoft.windowsdesktop.app.runtime.win-x64/10.0.12/LICENSE') -Destination (Join-Path $appPath 'WPF-LICENSE.txt')
+# The SDK may select a different desktop runtime patch on a clean restore.
+# Copy licenses from the exact frameworks included in this published artifact.
+$runtime = Get-Content -LiteralPath (Join-Path $appPath 'HermesDevDesk.runtimeconfig.json') -Raw | ConvertFrom-Json
+$coreRuntime = @($runtime.runtimeOptions.includedFrameworks | Where-Object name -eq 'Microsoft.NETCore.App')
+$desktopRuntime = @($runtime.runtimeOptions.includedFrameworks | Where-Object name -eq 'Microsoft.WindowsDesktop.App')
+if ($coreRuntime.Count -ne 1 -or $desktopRuntime.Count -ne 1) { throw 'Published runtime framework metadata is missing or ambiguous' }
+foreach ($framework in @($coreRuntime[0], $desktopRuntime[0])) {
+    if ($framework.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Unexpected published runtime version' }
+}
+$corePackage = Join-Path $packages ('microsoft.netcore.app.runtime.win-x64/' + $coreRuntime[0].version)
+$desktopPackage = Join-Path $packages ('microsoft.windowsdesktop.app.runtime.win-x64/' + $desktopRuntime[0].version)
+Copy-Item -LiteralPath (Join-Path $corePackage 'LICENSE.TXT') -Destination (Join-Path $appPath 'DOTNET-LICENSE.txt')
+Copy-Item -LiteralPath (Join-Path $corePackage 'THIRD-PARTY-NOTICES.TXT') -Destination (Join-Path $appPath 'DOTNET-THIRD-PARTY-NOTICES.txt')
+Copy-Item -LiteralPath (Join-Path $desktopPackage 'LICENSE') -Destination (Join-Path $appPath 'WPF-LICENSE.txt')
 Copy-Item -LiteralPath (Join-Path $packages 'microsoft.web.webview2/1.0.4258.31/LICENSE.txt') -Destination (Join-Path $appPath 'WEBVIEW2-LICENSE.txt')
 Copy-Item -LiteralPath (Join-Path $packages 'microsoft.web.webview2/1.0.4258.31/NOTICE.txt') -Destination (Join-Path $appPath 'WEBVIEW2-NOTICE.txt')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'design/icons/LICENSE.txt') -Destination (Join-Path $appPath 'FLUENT-ICONS-LICENSE.txt')

@@ -1,4 +1,4 @@
-# HermesDevDesk 0.8.32 (experimental)
+# HermesDevDesk 0.8.33 (experimental)
 
 ## 출처가 분명한 진행 보고와 제한된 실행 단계
 
@@ -10,9 +10,9 @@
 - 요청 헤더·첫 유효 출력·전체 시간, 도구 대기/처리와 자동 대기를 본문 없는 수치로 기록합니다. 로컬 heartbeat는 새 진전으로 취급하지 않습니다. 회사 모델의 실측 성능 향상은 주장하지 않습니다.
 
 
-## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.32/HermesDevDesk-0.8.32-win-x64-Setup.exe)
+## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.33/HermesDevDesk-0.8.33-win-x64-Setup.exe)
 
-[포터블 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.32/HermesDevDesk-0.8.32-win-x64-Portable.zip)
+[포터블 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.33/HermesDevDesk-0.8.33-win-x64-Portable.zip)
 
 Office에 등록된 추가 기능을 Office 실행 시 자동으로 로드합니다.
 
