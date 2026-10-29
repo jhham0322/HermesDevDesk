@@ -35,17 +35,20 @@ if (-not $EnginePackagePath) { $EnginePackagePath = Join-Path $projectRoot 'vend
 if (-not (Test-Path -LiteralPath $EnginePackagePath)) { throw 'Official engine package required' }
 if (-not (Test-Path -LiteralPath (Join-Path $appPath 'engine'))) { Copy-Item -LiteralPath $EnginePackagePath -Destination (Join-Path $appPath 'engine') -Recurse }
 foreach ($name in @('README.md','LICENSE')) { Copy-Item -LiteralPath (Join-Path $projectRoot $name) -Destination $appPath }
-# The SDK may select a different desktop runtime patch on a clean restore.
-# Copy licenses from the exact frameworks included in this published artifact.
-$runtime = Get-Content -LiteralPath (Join-Path $appPath 'HermesDevDesk.runtimeconfig.json') -Raw | ConvertFrom-Json
-$coreRuntime = @($runtime.runtimeOptions.includedFrameworks | Where-Object name -eq 'Microsoft.NETCore.App')
-$desktopRuntime = @($runtime.runtimeOptions.includedFrameworks | Where-Object name -eq 'Microsoft.WindowsDesktop.App')
-if ($coreRuntime.Count -ne 1 -or $desktopRuntime.Count -ne 1) { throw 'Published runtime framework metadata is missing or ambiguous' }
-foreach ($framework in @($coreRuntime[0], $desktopRuntime[0])) {
-    if ($framework.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Unexpected published runtime version' }
+# Runtimeconfig contains configured framework versions; deps lists the actual
+# runtime packs selected for a self-contained publish. Copy notices from those.
+$dependencies = Get-Content -LiteralPath (Join-Path $appPath 'HermesDevDesk.deps.json') -Raw | ConvertFrom-Json
+function Runtime-Package([string]$name) {
+    $prefix = 'runtimepack.' + $name + '/'
+    $entries = @($dependencies.libraries.PSObject.Properties.Name | Where-Object { $_.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+    if ($entries.Count -ne 1) { throw "Published runtime pack metadata missing or ambiguous: $name" }
+    $version = $entries[0].Substring($prefix.Length)
+    if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Unexpected published runtime pack version' }
+    Write-Output ([IO.Path]::Combine($packages, $name.ToLowerInvariant(), $version))
 }
-$corePackage = Join-Path $packages ('microsoft.netcore.app.runtime.win-x64/' + $coreRuntime[0].version)
-$desktopPackage = Join-Path $packages ('microsoft.windowsdesktop.app.runtime.win-x64/' + $desktopRuntime[0].version)
+$corePackage = Runtime-Package 'Microsoft.NETCore.App.Runtime.win-x64'
+$desktopPackage = Runtime-Package 'Microsoft.WindowsDesktop.App.Runtime.win-x64'
+Write-Host ('Runtime notices: ' + (Split-Path $corePackage -Leaf) + ' / ' + (Split-Path $desktopPackage -Leaf))
 Copy-Item -LiteralPath (Join-Path $corePackage 'LICENSE.TXT') -Destination (Join-Path $appPath 'DOTNET-LICENSE.txt')
 Copy-Item -LiteralPath (Join-Path $corePackage 'THIRD-PARTY-NOTICES.TXT') -Destination (Join-Path $appPath 'DOTNET-THIRD-PARTY-NOTICES.txt')
 Copy-Item -LiteralPath (Join-Path $desktopPackage 'LICENSE') -Destination (Join-Path $appPath 'WPF-LICENSE.txt')

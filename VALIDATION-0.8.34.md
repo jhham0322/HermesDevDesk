@@ -1,0 +1,7 @@
+# 0.8.34 clean SDK and runtime-pack notices
+
+The prior 0.8.32 and 0.8.33 release tags are preserved; their source validation workflows passed, but neither release workflow published assets. The license copy step failed in a clean hosted environment. Resolving notices from runtimeconfig alone was insufficient: configured framework versions and actual selected self-contained runtime packs must not be assumed identical, and setup-dotnet installation alone does not force an SDK when newer SDKs are installed.
+
+global.json now selects the exact 10.0.401 SDK already used by the project-local build and installed by CI, with no roll-forward. The packaging script resolves each exact runtimepack library/version from the published deps.json, rejects missing/ambiguous metadata, and copies its actual package notices. Existing public-file, manifest and installer checks remain mandatory. A new empty package-cache directory is used for local clean packaging validation rather than relying on the original populated NuGet cache.
+
+Features and 368 synthetic regression checks remain those documented in VALIDATION-0.8.32.md. This patch changes SDK selection, build notice lookup and version manifests; it does not change model calls, runtime permissions or progress policy. No failed tag is overwritten and no user app is installed or terminated. Final exact-commit CI and local package results are retained in ignored artifacts.
