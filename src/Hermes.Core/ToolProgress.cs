@@ -26,7 +26,7 @@ internal static class ToolProgress
     {
         var key = "tool-progress:" + item.Text("id");
         var index = task.Transcript.FindLastIndex(t => t.ItemId == key);
-        var entry = new TranscriptEntry(kind, Safety.Redact(text), DateTime.UtcNow, key);
+        var entry = new TranscriptEntry(kind, Safety.Redact(text), DateTime.UtcNow, key) { Origin = "도구: " + item.Text("tool"), Stage = item.Property("success") is { ValueKind: JsonValueKind.False } || item.Text("status") == "failed" ? "에러원인" : text.EndsWith("완료", StringComparison.Ordinal) ? "완료" : "중간보고" };
         if (index >= 0) task.Transcript[index] = entry;
         else task.Transcript.Add(entry);
     }

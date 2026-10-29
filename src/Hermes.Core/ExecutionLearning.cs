@@ -21,7 +21,9 @@ public sealed partial class DeskController
     {
         var engine = Engine; if (engine == null) return;
         var turnId = task.TurnId; var args = request.Params.GetProperty("arguments"); var tool = request.Params.Text("tool");
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         var gate = LearningLock(task); await gate.WaitAsync();
+        var metrics = ActiveProcess(task); if (metrics != null) metrics.ToolQueueMs += clock.ElapsedMilliseconds; clock.Restart();
         try
         {
             if (engine != Engine || task.TurnId != turnId || task.Status != "실행 중") throw new HermesException("도구 요청의 실행이 중단되었거나 변경되었습니다.");
@@ -37,7 +39,7 @@ public sealed partial class DeskController
                 }
                 else throw new HermesException("지원하지 않는 실행 기록 동작입니다.");
             }
-            else text = await RunLearnedCommand(task, engine, args, request.Params.Text("turnId") + "/" + request.Id, turnId);
+            else { ReserveManagedTool(task); text = await RunLearnedCommand(task, engine, args, request.Params.Text("turnId") + "/" + request.Id, turnId); }
             await engine.RespondAsync(request, new { success = true, contentItems = new[] { new { type = "inputText", text } } });
         }
         catch (Exception ex)
@@ -57,7 +59,7 @@ public sealed partial class DeskController
             }
             if (engine == Engine) try { await engine.RespondAsync(request, new { success = false, contentItems = new[] { new { type = "inputText", text = failure } } }); } catch (IOException) { }
         }
-        finally { gate.Release(); }
+        finally { if (metrics != null) metrics.ToolExecutionMs += clock.ElapsedMilliseconds; gate.Release(); }
     }
     private async Task<string> RunLearnedCommand(WorkItem task, AppServerClient engine, JsonElement args, string eventId, string? turnId)
     {
@@ -75,6 +77,7 @@ public sealed partial class DeskController
         try
         {
             var result = await engine.RequestAsync("command/exec", new { command = new[] { "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop';\n" + command + "\nif ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }" }, cwd = root, processId, streamStdoutStderr = false, streamStdin = false, tty = false, timeoutMs = timeout, sandboxPolicy = policy }, timeout / 1000 + 15);
+            PublishToolReport(task);
             var output = result.Text("stdout") + result.Text("stderr");
             var succeeded = result.Property("exitCode")?.GetInt32() == 0;
             var evidence = Memory.Record(MemoryScope(task), task.Id, eventId, purpose, "command", command, succeeded, output);

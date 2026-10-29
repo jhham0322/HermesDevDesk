@@ -44,12 +44,23 @@ public sealed class WorkItem
     public bool Archived { get; set; }
     public bool Pinned { get; set; }
     public string ReasoningEffort { get; set; } = "";
+    public DateTimeOffset ActiveRequestAt { get; set; }
+    public string ActiveRequestId { get; set; } = "";
+    public string ResponseModel { get; set; } = "";
     public List<SkillRecord> Skills { get; set; } = [];
     public List<AttachmentRecord> Attachments { get; set; } = [];
     public List<FileAttachmentRecord> FileAttachments { get; set; } = [];
     public override string ToString() => $"{Title} · {Status}";
 }
-public sealed record TranscriptEntry(string Kind, string Text, DateTime At, string? ItemId = null);
+public sealed record TranscriptEntry(string Kind, string Text, DateTime At, string? ItemId = null)
+{
+    public string Origin { get; init; } = "";
+    public string RequestedModel { get; init; } = "";
+    public string ResponseModel { get; init; } = "";
+    public string RequestId { get; init; } = "";
+    public string TurnId { get; init; } = "";
+    public string Stage { get; init; } = "";
+}
 public sealed class AppState
 {
     public BrowserPreferences Browser { get; set; } = new();
@@ -70,6 +81,8 @@ public sealed class DesktopPreferences
 {
     public SavedWindowBounds? WindowBounds { get; set; }
     public bool WindowMaximized { get; set; }
+    public bool ShowProgressSummaries { get; set; } = true;
+    public ExecutionBudget ExecutionBudget { get; set; } = new();
     public bool DarkTheme { get; set; }
     public bool SidebarVisible { get; set; } = true;
     public bool InspectorVisible { get; set; }

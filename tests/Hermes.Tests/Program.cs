@@ -65,6 +65,8 @@ if (args.Contains("--anthropic-engine-smoke"))
 {
     await AnthropicEngineTests.Run(Path.Combine(baseDir, "anthropic-engine"), args[Array.IndexOf(args, "--codex") + 1], args[Array.IndexOf(args, "--report") + 1]); return;
 }
+if (args.Contains("--budget-resume-engine")) { await BudgetResumeEngineTests.Run(Path.Combine(baseDir, "budget-resume-engine"), args[Array.IndexOf(args, "--codex") + 1]); return; }
+
 if (args.Contains("--task-loop-engine"))
 { await TaskLoopEngineTests.Run(Path.Combine(baseDir, "task-loop-engine"), args[Array.IndexOf(args, "--codex") + 1]); return; }
 if (args.Contains("--computer-engine-smoke"))
@@ -121,6 +123,7 @@ using (var failed = JsonDocument.Parse("""{"id":"memory-1","tool":"hermes_memory
     ToolProgress.Complete(toolTask, failed.RootElement);
 Assert(toolTask.Transcript.Single().Kind == "도구 오류" && toolTask.Transcript[0].Text.Contains("개선 근거"), "actual tool failure exposes returned cause even when item completed");
 await TaskLoopTests.Run(Path.Combine(baseDir, "task-loop"), Assert);
+await ExecutionPolicyTests.Run(Path.Combine(baseDir, "execution-policy"), Assert);
 var progressTask = new WorkItem();
 ProgressMessages.Delta(progressTask, "one", "0", "Checking ");
 ProgressMessages.Delta(progressTask, "two", "0", "Other task");

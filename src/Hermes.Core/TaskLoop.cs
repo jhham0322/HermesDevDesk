@@ -5,7 +5,7 @@ namespace Hermes.Core;
 public sealed partial class DeskController
 {
     private readonly Dictionary<string, CancellationTokenSource> loopWaits = [];
-    private const string LoopInstructions = " This request runs in a host-managed completion loop. Continue taking useful actions until the entire user objective is fulfilled and verified. A final message alone does not stop the loop. Use hermes_task with action=complete and concrete verification only when all requested work is finished; cite a successful evidenceId for tool-based work. For an answer-only task, verification may describe the delivered answer without evidenceId. If a real missing credential, user decision, or unavailable external dependency prevents further work, use action=blocked with the exact reason. Do not claim success from a tool exit code alone. After repeated errors, use automatically retrieved RAG to diagnose and execute a materially different approach, then verify. Never expand user authorization.";
+    private const string LoopInstructions = " This request runs in a host-managed completion loop. Continue taking useful actions until the entire user objective is fulfilled and verified. A final message alone does not stop the loop. Use hermes_task with action=complete and concrete verification only when all requested work is finished; cite a successful evidenceId for tool-based work. For an answer-only task, verification may describe the delivered answer without evidenceId. If a real missing credential, user decision, or unavailable external dependency prevents further work, use action=blocked with the exact reason. Do not claim success from a tool exit code alone. After repeated errors, use automatically retrieved RAG to diagnose and execute a materially different approach, then verify. Never expand user authorization. Work in short stages: report completed work, remaining work and next action; avoid repeated status messages. At a host budget boundary preserve partial results and a restart point, and never report budget exhaustion as completion. Distinguish observed errors from hypotheses. Use [분석], [중간보고], [에러원인], [검증] for readable public summaries; text tags do not change host state.";
     private static readonly object[] LoopTools = [new
     {
         type = "function", name = "hermes_task", description = "Report verified completion or a concrete external blocker to the host-managed task loop. Only complete after fulfilling and verifying the full objective; verification explains observed results. evidenceId must refer to a successful tool execution in this process for tool-based work. The host verifies evidence provenance, not the business result itself.",
@@ -16,7 +16,10 @@ public sealed partial class DeskController
     internal TaskProcess BeginProcess(WorkItem task, string goal)
     {
         if (ActiveProcess(task) != null) throw new HermesException("이 작업에는 이미 실행 중인 프로세스가 있습니다.");
-        var process = new TaskProcess { TaskId = task.Id, Goal = ExecutionMemory.Clean(goal, 100000) };
+        State.Desktop.ExecutionBudget.Validate();
+        var process = new TaskProcess { TaskId = task.Id, Goal = ExecutionMemory.Clean(goal, 100000), Budget = State.Desktop.ExecutionBudget.Copy() };
+        process.LastProgressDigest = ProgressDigest(task);
+        task.Transcript.Add(TranscriptPresentation.Host("분석", $"단계 실행 시작 · {process.Budget.MaxRounds}라운드 / {process.Budget.MaxMinutes}분 / {process.Budget.MaxTools}회 도구. 예산은 다음 작업 시작 경계에서 적용하며 실행 중인 작업을 강제 종료하지 않습니다."));
         State.Processes.Add(process); return process;
     }
     private void EndProcess(WorkItem task, string state, string detail)
@@ -66,9 +69,15 @@ public sealed partial class DeskController
         if (status == "completed" && process.DecisionTurnId == turn.Text("id") && process.Decision != null)
         {
             var complete = process.Decision == "complete";
+            task.Transcript.Add(TranscriptPresentation.Host(complete ? "검증" : "입력 필요", complete ? "모델 완료 보고와 실행 근거 연결을 확인했습니다. 목표 달성 자체는 모델 보고이며 앱의 독립 검증은 아닙니다.\n" + process.Detail : process.Detail, turn.Text("id")));
             EndProcess(task, complete ? "완료" : "사용자 확인 필요", process.Detail);
             task.Status = complete ? "완료" : "사용자 확인 필요"; return;
         }
+        var digest = ProgressDigest(task);
+        process.StagnantRounds = digest == process.LastProgressDigest ? process.StagnantRounds + 1 : 0;
+        process.LastProgressDigest = digest;
+        if (PauseAtBoundary(task, process)) return;
+        task.Transcript.Add(TranscriptPresentation.Host("중간보고", $"완료한 일: {process.ToolCalls}회 도구 시작, {task.ChangedFiles.Count}개 파일 변경 관측.\n남은 일: 완료 검증 보고 미접수.\n다음 행동: 미완료 범위만 이어서 실행. 라운드 {process.Round}/{process.Budget.MaxRounds}", turn.Text("id")));
         process.Decision = null;
         process.ConsecutiveFailures = status == "completed" ? 0 : process.ConsecutiveFailures + 1;
         if (process.ConsecutiveFailures >= 3)
@@ -84,7 +93,9 @@ public sealed partial class DeskController
     {
         try
         {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             await Task.Delay(TimeSpan.FromSeconds(Math.Min(15, 1 + process.ConsecutiveFailures * 3)), ct);
+            process.AutomaticWaitMs += clock.ElapsedMilliseconds;
             dispatch(() => { if (!ct.IsCancellationRequested) _ = ContinueLoopAsync(task, process, engine); });
         }
         catch (OperationCanceledException) { }
@@ -92,11 +103,13 @@ public sealed partial class DeskController
     private async Task ContinueLoopAsync(WorkItem task, TaskProcess process, AppServerClient? engine)
     {
         if (disposed || engine == null || engine != Engine || ActiveProcess(task) != process || process.State != "다음 실행 대기") return;
+        if (PauseAtBoundary(task, process)) return;
         if (loopWaits.Remove(task.Id, out var wait)) wait.Dispose();
         try
         {
             if (!SubscriptionReady || task.ProviderFingerprint != connectedFingerprint || connectedFingerprint != State.Provider.Fingerprint || task.ThreadId == null)
                 throw new HermesException("연결 상태가 바뀌었습니다. 같은 모델에 다시 연결한 뒤 실행하세요.");
+            task.ActiveRequestId = ""; task.ResponseModel = "";
             process.State = "실행 중"; process.Round++; process.Updated = DateTime.UtcNow; task.Status = "시작 중";
             var root = Safety.ProjectRoot(Project(task).Root);
             var automatic = !task.IsReview;

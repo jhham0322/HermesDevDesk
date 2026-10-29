@@ -103,12 +103,12 @@ public sealed class CompanyBridge : IAsyncDisposable
     }
     private void Emit(UsageEntry entry)
     {
-        if (tasks.TryGetValue(entry.TaskId, out var context) && context.TurnId.Length > 0) entry.TurnId = context.TurnId;
+        if (entry.TurnId.Length == 0 && tasks.TryGetValue(entry.TaskId, out var context)) entry.TurnId = context.TurnId;
         Usage?.Invoke(JsonSerializer.Deserialize<UsageEntry>(JsonSerializer.Serialize(entry))!);
     }
     private UsageEntry StartEntry(string? id = null, TaskContext? context = null)
     {
-        var entry = new UsageEntry { Id = Guid.NewGuid().ToString("N"), At = DateTimeOffset.UtcNow, TaskId = id ?? taskId, TurnId = context?.TurnId ?? turnId, Deployment = context?.Model ?? activeModel, Model = context?.Model ?? activeModel, Source = "company-api-response", Requests = null };
+        var entry = new UsageEntry { Id = Guid.NewGuid().ToString("N"), At = DateTimeOffset.UtcNow, TaskId = id ?? taskId, TurnId = context?.TurnId ?? turnId, Deployment = context?.Model ?? activeModel, Model = "", Source = "company-api-response", Requests = null };
         Emit(entry); return entry;
     }
     private async Task Handle(LoopRequest incoming, NetworkStream stream, CancellationToken ct)
@@ -125,6 +125,14 @@ public sealed class CompanyBridge : IAsyncDisposable
         }
         if (incoming.Method != "POST" || route != "/v1/responses") { await LoopbackHttp.Reply(stream, 404, "application/json", "{\"error\":{\"message\":\"[HERMES_ERROR] Unsupported local route\"}}", ct); return; }
         var entry = StartEntry(requestTask, context); var streaming = false; using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, context?.Operation.Token ?? operation.Token);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        void Observe(string model, bool useful)
+        {
+            var changed = false;
+            if (!string.IsNullOrWhiteSpace(model) && model != entry.Model) { entry.Model = model; changed = true; }
+            if (useful && entry.FirstUsefulOutputMs == null) { entry.FirstUsefulOutputMs = clock.ElapsedMilliseconds; changed = true; }
+            if (changed) Emit(entry);
+        }
         await using var downstream = new ModelResponseStream(stream, linked.Token);
         try
         {
@@ -146,6 +154,7 @@ public sealed class CompanyBridge : IAsyncDisposable
                 request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
                 return request;
             }, () => entry.Requests = (entry.Requests ?? 0) + 1, linked.Token);
+            entry.HeadersMs = clock.ElapsedMilliseconds;
             entry.HttpStatus = (int)response.StatusCode;
             if (!response.IsSuccessStatusCode)
             {
@@ -166,7 +175,7 @@ public sealed class CompanyBridge : IAsyncDisposable
                 if (!wantsStream) throw new HermesException("Unexpected Chat SSE response");
                 streaming = true;
                 await downstream.StartAsync(linked.Token);
-                var converted = await ChatStream.Translate(await response.Content.ReadAsStreamAsync(linked.Token), downstream, adaptation, linked.Token);
+                var converted = await ChatStream.Translate(await response.Content.ReadAsStreamAsync(linked.Token), downstream, adaptation, linked.Token, Observe);
                 using var parsed = JsonDocument.Parse(converted.ToJsonString()); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model"); entry.Status = parsed.RootElement.Text("status"); entry.Note = "Chat SSE → Responses 실시간 전달"; Emit(entry); return;
             }
             if (anthropic != null && response.Content.Headers.ContentType?.MediaType == "text/event-stream")
@@ -174,7 +183,7 @@ public sealed class CompanyBridge : IAsyncDisposable
                 if (!wantsStream) throw new HermesException("Unexpected Anthropic SSE response");
                 streaming = true;
                 await downstream.StartAsync(linked.Token);
-                var converted = await AnthropicStream.Translate(await response.Content.ReadAsStreamAsync(linked.Token), downstream, anthropic, linked.Token);
+                var converted = await AnthropicStream.Translate(await response.Content.ReadAsStreamAsync(linked.Token), downstream, anthropic, linked.Token, Observe);
                 using var parsed = JsonDocument.Parse(converted.ToJsonString()); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model"); entry.Status = parsed.RootElement.Text("status"); entry.Note = "Anthropic SSE → Responses 변환"; Emit(entry); return;
             }
             if (anthropic == null && adaptation == null && wantsStream && response.Content.Headers.ContentType?.MediaType == "text/event-stream")
@@ -190,6 +199,12 @@ public sealed class CompanyBridge : IAsyncDisposable
                     var eventText = Safety.Redact(frame.ToString());
                     total += eventText.Length; if (total > 64_000_000) throw new HermesException("Company stream size limit");
                     var observed = ResponseWire.LastResponse(eventText); if (observed.HasValue) final = observed;
+                    foreach (var data in eventText.Split('\n').Where(l => l.StartsWith("data:", StringComparison.Ordinal)))
+                    {
+                        if (data[5..].Trim() == "[DONE]") continue;
+                        using var json = JsonDocument.Parse(data[5..]); var value = json.RootElement;
+                        Observe(value.Property("response")?.Text("model") ?? value.Text("model"), value.Text("type") is "response.output_text.delta" or "response.function_call_arguments.delta" or "response.reasoning_summary_text.delta");
+                    }
                     await downstream.WriteAsync(Encoding.UTF8.GetBytes(eventText + "\n"), linked.Token);
                     await downstream.FlushAsync(linked.Token); frame.Clear();
                 }
@@ -200,11 +215,15 @@ public sealed class CompanyBridge : IAsyncDisposable
                 }
                 await Forward();
                 entry.Tokens = final.HasValue ? TokenCounts.FromResponse(final.Value) : TokenCounts.Missing;
-                entry.Model = final?.Text("model") is { Length: > 0 } streamModel ? streamModel : entry.Deployment;
+                entry.Model = final?.Text("model") is { Length: > 0 } streamModel ? streamModel : "";
                 entry.Status = final?.Text("status") ?? "unknown";
                 entry.Note = "실시간 Responses SSE 전달 · 최종 서버 usage만 집계"; Emit(entry); return;
             }
+            entry.Buffered = true;
             var text = Safety.Redact(await response.Content.ReadAsStringAsync(linked.Token));
+            if (response.Content.Headers.ContentType?.MediaType != "text/event-stream") { using var buffered = JsonDocument.Parse(text); var value = buffered.RootElement;
+                var useful = value.Property("output") is { ValueKind: JsonValueKind.Array } o && o.GetArrayLength() > 0 || value.Property("content") is { ValueKind: JsonValueKind.Array } c && c.GetArrayLength() > 0 || value.Property("choices") is { ValueKind: JsonValueKind.Array } choices && choices.EnumerateArray().Any(x => x.Property("message") is { } m && (m.Text("content").Length > 0 || m.Property("tool_calls") is { ValueKind: JsonValueKind.Array } calls && calls.GetArrayLength() > 0));
+                Observe(value.Text("model"), useful); }
             string output; string contentType; string finalStatus = "completed";
             if (anthropic != null)
             {
@@ -214,19 +233,19 @@ public sealed class CompanyBridge : IAsyncDisposable
             }
             else if (adaptation != null)
             {
-                using var chat = JsonDocument.Parse(text); entry.Tokens = TokenCounts.FromResponse(chat.RootElement); entry.Model = chat.RootElement.Text("model") is { Length: > 0 } model ? model : entry.Deployment;
+                using var chat = JsonDocument.Parse(text); entry.Tokens = TokenCounts.FromResponse(chat.RootElement); entry.Model = chat.RootElement.Text("model") is { Length: > 0 } model ? model : "";
                 var converted = ChatAdapter.Response(chat.RootElement, adaptation); output = wantsStream ? ResponseWire.Sse(converted) : converted.ToJsonString(); contentType = wantsStream ? "text/event-stream" : "application/json";
             }
             else if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             {
                 JsonElement? final = ResponseWire.LastResponse(text);
-                entry.Tokens = final.HasValue ? TokenCounts.FromResponse(final.Value) : TokenCounts.Missing; entry.Model = final?.Text("model") is { Length: > 0 } model ? model : entry.Deployment;
+                entry.Tokens = final.HasValue ? TokenCounts.FromResponse(final.Value) : TokenCounts.Missing; entry.Model = final?.Text("model") is { Length: > 0 } model ? model : "";
                 finalStatus = final?.Text("status") ?? "unknown";
                 output = text; contentType = "text/event-stream";
             }
             else
             {
-                using var parsed = JsonDocument.Parse(text); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model") is { Length: > 0 } model ? model : entry.Deployment;
+                using var parsed = JsonDocument.Parse(text); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model") is { Length: > 0 } model ? model : "";
                 finalStatus = parsed.RootElement.Text("status") is { Length: > 0 } status ? status : "unknown";
                 var node = JsonNode.Parse(text)!.AsObject(); output = wantsStream ? ResponseWire.Sse(node) : text; contentType = wantsStream ? "text/event-stream" : "application/json";
             }
@@ -243,6 +262,7 @@ public sealed class CompanyBridge : IAsyncDisposable
             }
             if (!streaming && !ct.IsCancellationRequested) await LoopbackHttp.Reply(stream, ex is OperationCanceledException ? 499 : ex is HttpRequestException ? 503 : 500, "application/json", JsonSerializer.Serialize(new { error = new { message = entry.Note, type = ex is HttpRequestException ? "network_error" : ex is ModelServerException ? "model_error" : "hermes_error" } }), ct);
         }
+        finally { entry.TotalMs = clock.ElapsedMilliseconds; Emit(entry); }
     }
     public async ValueTask DisposeAsync() { operation.Cancel(); foreach (var context in tasks.Values) context.Operation.Cancel(); await server.DisposeAsync(); http.Dispose(); operation.Dispose(); foreach (var context in tasks.Values) context.Operation.Dispose(); }
 }

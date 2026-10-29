@@ -19,25 +19,33 @@ public partial class MainWindow
     private const int ConversationPageSize = 40;
     private void ConversationOlder_Click(object sender, RoutedEventArgs e)
     {
-        historyEnd = Math.Max(ConversationPageSize, (historyEnd ?? CurrentTask?.Transcript.Count ?? 0) - ConversationPageSize);
+        historyEnd = Math.Max(ConversationPageSize, (historyEnd ?? (CurrentTask?.Transcript ?? []).Count(entry => desk.State.Desktop.ShowProgressSummaries || !ProgressMessages.IsSummary(entry))) - ConversationPageSize);
         conversationStamp = ""; RenderConversation(); ConversationScroll.ScrollToTop();
     }
     private void ConversationLatest_Click(object sender, RoutedEventArgs e)
     { historyEnd = null; conversationStamp = ""; RenderConversation(); ConversationScroll.ScrollToEnd(); }
     private void ConversationNewer_Click(object sender, RoutedEventArgs e)
     {
-        var count = CurrentTask?.Transcript.Count ?? 0;
+        var count = (CurrentTask?.Transcript ?? []).Count(entry => desk.State.Desktop.ShowProgressSummaries || !ProgressMessages.IsSummary(entry));
         var next = (historyEnd ?? count) + ConversationPageSize;
         historyEnd = next >= count ? null : next;
         conversationStamp = ""; RenderConversation(); ConversationScroll.ScrollToTop();
     }
+    private void ShowProgressSummaries_Click(object sender, RoutedEventArgs e)
+    {
+        desk.State.Desktop.ShowProgressSummaries = ShowProgressSummaries.IsChecked == true;
+        desk.Save();
+        historyEnd = null; renderedConversation = null; conversationStamp = "";
+        RenderConversation();
+    }
     private void RenderConversation()
     {
         var entries = CurrentTask?.Transcript ?? [];
+        if (!desk.State.Desktop.ShowProgressSummaries) entries = entries.Where(entry => !ProgressMessages.IsSummary(entry)).ToList();
         if (renderedConversation != CurrentTask?.Id) historyEnd = null;
         var end = Math.Min(historyEnd ?? entries.Count, entries.Count);
         var offset = Math.Max(0, end - ConversationPageSize);
-        var stamp = offset + ":" + end + ":" + (CurrentTask?.Id ?? "empty") + ":" + entries.Count + ":" + string.Join('|', entries.TakeLast(8).Select(e => e.Kind + ":" + e.Text.GetHashCode()));
+        var stamp = offset + ":" + end + ":" + (CurrentTask?.Id ?? "empty") + ":" + entries.Count + ":" + string.Join('|', entries.Skip(offset).Take(end - offset).Select(e => e.GetHashCode()));
         if (stamp == conversationStamp) return;
         conversationStamp = stamp;
         var follow = ConversationScroll.ScrollableHeight - ConversationScroll.VerticalOffset < 60;
@@ -61,21 +69,22 @@ public partial class MainWindow
         {
             var position = index++;
             if (renderedEntries.TryGetValue(position, out var previous) && previous == entry && position < MessageStack.Children.Count) continue;
-            if (entry.Kind == "에이전트 스트림" && previous?.Kind == "에이전트 스트림" && position < MessageStack.Children.Count && MessageStack.Children[position] is Border { Child: TextBox live })
-            { live.Text = entry.Text; renderedEntries[position] = entry; continue; }
+            if (entry.Kind == "에이전트 스트림" && previous?.Kind == "에이전트 스트림" && position < MessageStack.Children.Count && MessageStack.Children[position] is Border { Child: StackPanel livePanel } && livePanel.Children[^1] is TextBox live)
+            { live.Text = entry.Text; ((TextBlock)livePanel.Children[0]).Text = TranscriptPresentation.Label(entry); renderedEntries[position] = entry; continue; }
             UIElement view;
             if (entry.Kind is "사용자" or "에이전트" or "에이전트 스트림")
             {
                 UIElement content = entry.Kind == "에이전트 스트림" ? new TextBox { Text = entry.Text, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, FontSize = 18, BorderThickness = new Thickness(0), Padding = new Thickness(0), Background = Brushes.Transparent } : Markdown(entry.Text);
-                var box = new Border { Child = content, Padding = new Thickness(entry.Kind == "사용자" ? 16 : 0), Margin = new Thickness(0, 10, 0, 22), CornerRadius = new CornerRadius(16), Background = entry.Kind == "사용자" ? Brush("Hover") : Brushes.Transparent, HorizontalAlignment = entry.Kind == "사용자" ? HorizontalAlignment.Right : HorizontalAlignment.Stretch, MaxWidth = entry.Kind == "사용자" ? 650 : double.PositiveInfinity };
+                var labeled = new StackPanel(); if (entry.Kind != "사용자") labeled.Children.Add(new TextBlock { Text = TranscriptPresentation.Label(entry), Foreground = Brush("Muted"), FontSize = 12, Margin = new Thickness(0, 0, 0, 6) }); labeled.Children.Add(content);
+                var box = new Border { Child = labeled, Padding = new Thickness(entry.Kind == "사용자" ? 16 : 0), Margin = new Thickness(0, 10, 0, 22), CornerRadius = new CornerRadius(16), Background = entry.Kind == "사용자" ? Brush("Hover") : Brushes.Transparent, HorizontalAlignment = entry.Kind == "사용자" ? HorizontalAlignment.Right : HorizontalAlignment.Stretch, MaxWidth = entry.Kind == "사용자" ? 650 : double.PositiveInfinity };
                 view = box;
             }
             else
             {
                 var shortText = entry.Text.Split('\n')[0]; if (shortText.Length > 95) shortText = shortText[..95] + "…";
                 var header = new DockPanel(); header.Children.Add(MakeIcon(entry.Kind.Contains("명령") ? "code" : entry.Kind.Contains("파일") ? "document" : "chat", 16));
-                header.Children.Add(new TextBlock { Text = entry.Kind + "  " + shortText, Foreground = Brush("Muted"), FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis });
-                var expander = new Expander { Header = header, Margin = new Thickness(0, 2, 0, 12), IsExpanded = entry.Kind is "오류" or "진행 요약" or "작업 진행" or "계획" or "명령 출력" or "브라우저 소스" };
+                header.Children.Add(new TextBlock { Text = TranscriptPresentation.Label(entry) + " " + entry.Kind + "  " + shortText, Foreground = Brush("Muted"), FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis });
+                var expander = new Expander { Header = header, Margin = new Thickness(0, 2, 0, 12), IsExpanded = entry.Kind is "호스트 보고" or "오류" or "진행 요약" or "작업 진행" or "계획" or "명령 출력" or "브라우저 소스" };
                 if (expander.IsExpanded) expander.Content = Markdown(entry.Text);
                 expander.Expanded += (_, _) => { expander.Content ??= Markdown(entry.Text); };
                 view = expander;

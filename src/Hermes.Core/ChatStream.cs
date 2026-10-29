@@ -4,12 +4,12 @@ using System.Text.Json.Nodes;
 namespace Hermes.Core;
 public static class ChatStream
 {
-    public static async Task<JsonObject> Translate(Stream upstream, Stream downstream, ChatAdaptation adaptation, CancellationToken ct)
+    public static async Task<JsonObject> Translate(Stream upstream, Stream downstream, ChatAdaptation adaptation, CancellationToken ct, Action<string, bool>? observed = null)
     {
         using var reader = new StreamReader(upstream, Encoding.UTF8);
         var responseId = "resp_" + Guid.NewGuid().ToString("N"); var messageId = "msg_" + Guid.NewGuid().ToString("N");
         var text = new StringBuilder(); var tools = new SortedDictionary<int, JsonObject>(); var frame = new StringBuilder();
-        string model = adaptation.Body["model"]?.GetValue<string>() ?? "", finish = ""; JsonNode? usage = null;
+        string model = "", finish = ""; JsonNode? usage = null;
         int sequence = 0; long bytes = 0; bool messageStarted = false, done = false;
         async Task Event(string name, JsonObject fields)
         {
@@ -24,7 +24,7 @@ public static class ChatStream
             if (data == "[DONE]") { done = true; return; }
             using var parsed = JsonDocument.Parse(data); var root = parsed.RootElement;
             if (root.Property("error") != null) throw new ModelServerException(ProviderErrors.ReadableMessage(root.GetRawText()));
-            if (root.Text("model").Length > 0) model = root.Text("model");
+            if (root.Text("model").Length > 0) { model = root.Text("model"); observed?.Invoke(model, false); }
             if (root.Property("usage") is { ValueKind: JsonValueKind.Object } counts) usage = JsonNode.Parse(counts.GetRawText());
             if (root.Property("choices") is not { ValueKind: JsonValueKind.Array } choices) return;
             foreach (var choice in choices.EnumerateArray())
@@ -33,6 +33,7 @@ public static class ChatStream
                 if (choice.Text("finish_reason").Length > 0) finish = choice.Text("finish_reason");
                 if (choice.Property("delta") is not { ValueKind: JsonValueKind.Object } delta) continue;
                 var chunk = delta.Text("content");
+                observed?.Invoke(model, chunk.Length > 0 || delta.Property("tool_calls") is { ValueKind: JsonValueKind.Array } usefulCalls && usefulCalls.GetArrayLength() > 0);
                 if (chunk.Length > 0)
                 {
                     if (!messageStarted)

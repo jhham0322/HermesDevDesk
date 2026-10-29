@@ -182,7 +182,7 @@ public sealed partial class DeskController : IAsyncDisposable
                 if (State.Provider.Authentication != ProviderAuth.None && !KeyStore.HasKey) throw new HermesException("회사 키를 앱 설정에서 직접 입력하세요. 기존 키를 추출하지 않습니다.");
                 if (State.Provider.Protocol == ProviderProtocol.GatewayAuto || !State.Provider.UseAdvancedSettings) await ResolveGateway(CancellationToken.None);
                 var savedModels = Models.ToList();
-                company = new(State.Provider, KeyStore, allowTestLoopback); company.Usage += e => dispatch(() => { UsageLedger.Upsert(State, e); if (e.Status == "failed" && State.Tasks.FirstOrDefault(t => t.Id == e.TaskId) is { } failedTask && !failedTask.Transcript.Any(t => t.ItemId == "gateway-error-" + e.Id)) failedTask.Transcript.Add(new("오류", ProviderErrors.ReadableMessage(e.Note), DateTime.UtcNow, "gateway-error-" + e.Id)); Save(); });
+                company = new(State.Provider, KeyStore, allowTestLoopback); company.Usage += e => dispatch(() => { ObserveCompanyUsage(e); if (e.Status == "failed" && State.Tasks.FirstOrDefault(t => t.Id == e.TaskId) is { } failedTask && !failedTask.Transcript.Any(t => t.ItemId == "gateway-error-" + e.Id)) failedTask.Transcript.Add(new("오류", ProviderErrors.ReadableMessage(e.Note), DateTime.UtcNow, "gateway-error-" + e.Id)); Save(); });
                 await client.ConnectAsync(exe, cwd, Path.Combine(DataDirectory, "engine-home"), company.BaseUri, company.Capability, State.Provider.Deployment);
                 var providerAccount = await client.RequestAsync("account/read", new { refreshToken = false });
                 if (providerAccount.Property("requiresOpenaiAuth") is { ValueKind: JsonValueKind.True }) throw new HermesException("회사 provider가 외부 OpenAI 인증을 요구해 차단했습니다.");
@@ -312,6 +312,7 @@ public sealed partial class DeskController : IAsyncDisposable
         task.WritablePreference = writable;
         ComputerLifecycleEvent?.Invoke(task, "new-command");
         task.ReasoningEffort = effort ?? "";
+        task.ActiveRequestId = ""; task.ResponseModel = "";
         var automatic = !task.IsReview;
         var approval = automatic ? "never" : "on-request";
         var root = Safety.ProjectRoot(Project(task).Root);
@@ -402,6 +403,7 @@ public sealed partial class DeskController : IAsyncDisposable
         { EndProcess(task, "종료됨", "사용자가 종료했습니다."); task.Status = "중단됨"; Save(); return; }
         var stopEngine = Engine; var stopThread = task.ThreadId; var stopTurn = task.TurnId;
         task.Status = "중단 중"; Save();
+        company?.CancelTask(task.Id);
         await StopLearnedCommand(task);
         await stopEngine.RequestAsync("turn/interrupt", new { threadId = stopThread, turnId = stopTurn });
         company?.CancelTask(task.Id);
@@ -432,12 +434,13 @@ public sealed partial class DeskController : IAsyncDisposable
         {
             case "item/started":
                 var started = p.GetProperty("item");
+                if (started.Text("type") == "mcpToolCall" && ActiveProcess(task) is { } observedProcess) observedProcess.ToolCalls++;
                 if (started.Text("type") is "commandExecution" or "mcpToolCall" or "fileChange" || (started.Text("type") == "dynamicToolCall" && started.Text("tool") != "hermes_task"))
                     if (ActiveProcess(task) is { } activeProcess) activeProcess.Decision = null;
                 if (started.Text("type") == "dynamicToolCall") ToolProgress.Start(task, started);
                 if (started.Text("type") is "commandExecution" or "mcpToolCall" or "webSearch" or "fileChange")
                     task.Transcript.Add(new("작업 진행", Safety.Redact(started.Text("type") + " · " + started.Text("command") + started.Text("tool")), DateTime.UtcNow, started.Text("id")));
-                if (started.Text("type") == "reasoning") task.Transcript.Add(new("작업 진행", "응답 준비 중 · 진행 요약을 기다리고 있습니다.", DateTime.UtcNow));
+                if (started.Text("type") == "reasoning" && !task.Transcript.Any(t => t.ItemId == "await-summary-" + task.TurnId)) task.Transcript.Add(new("작업 진행", "응답 준비 중 · 유효 출력을 기다립니다. 진척을 확인한 상태는 아닙니다.", DateTime.UtcNow, "await-summary-" + task.TurnId));
                 if (started.Text("type") == "fileChange" && started.Property("changes") is { ValueKind: JsonValueKind.Array } changes) pendingChanges[started.Text("id")] = changes.EnumerateArray().Select(c => c.Text("path")).ToList();
                 break;
             case "turn/started":
@@ -492,6 +495,14 @@ public sealed partial class DeskController : IAsyncDisposable
                 break;
             case "error": task.Transcript.Add(new("오류", ProviderErrors.ReadableMessage(p.GetProperty("error").Text("message")), DateTime.UtcNow)); break;
         }
+        if (e.Method is "item/started" or "item/completed")
+        {
+            var eventItem = p.GetProperty("item"); var tool = eventItem.Text("tool"); var type = eventItem.Text("type");
+            if (type is "dynamicToolCall" or "mcpToolCall" or "commandExecution" or "webSearch" or "fileChange")
+                for (var i = 0; i < task.Transcript.Count; i++)
+                    if (task.Transcript[i].ItemId == eventItem.Text("id") && task.Transcript[i].Origin.Length == 0)
+                        task.Transcript[i] = task.Transcript[i] with { Origin = tool.Length > 0 ? "도구: " + tool : "도구: " + type, Stage = e.Method == "item/completed" ? "검증" : "중간보고" };
+        }
         if (e.Method is "item/reasoning/summaryTextDelta" or "item/agentMessage/delta" or "item/commandExecution/outputDelta" or "thread/tokenUsage/updated") SaveStream();
         else Save();
     }
@@ -519,16 +530,18 @@ public sealed partial class DeskController : IAsyncDisposable
     }
     private async Task AnswerBrowserAsync(WorkItem task, ServerRequest request)
     {
-        var engine = Engine; if (engine == null) return; var turn = task.TurnId; var attempted = false; var gate = LearningLock(task); await gate.WaitAsync();
+        var engine = Engine; if (engine == null) return; var turn = task.TurnId; var attempted = false; var clock = System.Diagnostics.Stopwatch.StartNew(); var gate = LearningLock(task); await gate.WaitAsync();
+        var metrics = ActiveProcess(task); if (metrics != null) metrics.ToolQueueMs += clock.ElapsedMilliseconds; clock.Restart();
         task.Transcript.Add(new("작업 진행", "브라우저 요청 처리 중 · " + request.Params.Property("arguments")?.Text("action"), DateTime.UtcNow)); Save();
         try
         {
             if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new HermesException("대기 중인 도구 요청의 실행이 중단되었거나 변경되었습니다.");
             var arguments = request.Params.GetProperty("arguments");
             if (Memory.BlockReason(MemoryScope(task), task.Id, "browser", ToolMethod("browser", arguments), ToolRetryIdentity(arguments)) is { } reason) throw new HermesException(reason);
-            attempted = true;
+            ReserveManagedTool(task); attempted = true;
             var result = await BrowserTool!(task, request.Params.GetProperty("arguments")).WaitAsync(TimeSpan.FromSeconds(40));
             if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new HermesException("브라우저 요청의 대화/실행 세션이 바뀌었습니다.");
+            PublishToolReport(task);
             var proof = RememberTool(task, request, "browser", true);
             await engine.RespondAsync(request, new { success = true, contentItems = result.ContentItems.Concat(new object[] { new { type = "inputText", text = "실행 근거 evidenceId=" + proof.Id } }).ToArray() });
             var text = Safety.Redact(result.Text);
@@ -541,19 +554,21 @@ public sealed partial class DeskController : IAsyncDisposable
             task.Transcript.Add(new("브라우저 오류", ConnectionErrors.Describe(ex), DateTime.UtcNow)); Save();
             if (engine == Engine) try { await engine.RespondAsync(request, new { success = false, contentItems = new[] { new { type = "inputText", text = Safety.Redact(ex is TimeoutException ? "브라우저 응답 시간이 초과되었습니다. 브라우저 패널에서 페이지를 다시 열고 시도하세요." : ex.Message) + recovery } } }); } catch (IOException) { }
         }
-        finally { gate.Release(); }
+        finally { if (metrics != null) metrics.ToolExecutionMs += clock.ElapsedMilliseconds; gate.Release(); }
     }
     private async Task AnswerComputerAsync(WorkItem task, ServerRequest request)
     {
-        var engine = Engine; if (engine == null) return; var turn = task.TurnId; var attempted = false; var gate = LearningLock(task); await gate.WaitAsync();
+        var engine = Engine; if (engine == null) return; var turn = task.TurnId; var attempted = false; var clock = System.Diagnostics.Stopwatch.StartNew(); var gate = LearningLock(task); await gate.WaitAsync();
+        var metrics = ActiveProcess(task); if (metrics != null) metrics.ToolQueueMs += clock.ElapsedMilliseconds; clock.Restart();
         try
         {
             if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new HermesException("대기 중인 도구 요청의 실행이 중단되었거나 변경되었습니다.");
             var arguments = request.Params.GetProperty("arguments");
             if (Memory.BlockReason(MemoryScope(task), task.Id, "computer", ToolMethod("computer", arguments), ToolRetryIdentity(arguments)) is { } reason) throw new HermesException(reason);
-            attempted = true;
+            ReserveManagedTool(task); attempted = true;
             var result = await ComputerTool!(task, request.Params.GetProperty("arguments"));
             if (engine != Engine || task.TurnId != turn || task.Status != "실행 중") throw new HermesException("컴퓨터 요청의 작업이 중단되었거나 변경됐습니다.");
+            PublishToolReport(task);
             var proof = RememberTool(task, request, "computer", true);
             await engine.RespondAsync(request, new { success = true, contentItems = result.ContentItems.Concat(new object[] { new { type = "inputText", text = "실행 근거 evidenceId=" + proof.Id } }).ToArray() });
             ComputerResultDelivered?.Invoke(task, result);
@@ -568,7 +583,7 @@ public sealed partial class DeskController : IAsyncDisposable
             ComputerLifecycleEvent?.Invoke(task, "error");
             if (engine == Engine) try { await engine.RespondAsync(request, new { success = false, contentItems = new[] { new { type = "inputText", text = ConnectionErrors.Describe(ex) + recovery } } }); } catch (IOException) { }
         }
-        finally { gate.Release(); }
+        finally { if (metrics != null) metrics.ToolExecutionMs += clock.ElapsedMilliseconds; gate.Release(); }
     }
     public async Task AnswerAsync(ServerRequest request, bool accept, Dictionary<string, object>? answers = null, bool allowEscalation = false)
     {

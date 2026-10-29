@@ -7,6 +7,17 @@ public sealed class TaskProcess
     public string Goal { get; set; } = "";
     public string State { get; set; } = "실행 중";
     public int Round { get; set; } = 1;
+    public ExecutionBudget Budget { get; set; } = new();
+    public int ToolCalls { get; set; }
+    public int ObservedToolResults { get; set; }
+    public int StagnantRounds { get; set; }
+    public string LastProgressDigest { get; set; } = "";
+    public string Checkpoint { get; set; } = "";
+    public string BudgetReason { get; set; } = "";
+    public long ToolQueueMs { get; set; }
+    public long ToolExecutionMs { get; set; }
+    public long AutomaticWaitMs { get; set; }
+    public bool PausedForBudget { get; set; }
     public int ConsecutiveFailures { get; set; }
     public string Detail { get; set; } = "완료 근거를 확인할 때까지 자동으로 이어갑니다.";
     public string? Decision { get; set; }

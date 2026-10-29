@@ -40,6 +40,12 @@ public partial class App : Application
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunLearningPanelChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "learning-panel-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
             else if (e.Args.Contains("--browser-experience-smoke"))
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunBrowserExperienceChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "browser-experience-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
+            else if (e.Args.Contains("--execution-ui-smoke"))
+            { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunExecutionUiChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "execution-ui-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
+            else if (e.Args.Contains("--progress-restart-smoke"))
+            { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunProgressRestartChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "progress-restart-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
+            else if (e.Args.Contains("--progress-visibility-smoke"))
+            { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunProgressVisibilityChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "progress-visibility-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
             else if (e.Args.Contains("--conversation-performance-smoke"))
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunConversationPerformanceChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "conversation-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
             else if (e.Args.Contains("--window-state-report"))

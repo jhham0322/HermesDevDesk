@@ -6,7 +6,7 @@ namespace Hermes.Core;
 
 public static class AnthropicStream
 {
-    public static async Task<JsonObject> Translate(Stream upstream, Stream downstream, AnthropicAdaptation adaptation, CancellationToken ct)
+    public static async Task<JsonObject> Translate(Stream upstream, Stream downstream, AnthropicAdaptation adaptation, CancellationToken ct, Action<string, bool>? observed = null)
     {
         using var reader = new StreamReader(upstream, Encoding.UTF8);
         var frame = new StringBuilder(); var blocks = new SortedDictionary<int, JsonObject>(); var arguments = new Dictionary<int, StringBuilder>(); var open = new HashSet<int>();
@@ -40,6 +40,7 @@ public static class AnthropicStream
             {
                 if (message != null) throw new HermesException("Duplicate message_start");
                 message = node["message"]!.DeepClone().AsObject();
+                observed?.Invoke(message["model"]?.GetValue<string>() ?? "", false);
                 await Event("response.created", new() { ["response"] = new JsonObject { ["id"] = "resp_" + message["id"]!.GetValue<string>(), ["object"] = "response", ["created_at"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ["status"] = "in_progress", ["model"] = message["model"]?.DeepClone(), ["output"] = new JsonArray() } }); return;
             }
             if (message == null) throw new HermesException("Missing message_start");
@@ -54,6 +55,7 @@ public static class AnthropicStream
             {
                 var index = node["index"]!.GetValue<int>(); if (!open.Contains(index) || !blocks.TryGetValue(index, out var block)) throw new HermesException("Unknown stream block");
                 var delta = node["delta"]!; var deltaType = delta["type"]!.GetValue<string>();
+                if (deltaType is "text_delta" or "input_json_delta") observed?.Invoke(message["model"]?.GetValue<string>() ?? "", true);
                 if (deltaType == "text_delta") { var text = delta["text"]!.GetValue<string>(); block["text"] = (block["text"]?.GetValue<string>() ?? "") + text; await Delta(text); }
                 else if (deltaType == "input_json_delta") { if (!arguments.TryGetValue(index, out var args)) throw new HermesException("Tool delta without tool"); args.Append(delta["partial_json"]!.GetValue<string>()); }
                 else if (deltaType is not ("thinking_delta" or "signature_delta")) throw new HermesException("Unsupported Anthropic stream delta");

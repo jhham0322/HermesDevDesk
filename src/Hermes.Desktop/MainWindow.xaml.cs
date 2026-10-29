@@ -29,6 +29,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent(); InitializeMaximizeBounds();
         desk = new(data, a => Dispatcher.BeginInvoke(a)); desk.Changed += Refresh; desk.StreamChanged += QueueRefresh;
+        ShowProgressSummaries.IsChecked = desk.State.Desktop.ShowProgressSummaries;
         InitializeWindowPersistence();
         InitializeShell();
         InitializeAttachments();

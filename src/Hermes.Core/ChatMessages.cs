@@ -10,12 +10,12 @@ public static class ChatMessages
             var entry = task.Transcript[index];
             task.Transcript[index] = entry with { Text = Safety.Redact((entry.Text + delta)[..Math.Min(200_000, entry.Text.Length + delta.Length)]) };
         }
-        else task.Transcript.Add(new("에이전트 스트림", Safety.Redact(delta), DateTime.UtcNow, itemId));
+        else task.Transcript.Add(TranscriptPresentation.Model(task, new("에이전트 스트림", Safety.Redact(delta), DateTime.UtcNow, itemId), "중간보고"));
     }
     public static void Complete(WorkItem task, string itemId, string text)
     {
         var index = task.Transcript.FindLastIndex(e => e.ItemId == itemId && e.Kind is "에이전트 스트림" or "에이전트");
-        var entry = new TranscriptEntry("에이전트", Safety.Redact(text), DateTime.UtcNow, itemId);
+        var entry = index >= 0 ? task.Transcript[index] with { Kind = "에이전트", Text = Safety.Redact(text) } : TranscriptPresentation.Model(task, new TranscriptEntry("에이전트", Safety.Redact(text), DateTime.UtcNow, itemId), "중간보고");
         if (index >= 0) task.Transcript[index] = entry;
         else task.Transcript.Add(entry);
     }
