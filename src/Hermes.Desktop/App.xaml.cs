@@ -40,6 +40,8 @@ public partial class App : Application
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunLearningPanelChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "learning-panel-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
             else if (e.Args.Contains("--browser-experience-smoke"))
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunBrowserExperienceChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "browser-experience-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
+            else if (e.Args.Contains("--command-details-smoke"))
+            { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunCommandDetailChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "command-details-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
             else if (e.Args.Contains("--execution-ui-smoke"))
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunExecutionUiChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "execution-ui-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
             else if (e.Args.Contains("--progress-restart-smoke"))

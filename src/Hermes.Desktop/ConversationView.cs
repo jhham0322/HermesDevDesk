@@ -13,6 +13,11 @@ namespace Hermes.Desktop;
 public partial class MainWindow
 {
     private readonly Dictionary<int, TranscriptEntry> renderedEntries = [];
+    private readonly Dictionary<string, bool> commandExpansion = [];
+    private static bool IsCommandDetail(TranscriptEntry entry) => entry.Origin is "도구: hermes_command" or "도구: commandExecution"
+        || entry.Kind is "명령 결과" or "명령 출력"
+        || (entry.Kind is "작업 진행" or "도구 오류" && entry.Text.StartsWith("명령 실행", StringComparison.Ordinal));
+    private string CommandExpansionKey(TranscriptEntry entry) => (CurrentTask?.Id ?? "empty") + ":" + (entry.ItemId ?? entry.At.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + entry.Kind);
     private string? renderedConversation;
     private int renderedOffset;
     private int? historyEnd;
@@ -84,9 +89,11 @@ public partial class MainWindow
                 var shortText = entry.Text.Split('\n')[0]; if (shortText.Length > 95) shortText = shortText[..95] + "…";
                 var header = new DockPanel(); header.Children.Add(MakeIcon(entry.Kind.Contains("명령") ? "code" : entry.Kind.Contains("파일") ? "document" : "chat", 16));
                 header.Children.Add(new TextBlock { Text = TranscriptPresentation.Label(entry) + " " + entry.Kind + "  " + shortText, Foreground = Brush("Muted"), FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis });
-                var expander = new Expander { Header = header, Margin = new Thickness(0, 2, 0, 12), IsExpanded = entry.Kind is "호스트 보고" or "오류" or "진행 요약" or "작업 진행" or "계획" or "명령 출력" or "브라우저 소스" };
+                var isCommand = IsCommandDetail(entry); var expansionKey = isCommand ? CommandExpansionKey(entry) : "";
+                var expander = new Expander { Header = header, Margin = new Thickness(0, 2, 0, 12), IsExpanded = isCommand ? commandExpansion.GetValueOrDefault(expansionKey) : entry.Kind is "호스트 보고" or "오류" or "진행 요약" or "작업 진행" or "계획" or "명령 출력" or "브라우저 소스" };
                 if (expander.IsExpanded) expander.Content = Markdown(entry.Text);
-                expander.Expanded += (_, _) => { expander.Content ??= Markdown(entry.Text); };
+                expander.Expanded += (_, _) => { if (isCommand) commandExpansion[expansionKey] = true; expander.Content ??= Markdown(entry.Text); };
+                expander.Collapsed += (_, _) => { if (isCommand) commandExpansion[expansionKey] = false; };
                 view = expander;
             }
             if (position < MessageStack.Children.Count) { MessageStack.Children.RemoveAt(position); MessageStack.Children.Insert(position, view); }

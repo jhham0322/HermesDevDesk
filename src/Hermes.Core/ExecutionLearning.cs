@@ -72,7 +72,7 @@ public sealed partial class DeskController
         var root = Safety.ProjectRoot(Project(task).Root);
         var policy = new { type = "dangerFullAccess" };
         var timeout = args.Property("timeoutMs")?.GetInt32() ?? 30000; if (timeout is < 1000 or > 120000) throw new HermesException("명령 제한은 1..120초입니다.");
-        task.Transcript.Add(new("작업 진행", "명령 실행 · " + ExecutionMemory.Clean(purpose, 300) + "\n" + ExecutionMemory.Clean(command), DateTime.UtcNow)); Save();
+        task.Transcript.Add(new TranscriptEntry("작업 진행", "명령 실행 · " + ExecutionMemory.Clean(purpose, 300) + "\n" + ExecutionMemory.Clean(command), DateTime.UtcNow) { Origin = "도구: hermes_command", Stage = "중간보고" }); Save();
         var processId = "learning-" + Guid.NewGuid().ToString("N"); commandProcesses[task.Id] = processId;
         try
         {
@@ -82,7 +82,7 @@ public sealed partial class DeskController
             var succeeded = result.Property("exitCode")?.GetInt32() == 0;
             var evidence = Memory.Record(MemoryScope(task), task.Id, eventId, purpose, "command", command, succeeded, output);
             var summary = $"evidenceId={evidence.Id}; exit={result.Property("exitCode")}\n" + ExecutionMemory.Clean(output, 20000);
-            task.Transcript.Add(new("명령 결과", ExecutionMemory.Clean(command) + "\n" + summary, DateTime.UtcNow)); Save();
+            task.Transcript.Add(new TranscriptEntry("명령 결과", ExecutionMemory.Clean(command) + "\n" + summary, DateTime.UtcNow) { Origin = "도구: hermes_command", Stage = succeeded ? "완료" : "에러원인" }); Save();
             if (task.TurnId != turnId || task.Status != "실행 중") return "명령 결과를 기록했지만 원래 실행은 중단되었습니다.";
             return summary + Memory.RecoveryContext(MemoryScope(task), task.Id, evidence);
         }

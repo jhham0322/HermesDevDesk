@@ -1,4 +1,9 @@
-# HermesDevDesk 0.8.34 (experimental)
+# HermesDevDesk 0.8.35 (experimental)
+
+## 명령 상세 기본 접힘
+
+명령 실행·출력·결과의 상세는 기본 접힘입니다. 접힌 헤더에는 기존 출처·상태 요약을 유지하며, 사용자가 펼친 항목은 출력 갱신·대화 전환·페이징 때 다시 강제로 접히지 않습니다. 전체 진행 보고 표시 토글과 별개이며 원문·명령 결과는 보존합니다. 새 앱 창에서 저장 대화를 열면 기본 접힘으로 시작합니다.
+
 
 ## 출처가 분명한 진행 보고와 제한된 실행 단계
 
@@ -10,9 +15,9 @@
 - 요청 헤더·첫 유효 출력·전체 시간, 도구 대기/처리와 자동 대기를 본문 없는 수치로 기록합니다. 로컬 heartbeat는 새 진전으로 취급하지 않습니다. 회사 모델의 실측 성능 향상은 주장하지 않습니다.
 
 
-## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.34/HermesDevDesk-0.8.34-win-x64-Setup.exe)
+## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.35/HermesDevDesk-0.8.35-win-x64-Setup.exe)
 
-[포터블 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.34/HermesDevDesk-0.8.34-win-x64-Portable.zip)
+[포터블 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.35/HermesDevDesk-0.8.35-win-x64-Portable.zip)
 
 Office에 등록된 추가 기능을 Office 실행 시 자동으로 로드합니다.
 

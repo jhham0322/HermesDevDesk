@@ -1,4 +1,9 @@
-# Hermes DevDesk 0.8.34
+# Hermes DevDesk 0.8.35
+
+## 명령 상세 기본 접힘
+
+명령 실행·출력·결과의 상세는 기본 접힘입니다. 접힌 헤더에는 기존 출처·상태 요약을 유지하며, 사용자가 펼친 항목은 출력 갱신·대화 전환·페이징 때 다시 강제로 접히지 않습니다. 전체 진행 보고 표시 토글과 별개이며 원문·명령 결과는 보존합니다. 새 앱 창에서 저장 대화를 열면 기본 접힘으로 시작합니다.
+
 
 ## 출처가 분명한 진행 보고와 제한된 실행 단계
 
@@ -10,11 +15,11 @@
 - 요청 헤더·첫 유효 출력·전체 시간, 도구 대기/처리와 자동 대기를 본문 없는 수치로 기록합니다. 로컬 heartbeat는 새 진전으로 취급하지 않습니다. 회사 모델의 실측 성능 향상은 주장하지 않습니다.
 
 
-## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.34/HermesDevDesk-0.8.34-win-x64-Setup.exe)
+## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.35/HermesDevDesk-0.8.35-win-x64-Setup.exe)
 
 Windows 64비트용 설치 프로그램입니다. 위 링크를 누르면 설치 파일 다운로드가 시작됩니다.
 
-[설치 없이 실행하는 포터블 ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.34/HermesDevDesk-0.8.34-win-x64-Portable.zip) · [최신 릴리스 보기](https://github.com/jhham0322/HermesDevDesk/releases/latest)
+[설치 없이 실행하는 포터블 ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.35/HermesDevDesk-0.8.35-win-x64-Portable.zip) · [최신 릴리스 보기](https://github.com/jhham0322/HermesDevDesk/releases/latest)
 
 ---
 
@@ -80,7 +85,7 @@ Hermes는 추가 OS 샌드박스를 적용하지 않습니다. AI 작업, 자동
 
 로컬 검증은 합성 토큰과 로컬 서버만 사용했습니다. 공식 엔진으로 동일 채팅에서 A → B → A의 서버·모델·인증 전환을 확인했습니다. 5,001개 메시지의 WPF 검사에서 화면 컨트롤은 40개, 추가 렌더링은 약 7ms였습니다(이 PC의 측정값).
 
-[Windows 설치 파일 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.34/HermesDevDesk-0.8.34-win-x64-Setup.exe) · [Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.34/HermesDevDesk-0.8.34-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
+[Windows 설치 파일 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.35/HermesDevDesk-0.8.35-win-x64-Setup.exe) · [Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.35/HermesDevDesk-0.8.35-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
 
 0.8.18은 Chat API의 답변 조각을 즉시 전달합니다. 이전 구현은 Chat 요청을 비스트리밍으로 보내고 응답 전체를 기다리다가 4분 제한으로 실패할 수 있었습니다. 서버의 일시적인 지연이나 대기열도 시간 초과 원인이 될 수 있으므로 외부 장애로 단정하지 않습니다. 실행 요청은 `messages`의 텍스트를 문자열로 전달하고 `max_tokens`를 사용하며 불필요한 `parallel_tool_calls`를 보내지 않습니다. 실제 에이전트·도구 호출·후속 답변까지 스트리밍으로 검증합니다.
 
