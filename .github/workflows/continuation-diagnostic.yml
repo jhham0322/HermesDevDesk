@@ -1,4 +1,4 @@
-name: Continuation diagnostic verification
+name: Command first-cmdlet follow-up control
 on:
   push:
     branches: [verify/command-startup-diagnostics]
@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        startup: [cmdlets, dotnet-file, dotnet-output]
+        startup: [dotnet-both]
     runs-on: windows-latest
     timeout-minutes: 15
     env:

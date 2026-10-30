@@ -7,7 +7,7 @@ internal static class ContinuationEngineTests
 {
     internal static async Task Run(string root, string exe, string startupVariant = "cmdlets")
     {
-        if (startupVariant is not ("cmdlets" or "dotnet-file" or "dotnet-output")) throw new IOException("Unknown startup comparison variant");
+        if (startupVariant is not ("cmdlets" or "dotnet-file" or "dotnet-output" or "dotnet-both")) throw new IOException("Unknown startup comparison variant");
         Console.WriteLine("STARTUP_VARIANT=" + startupVariant);
         ProgressDeadline.Verify();
         ReceiptDiagnostics.Verify();
@@ -29,11 +29,12 @@ internal static class ContinuationEngineTests
         {
             var append = "Add-Content -LiteralPath '" + effects + "' -Value 'OP_" + i + "'; ";
             var output = "Write-Output VERIFIED_" + i;
-            // Each control changes exactly ONE statement in the first command.
+            // Each initial control changes ONE statement; dotnet-both is the follow-up
+            // control against dotnet-file, changing only its remaining output statement.
             // ASCII effect bytes, line ending, stdout marker, operation identity and all
             // downstream file/evidence/restart assertions remain the same.
-            if (i == 1 && startupVariant == "dotnet-file") append = "[IO.File]::AppendAllText('" + effects + "','OP_1'+[Environment]::NewLine); ";
-            if (i == 1 && startupVariant == "dotnet-output") output = "[Console]::WriteLine('VERIFIED_1')";
+            if (i == 1 && (startupVariant == "dotnet-file" || startupVariant == "dotnet-both")) append = "[IO.File]::AppendAllText('" + effects + "','OP_1'+[Environment]::NewLine); ";
+            if (i == 1 && (startupVariant == "dotnet-output" || startupVariant == "dotnet-both")) output = "[Console]::WriteLine('VERIFIED_1')";
             return new { purpose = "Create exactly one fixture effect " + i, operationId = "effect-" + i,
                 command = i == 1 ? Stamp("body-start") + append + Stamp("after-file") + Stamp("before-output") + output + "; " + Stamp("body-end") : append + output };
         }
