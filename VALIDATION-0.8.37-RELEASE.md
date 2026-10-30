@@ -1,0 +1,7 @@
+# 0.8.37 publication addendum
+
+Fresh user approval authorizes publication to the existing jhham0322/HermesDevDesk GitHub repository and release destination. The prepared local commit remains 543e0da349f8f8209485ee61bd439da324561032. Its local installer remains 635698176 bytes with SHA256 8696365b0d6337a3d5fa0f7911a127603cb993dd92eda7150e20d348c6d4951c. Remote main was 9ede4eb77de678e64da30d743ad0c97ab397252a, with no v0.8.37 remote tag or release at preflight.
+
+This publication-only follow-up adds the version-specific existing release workflow and updates public release documentation. Runtime source is unchanged from the tested prepared commit. The workflow includes the new tool-card visibility/restart checks with a shared owned profile, the retained full-title check, existing regressions, engine checks, installer verification, public-payload/license checks, UI checks and owned reinstall fixtures.
+
+The original local-only notes remain a historical record of the initial approval scope. CI rebuilds the tagged commit using the existing pinned SDK and official engine. The published artifact is separately downloaded and checked; its SHA256 may differ from the preserved local installer because build provenance, bundled documentation and archive timestamps differ. Exact-commit CI and downloaded-file evidence are saved in ignored artifacts after execution. No new accounts, authentication, permissions, hosting or automatic user installation are introduced. No company model endpoint is called.
