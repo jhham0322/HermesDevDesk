@@ -53,7 +53,7 @@ if (args.Contains("--resume-only"))
     Console.WriteLine("RESUME: " + node["resumeVerified"]); File.WriteAllText(reportPath, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true })); return;
 }
 var baseDir = Path.Combine(Environment.CurrentDirectory, "artifacts", "test-scratch", "Hermes-tests-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(baseDir);
-if (args.Contains("--continuation-engine")) { await ContinuationEngineTests.Run(Path.Combine(baseDir, "continuation-engine"), args[Array.IndexOf(args, "--codex") + 1]); return; }
+if (args.Contains("--continuation-engine")) { await ContinuationEngineTests.Run(Path.Combine(baseDir, "continuation-engine"), args[Array.IndexOf(args, "--codex") + 1], args.Contains("--startup-variant") ? args[Array.IndexOf(args, "--startup-variant") + 1] : "cmdlets"); return; }
 if (args.Contains("--continuation-queue")) { await ContinuationQueueTests.Run(Path.Combine(baseDir, "continuation-queue"), (ok,label) => { if (!ok) throw new Exception(label); Console.WriteLine("PASS: " + label); }); return; }
 if (args.Contains("--simple-ui-engine-smoke"))
 {

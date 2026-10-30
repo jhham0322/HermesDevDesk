@@ -5,8 +5,10 @@ using System.Text.RegularExpressions;
 using Hermes.Core;
 internal static class ContinuationEngineTests
 {
-    internal static async Task Run(string root, string exe)
+    internal static async Task Run(string root, string exe, string startupVariant = "cmdlets")
     {
+        if (startupVariant is not ("cmdlets" or "dotnet-file" or "dotnet-output")) throw new IOException("Unknown startup comparison variant");
+        Console.WriteLine("STARTUP_VARIANT=" + startupVariant);
         ProgressDeadline.Verify();
         ReceiptDiagnostics.Verify();
         var runClock = Stopwatch.StartNew();
@@ -19,14 +21,22 @@ internal static class ContinuationEngineTests
             trace.Enqueue(line); Console.WriteLine(line);
         }
         var effects = Path.Combine(root, "effects.txt").Replace("'", "''");
+        var expectedEffects = System.Text.Encoding.ASCII.GetBytes(string.Concat(Enumerable.Range(1,25).Select(i => "OP_" + i + Environment.NewLine)));
         var extra = Path.Combine(root, "extra.txt").Replace("'", "''"); var done = Path.Combine(root, "done.txt").Replace("'", "''");
         object Item(string id, string file, string marker, string request = "initial", int priority = 0, params string[] deps) => new { id, requestId = request, title = "Work " + id, acceptance = "Actual artifact must contain " + marker, kind = "artifact", priority, dependsOn = deps, artifacts = new[] { new { path = file, contains = marker } } };
-        var bodyStart = Path.Combine(root, "first-body-start.ticks").Replace("'", "''");
-        var bodyEnd = Path.Combine(root, "first-body-end.ticks").Replace("'", "''");
-        object Command(int i) => new { purpose = "Create exactly one fixture effect " + i, operationId = "effect-" + i,
-            command = (i == 1 ? "[IO.File]::WriteAllText('" + bodyStart + "',[DateTime]::UtcNow.Ticks.ToString()); " : "") +
-                "Add-Content -LiteralPath '" + effects + "' -Value 'OP_" + i + "'; Write-Output VERIFIED_" + i +
-                (i == 1 ? "; [IO.File]::WriteAllText('" + bodyEnd + "',[DateTime]::UtcNow.Ticks.ToString())" : "") };
+        string Stamp(string stage) => "[IO.File]::WriteAllText('" + Path.Combine(root, "first-" + stage + ".ticks").Replace("'", "''") + "',[DateTime]::UtcNow.Ticks.ToString()); ";
+        object Command(int i)
+        {
+            var append = "Add-Content -LiteralPath '" + effects + "' -Value 'OP_" + i + "'; ";
+            var output = "Write-Output VERIFIED_" + i;
+            // Each control changes exactly ONE statement in the first command.
+            // ASCII effect bytes, line ending, stdout marker, operation identity and all
+            // downstream file/evidence/restart assertions remain the same.
+            if (i == 1 && startupVariant == "dotnet-file") append = "[IO.File]::AppendAllText('" + effects + "','OP_1'+[Environment]::NewLine); ";
+            if (i == 1 && startupVariant == "dotnet-output") output = "[Console]::WriteLine('VERIFIED_1')";
+            return new { purpose = "Create exactly one fixture effect " + i, operationId = "effect-" + i,
+                command = i == 1 ? Stamp("body-start") + append + Stamp("after-file") + Stamp("before-output") + output + "; " + Stamp("body-end") : append + output };
+        }
         await using var server = new LoopbackHttp(async (request, stream, ct) =>
         {
             var n = Interlocked.Increment(ref phase); Interlocked.Increment(ref calls);
@@ -134,6 +144,8 @@ internal static class ContinuationEngineTests
             await desk.StartAsync(task,"A. Create twenty five unique effects exactly once.\nB. Verify the count and final artifact, continuing until all requirements are complete.","continuation-model",true,continueUntilComplete:true);
             await Wait(desk,"다음 실행 대기",()=>Volatile.Read(ref checkpointReached)==1,sample);var p=desk.Processes.Single();
             if(p.Items.Single(i=>i.Id=="build").State!="verified"||File.ReadAllLines(effects).Length!=25)throw new IOException("Long tool chain or duplicate receipt failed");
+            if (!File.ReadAllBytes(effects).SequenceEqual(expectedEffects) || p.Operations.Single(o => o.Key == "effect-1").Result.Split('\n', 2).ElementAtOrDefault(1)?.Trim() != "VERIFIED_1")
+                throw new IOException("Comparison changed exact effect bytes or first stdout marker");
             await desk.SteerAsync(task,"Add an urgent extra artifact while retaining the original remaining verification requirement.");extraRequest=p.Requirements.Last().Id;
             processId=p.Id;taskId=task.Id;threadId=task.ThreadId!;desk.Save();
         }
@@ -143,8 +155,8 @@ internal static class ContinuationEngineTests
             var completionReached = 0; var sample = Observe(desk, "완료", () => Interlocked.Exchange(ref completionReached, 1));
             await desk.ConnectAsync(exe,root);Pump();
             await Wait(desk,"완료",()=>Volatile.Read(ref completionReached)==1,sample);var p=desk.Processes.Single();var task=desk.State.Tasks.Single(t=>t.Id==taskId);
-            if(p.Id!=processId||task.ThreadId!=threadId||p.Items.Count!=3||p.Items.Any(i=>i.State!="verified")||File.ReadAllLines(effects).Length!=25||!File.ReadAllText(extra).Contains("EXTRA_VERIFIED")||!File.ReadAllText(done).Contains("QUEUE_VERIFIED"))throw new IOException("Automatic restore lost requirements, replayed effects, or missed verification");
-            var report=new{passed=true,calls,uniqueEffects=25,replayedEffects=0,completedItems=p.Items.Count,operations=p.Operations.Count,toolCalls=p.ToolCalls,sameThread=true,automaticRestart=true,additionalRequirementPreserved=true,realCompanyRequests=0};
+            if(!File.ReadAllBytes(effects).SequenceEqual(expectedEffects)||p.Id!=processId||task.ThreadId!=threadId||p.Items.Count!=3||p.Items.Any(i=>i.State!="verified")||File.ReadAllLines(effects).Length!=25||!File.ReadAllText(extra).Contains("EXTRA_VERIFIED")||!File.ReadAllText(done).Contains("QUEUE_VERIFIED"))throw new IOException("Automatic restore lost requirements, replayed effects, or missed verification");
+            var report=new{passed=true,startupVariant,calls,effectSha256=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(effects))),firstStdoutVerified=true,uniqueEffects=25,replayedEffects=0,completedItems=p.Items.Count,operations=p.Operations.Count,toolCalls=p.ToolCalls,sameThread=true,automaticRestart=true,additionalRequirementPreserved=true,realCompanyRequests=0};
             File.WriteAllLines(Path.Combine(root,"continuation-diagnostics.jsonl"),trace.ToArray());
             File.WriteAllText(Path.Combine(root,"continuation-engine.json"),JsonSerializer.Serialize(report,new JsonSerializerOptions{WriteIndented=true}));Console.WriteLine(JsonSerializer.Serialize(report));
         }

@@ -6,6 +6,10 @@ permissions:
   contents: read
 jobs:
   continuation:
+    strategy:
+      fail-fast: false
+      matrix:
+        startup: [cmdlets, dotnet-file, dotnet-output]
     runs-on: windows-latest
     timeout-minutes: 15
     env:
@@ -33,7 +37,7 @@ jobs:
           try {
             & $tests
             if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
-            & $tests --continuation-engine --codex $engine
+            & $tests --continuation-engine --codex $engine --startup-variant "${{ matrix.startup }}"
             if ($LASTEXITCODE -ne 0) { throw 'Continuation diagnostic check failed' }
             & $tests --budget-resume-engine --codex $engine
             if ($LASTEXITCODE -ne 0) { throw 'Budget restart engine check failed' }

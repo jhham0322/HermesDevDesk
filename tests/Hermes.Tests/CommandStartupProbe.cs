@@ -70,14 +70,14 @@ internal sealed class CommandStartupProbe : IAsyncDisposable
             catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { }
             trace("owned-process-sample", new { engineCpuMs = cpu, livePowerShellCount = shells.Length, observedPowerShellCount = seen.Count });
         }
-        foreach (var name in new[] { "first-body-start.ticks", "first-body-end.ticks" })
+        foreach (var name in new[] { "first-body-start.ticks", "first-after-file.ticks", "first-before-output.ticks", "first-body-end.ticks" })
         {
             if (markers.Contains(name)) continue;
             var file = Path.Combine(root, name);
             try
             {
                 if (File.Exists(file) && long.TryParse(File.ReadAllText(file), out var ticks) && ticks >= DateTime.MinValue.Ticks && ticks <= DateTime.MaxValue.Ticks)
-                { markers.Add(name); trace("command-body-marker", new { stage = name.Contains("start") ? "body-start" : "body-end", at = new DateTime(ticks, DateTimeKind.Utc) }); }
+                { markers.Add(name); trace("command-body-marker", new { stage = name[6..^6], at = new DateTime(ticks, DateTimeKind.Utc) }); }
             }
             catch (IOException) { /* A partially written fixture marker is sampled again. */ }
         }
