@@ -1,4 +1,9 @@
-# HermesDevDesk 0.8.35 (experimental)
+# HermesDevDesk 0.8.36 (experimental)
+
+## 대화 전체 제목 표시와 복사
+
+열린 대화의 상단 제목은 줄바꿈으로 표시하며 ‘제목 펼치기’로 전체를 스크롤해서 읽을 수 있습니다. ‘제목 복사’는 저장된 전체 제목을 복사합니다. 새 대화의 자동 제목은 첫 요청을 45자로 잘라 저장하지 않습니다. 목록·탭의 간결한 표시는 유지합니다. 이전 버전에서 이미 잘라 저장한 제목은 자동 복원하지 않습니다.
+
 
 ## 명령 상세 기본 접힘
 
@@ -15,9 +20,9 @@
 - 요청 헤더·첫 유효 출력·전체 시간, 도구 대기/처리와 자동 대기를 본문 없는 수치로 기록합니다. 로컬 heartbeat는 새 진전으로 취급하지 않습니다. 회사 모델의 실측 성능 향상은 주장하지 않습니다.
 
 
-## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.35/HermesDevDesk-0.8.35-win-x64-Setup.exe)
+## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.36/HermesDevDesk-0.8.36-win-x64-Setup.exe)
 
-[포터블 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.35/HermesDevDesk-0.8.35-win-x64-Portable.zip)
+[포터블 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.36/HermesDevDesk-0.8.36-win-x64-Portable.zip)
 
 Office에 등록된 추가 기능을 Office 실행 시 자동으로 로드합니다.
 

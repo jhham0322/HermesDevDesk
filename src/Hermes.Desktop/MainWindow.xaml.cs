@@ -65,7 +65,7 @@ public partial class MainWindow : Window
     }
     private void RenderTask()
     {
-        TaskTitle.Text = CurrentTask?.Title ?? "프로젝트를 등록하고 작업을 시작하세요";
+        UpdateConversationTitle();
         RootLabel.Text = CurrentProject?.Root ?? "폴더 등록은 Hermes 목록에만 저장됩니다.";
         TaskStatus.Text = CurrentTask == null ? "" : CurrentTask.Status + "  /  " + CurrentTask.Updated.ToLocalTime().ToString("g");
         TaskDetails.Text = CurrentTask == null ? "선택한 작업 없음" : Review.Detail(desk.State, CurrentTask);
@@ -250,7 +250,7 @@ public partial class MainWindow : Window
             else if (CurrentTask != task && desk.State.Desktop.Drafts.GetValueOrDefault(task.Id) == prompt) desk.State.Desktop.Drafts[task.Id] = "";
             return;
         }
-        if (task.Transcript.Count == 0) task.Title = Safety.Redact(prompt.Length > 45 ? prompt[..45] + "…" : prompt);
+        SetInitialConversationTitle(task, prompt);
         await desk.StartAsync(task, prompt, chosenModel, Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList(), effort: Effort.SelectedIndex > 0 ? Effort.SelectedItem as string : null, files: pendingFiles.ToList(), continueUntilComplete: ContinueUntilComplete.IsChecked == true);
         if (CurrentTask == task && Prompt.Text == prompt) { Prompt.Clear(); ImageClear_Click(this, new RoutedEventArgs()); SkillClear_Click(this, new RoutedEventArgs()); }
         else if (CurrentTask != task)
