@@ -29,9 +29,9 @@ public partial class MainWindow
         ShowProgressSummaries.IsChecked=false;ShowProgressSummaries.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
         Check(MessageStack.Children.Count==1&&task.Transcript.Count==4,"report toggle hides model and host reports while preserving answer and raw history");
         ShowProgressSummaries.IsChecked=true;ShowProgressSummaries.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));Check(MessageStack.Children.Count==4,"reports restore after toggling back on");
-        _ = Dispatcher.BeginInvoke(() => { var dialog=Application.Current.Windows.OfType<Window>().Single(w=>w.Title=="단계별 실행 예산");var controls=(StackPanel)dialog.Content;var fields=controls.Children.OfType<TextBox>().ToArray();fields[0].Text="4";fields[1].Text="12";fields[2].Text="24";fields[3].Text="2";controls.Children.OfType<Button>().Single().RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent)); });
+        _ = Dispatcher.BeginInvoke(() => { var dialog=Application.Current.Windows.OfType<Window>().Single(w=>w.Title=="단계별 실행 예산");var controls=(StackPanel)dialog.Content;var fields=controls.Children.OfType<TextBox>().ToArray();fields[0].Text="4";fields[1].Text="12";fields[2].Text="2";controls.Children.OfType<Button>().Single().RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent)); });
         ExecutionBudget_Click(this,new RoutedEventArgs());
-        Check(desk.State.Desktop.ExecutionBudget.MaxRounds==4&&new StateStore(data).Load().Desktop.ExecutionBudget.MaxTools==24,"budget dialog saves user-selected limits for future stages");
+        Check(desk.State.Desktop.ExecutionBudget.MaxRounds==4&&new StateStore(data).Load().Desktop.ExecutionBudget.MaxMinutes==12,"budget dialog saves user-selected limits for future stages");
         RefreshProcesses();Check(processDetails.Text.Contains("예산")&&processDetails.Text.Contains("재개 지점"),"process inspector displays budget and resume checkpoint");
         File.WriteAllText(Path.Combine(data,"execution-ui.json"),JsonSerializer.Serialize(new{checks,realCompanyRequests=0},new JsonSerializerOptions{WriteIndented=true}));
     }

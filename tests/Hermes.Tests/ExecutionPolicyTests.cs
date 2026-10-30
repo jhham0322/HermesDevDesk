@@ -39,7 +39,7 @@ internal static class ExecutionPolicyTests
         var budget=new ExecutionBudget();var process=new TaskProcess{Budget=budget,Started=DateTime.UtcNow};
         check(budget.Reason(process,true,DateTime.UtcNow)=="","fresh stage has remaining budget");
         process.Round=3;check(budget.Reason(process,true,DateTime.UtcNow).Contains("라운드") && budget.Reason(process,false,DateTime.UtcNow)=="","round budget blocks next turn without killing active work");
-        process.Round=1;process.ToolCalls=20;check(budget.Reason(process,false,DateTime.UtcNow).Contains("도구"),"tool budget rejects new managed work");
+        process.Round=1;process.ToolCalls=20;check(budget.Reason(process,false,DateTime.UtcNow)=="","legacy tool count is telemetry and never rejects managed work");
         process.ToolCalls=0;check(budget.Reason(process,false,DateTime.UtcNow.AddMinutes(11)).Contains("시간"),"elapsed budget is evaluated at safe boundary");
         check(ExecutionBudget.Digest(new[]{"same","same"})==ExecutionBudget.Digest(new[]{"same"}),"identical successful tool outcomes are not new progress");
         var btask=desk.NewTask(project,"budget pause");btask.ThreadId="budget-thread";btask.TurnId="budget-turn";btask.Status="실행 중";

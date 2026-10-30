@@ -4,8 +4,21 @@ public sealed class TaskProcess
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string TaskId { get; set; } = "";
+    public string ThreadId { get; set; } = "";
+    public HashSet<string> CompletedTurnIds { get; set; } = new(StringComparer.Ordinal);
     public string Goal { get; set; } = "";
     public string State { get; set; } = "실행 중";
+    public bool ContinuationEnabled { get; set; }
+    public bool UserStopped { get; set; }
+    public bool NeedsPlan { get; set; }
+    public string BlockKind { get; set; } = "";
+    public int StageNumber { get; set; } = 1;
+    public int StageRoundOffset { get; set; }
+    public DateTime? StageStarted { get; set; }
+    public string StageProgressDigest { get; set; } = "";
+    public List<QueuedWork> Items { get; set; } = [];
+    public List<WorkRequirement> Requirements { get; set; } = [];
+    public List<OperationReceipt> Operations { get; set; } = [];
     public int Round { get; set; } = 1;
     public ExecutionBudget Budget { get; set; } = new();
     public int ToolCalls { get; set; }
@@ -25,6 +38,6 @@ public sealed class TaskProcess
     public string DecisionTurnId { get; set; } = "";
     public DateTime Started { get; set; } = DateTime.UtcNow;
     public DateTime Updated { get; set; } = DateTime.UtcNow;
-    public bool Active => State is "실행 중" or "다음 실행 대기" or "종료 중";
+    public bool Active => State is "실행 중" or "다음 실행 대기" or "종료 중" or "승인 대기";
     public override string ToString() => $"{Goal[..Math.Min(55, Goal.Length)]} · {State} · {Round}회";
 }

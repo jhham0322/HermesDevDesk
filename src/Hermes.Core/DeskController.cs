@@ -188,7 +188,7 @@ public sealed partial class DeskController : IAsyncDisposable
                 if (providerAccount.Property("requiresOpenaiAuth") is { ValueKind: JsonValueKind.True }) throw new HermesException("회사 provider가 외부 OpenAI 인증을 요구해 차단했습니다.");
                 Models.Clear(); ModelEfforts.Clear(); Models.Add(State.Provider.Deployment); Models.AddRange(SavedModels.Where(m => !Models.Contains(m))); Models.AddRange(savedModels.Where(m => !Models.Contains(m))); company.SetAvailableModels(Models); SubscriptionReady = true; connectedFingerprint = State.Provider.Fingerprint;
                 AccountStatus = "회사 API 전용 연결 · 실제 인증/배포 검증은 첫 서버 응답 기준 · 외부 fallback 없음";
-                State.CodexPath = exe; Save(); return;
+                State.CodexPath = exe; Save(); await RestorePendingLoopsAsync(); return;
             }
             await client.ConnectAsync(exe, cwd);
             var account = await client.RequestAsync("account/read", new { refreshToken = false });
@@ -211,6 +211,7 @@ public sealed partial class DeskController : IAsyncDisposable
             if (servers is { ValueKind: JsonValueKind.Object }) foreach (var server in servers.Value.EnumerateObject()) disabledMcp[server.Name] = new { enabled = false };
             State.CodexPath = exe; Save();
             connectedFingerprint = State.Provider.Fingerprint;
+            await RestorePendingLoopsAsync();
         }
         catch { SubscriptionReady = false; AccountStatus = "연결 실패 · 설정 모델: " + State.Provider.Deployment; await client.DisposeAsync(); Save(); throw; }
     }
@@ -321,6 +322,9 @@ public sealed partial class DeskController : IAsyncDisposable
         var selectedFiles = FileAttachments.Validate(root, files ?? []);
         // A new user request starts with an empty model history. The UI transcript
         // is retained locally, but is never copied into the new engine session.
+        var unfinished = State.Processes.LastOrDefault(p => p.TaskId == task.Id && p.ContinuationEnabled && !p.Active && p.State != "완료" && !p.UserStopped);
+        if (continueUntilComplete && unfinished != null && (unfinished.Items.Count > 0 || unfinished.NeedsPlan))
+        { QueueRequirement(task, prompt); await ResumeSavedProcessAsync(unfinished.Id); return; }
         var resetForCurrentRequest = !task.IsReview && task.ThreadId != null;
         if (resetForCurrentRequest)
         {
@@ -335,6 +339,7 @@ public sealed partial class DeskController : IAsyncDisposable
         if (useBrowser && BrowserTool == null) throw new HermesException("브라우저 호스트가 준비되지 않았습니다.");
         var mcp = new Dictionary<string, object>(disabledMcp);
         if (useMcp) foreach (var server in McpConfiguration.BuiltIn(mcpHostExe ?? Environment.ProcessPath!, root, writable, Path.GetDirectoryName(Memory.DatabasePath), task.Id)) mcp[server.Key] = server.Value;
+        if (task.ThreadId == null) task.ThreadLearningVersion = 2;
         if (continueUntilComplete && !task.IsReview)
         {
             task.ProcessEvidenceStart = Memory.Recent(MemoryScope(task), task.Id).Select(e => e.Id).DefaultIfEmpty().Max();
@@ -357,13 +362,13 @@ public sealed partial class DeskController : IAsyncDisposable
                 if (task.ThreadId == null && !task.IsReview) parameters["dynamicTools"] = LearningTools.Concat(ActiveProcess(task) != null ? LoopTools : []).Concat(useBrowser ? BrowserTools.Specifications : []).Concat(useComputer ? ComputerTools.Specifications : []).ToArray();
                 if (task.ThreadId != null) parameters["threadId"] = task.ThreadId;
                 var result = await engine.RequestAsync(task.ThreadId == null ? "thread/start" : "thread/resume", parameters);
-                task.ThreadId = result.GetProperty("thread").Text("id"); Save();
+                task.ThreadId = result.GetProperty("thread").Text("id"); if (startingProcess != null) startingProcess.ThreadId = task.ThreadId; Save();
                 if (!string.Equals(Path.GetFullPath(result.Text("cwd")), root, StringComparison.OrdinalIgnoreCase)) throw new HermesException("엔진 작업 경로가 등록 경로와 달라 차단했습니다.");
                 if (result.Text("modelProvider") != (company == null ? "openai" : "hermes_company") || result.Text("approvalsReviewer") != "user" || result.Text("approvalPolicy") != approval) throw new HermesException("관리형 정책/공급자 설정이 요청과 다릅니다: " + result.Text("modelProvider") + "/" + result.Text("approvalPolicy") + "/" + result.Text("approvalsReviewer") + " · 요청 " + approval);
                 var sandbox = result.GetProperty("sandbox");
                 if (sandbox.Text("type") != "dangerFullAccess") throw new HermesException("추가 샌드박스 해제가 적용되지 않았습니다.");
                 loadedThreads.Add(task.ThreadId);
-                task.ThreadLearningVersion = 1;
+                task.ThreadLearningVersion = 2;
                 task.ThreadWritable = writable;
                 task.ThreadMcpEnabled = useMcp;
                 task.ThreadBrowserEnabled = useBrowser;
@@ -395,6 +400,7 @@ public sealed partial class DeskController : IAsyncDisposable
     {
         ComputerStopRequested?.Invoke(task);
         var active = ActiveProcess(task);
+        if (active != null) active.UserStopped = true;
         if (active == null && !IsRunning(task)) return;
         if (active != null) { active.State = "종료 중"; active.Decision = null; }
         if (loopWaits.Remove(task.Id, out var wait)) { wait.Cancel(); wait.Dispose(); }
@@ -409,14 +415,17 @@ public sealed partial class DeskController : IAsyncDisposable
         company?.CancelTask(task.Id);
         // Keep status until official turn/completed confirms interruption.
     }
-    public async Task SteerAsync(WorkItem task, string text)
+    public async Task SteerAsync(WorkItem task, string text, RequirementChange change = RequirementChange.Append)
     {
-        if (Engine == null || !SubscriptionReady || task.ThreadId == null || task.TurnId == null || task.Status != "실행 중") throw new HermesException("실행 중인 작업에만 추가 지시를 보낼 수 있습니다.");
+        if (Engine == null || !SubscriptionReady || task.ThreadId == null || task.Status is not ("실행 중" or "계속 실행 대기")) throw new HermesException("실행 중이거나 다음 실행을 기다리는 작업에 추가 지시를 보낼 수 있습니다.");
         if (connectedFingerprint != State.Provider.Fingerprint || task.ProviderFingerprint != connectedFingerprint) throw new HermesException("작업의 연결 설정이 바뀌었습니다.");
         if (string.IsNullOrWhiteSpace(text) || text.Length > 100_000) throw new HermesException("추가 지시 내용을 확인하세요.");
         ComputerLifecycleEvent?.Invoke(task, "new-command");
-        await Engine.RequestAsync("turn/steer", new { threadId = task.ThreadId, expectedTurnId = task.TurnId, input = new[] { new { type = "text", text } } });
+        if (ActiveProcess(task) != null) QueueRequirement(task, text, change);
         task.Transcript.Add(new("사용자", Safety.Redact(text), DateTime.UtcNow)); Save();
+        if (change == RequirementChange.CancelPending) { await StopAsync(task); return; }
+        if (task.Status == "계속 실행 대기") return;
+        await Engine.RequestAsync("turn/steer", new { threadId = task.ThreadId, expectedTurnId = task.TurnId, input = new[] { new { type = "text", text } } });
     }
     internal void Handle(ServerEvent e)
     {
@@ -434,6 +443,7 @@ public sealed partial class DeskController : IAsyncDisposable
         {
             case "item/started":
                 var started = p.GetProperty("item");
+                ObserveOperation(task, started, false);
                 if (started.Text("type") == "mcpToolCall" && ActiveProcess(task) is { } observedProcess) observedProcess.ToolCalls++;
                 if (started.Text("type") is "commandExecution" or "mcpToolCall" or "fileChange" || (started.Text("type") == "dynamicToolCall" && started.Text("tool") != "hermes_task"))
                     if (ActiveProcess(task) is { } activeProcess) activeProcess.Decision = null;
@@ -453,7 +463,9 @@ public sealed partial class DeskController : IAsyncDisposable
                 break;
             case "turn/completed":
                 var finishedId = p.GetProperty("turn").Text("id");
-                if ((task.TurnId != null && task.TurnId != finishedId) || State.Processes.Any(r => r.TaskId == task.Id && r.LastCompletedTurnId == finishedId)) break;
+                if ((task.TurnId != null && task.TurnId != finishedId) || State.Processes.Any(r => r.TaskId == task.Id && (r.ThreadId.Length == 0 || r.ThreadId == task.ThreadId) && (r.LastCompletedTurnId == finishedId || r.CompletedTurnIds.Contains(finishedId)))) break;
+                var stoppedProcess = State.Processes.LastOrDefault(r => r.TaskId == task.Id && r.ThreadId == task.ThreadId && r.UserStopped);
+                if (stoppedProcess != null && ActiveProcess(task) == null) { stoppedProcess.CompletedTurnIds.Add(finishedId); task.Status = "중단됨"; break; }
                 ComputerStopRequested?.Invoke(task);
                 var turn = p.GetProperty("turn"); task.Status = turn.Text("status") switch { "completed" => "완료", "interrupted" => "중단됨", _ => "실패" };
                 if (turn.Property("error") is { ValueKind: JsonValueKind.Object } error)
@@ -463,7 +475,7 @@ public sealed partial class DeskController : IAsyncDisposable
                     task.Transcript.Add(new("오류", message + Memory.RecoveryContext(MemoryScope(task), task.Id, proof), DateTime.UtcNow));
                 }
                 RememberWorkflow(task, turn);
-                task.TurnId = null; Approvals.RemoveAll(a => a.Params.Text("threadId") == task.ThreadId);
+                task.TurnId = null; if (ActiveProcess(task)?.BlockKind != "approval") Approvals.RemoveAll(a => a.Params.Text("threadId") == task.ThreadId);
                 FinishLoopTurn(task, turn); break;
             case "item/reasoning/summaryTextDelta":
                 ProgressMessages.Delta(task, p.Text("itemId"), p.Property("summaryIndex")?.ToString() ?? "0", p.Text("delta")); break;
@@ -473,6 +485,7 @@ public sealed partial class DeskController : IAsyncDisposable
             case "turn/plan/updated": task.Transcript.Add(TranscriptPresentation.Model(task, new("계획", Safety.Redact(p.GetProperty("plan").ToString()), DateTime.UtcNow), "분석")); break;
             case "item/completed":
                 var item = p.GetProperty("item");
+                ObserveOperation(task, item, true);
                 if (item.Text("type") == "dynamicToolCall") ToolProgress.Complete(task, item);
                 if (item.Text("type") == "reasoning" && item.Property("summary") is { ValueKind: JsonValueKind.Array } summaries)
                 { var summaryIndex = 0; foreach (var summary in summaries.EnumerateArray()) ProgressMessages.Complete(task, item.Text("id"), (summaryIndex++).ToString(), summary.ValueKind == JsonValueKind.String ? summary.GetString() ?? "" : summary.Text("text")); }
@@ -525,7 +538,7 @@ public sealed partial class DeskController : IAsyncDisposable
         { _ = AnswerBrowserAsync(task, request); return; }
         if (request.Method == "mcpServer/elicitation/request" && (!Project(task).LocalMcpEnabled || !IsRunning(task))) { _ = Engine!.RespondAsync(request, new { action = "cancel" }); return; }
         if (request.Method is "item/commandExecution/requestApproval" or "item/fileChange/requestApproval" or "item/tool/requestUserInput" or "mcpServer/elicitation/request")
-        { ComputerLifecycleEvent?.Invoke(task, "approval"); Approvals.Add(request); task.Status = "승인 대기"; task.Transcript.Add(new("승인 요청", Safety.Redact(request.Method + "\n" + request.Params), DateTime.UtcNow)); Save(); }
+        { if (ActiveProcess(task) is { } awaiting) awaiting.BlockKind = "approval"; ComputerLifecycleEvent?.Invoke(task, "approval"); Approvals.Add(request); task.Status = "승인 대기"; task.Transcript.Add(new("승인 요청", Safety.Redact(request.Method + "\n" + request.Params), DateTime.UtcNow)); Save(); }
         else { _ = Engine!.RejectUnsupportedAsync(request); task.Transcript.Add(new("요청 차단", request.Method, DateTime.UtcNow)); Save(); }
     }
     private async Task AnswerBrowserAsync(WorkItem task, ServerRequest request)
@@ -603,6 +616,7 @@ public sealed partial class DeskController : IAsyncDisposable
         if (request.Method == "mcpServer/elicitation/request") await Engine!.RespondAsync(request, accept ? (object)new { action = "accept", content = new { allow = true } } : new { action = "decline" });
         else if (request.Method == "item/tool/requestUserInput") await Engine!.RespondAsync(request, new { answers = answers ?? new Dictionary<string, object>() });
         else await Engine!.RespondAsync(request, new { decision = accept ? "accept" : "decline" });
+        if (ActiveProcess(task) is { } approvalProcess) { approvalProcess.BlockKind = accept ? "" : "permission_denied"; approvalProcess.State = "실행 중"; }
         Approvals.Remove(request); task.Status = "실행 중"; task.Transcript.Add(new("승인 결정", request.Method + " → " + (accept ? "일회성 승인" : "거절"), DateTime.UtcNow)); Save();
     }
     public async ValueTask DisposeAsync()

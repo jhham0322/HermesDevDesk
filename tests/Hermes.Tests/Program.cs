@@ -53,6 +53,8 @@ if (args.Contains("--resume-only"))
     Console.WriteLine("RESUME: " + node["resumeVerified"]); File.WriteAllText(reportPath, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true })); return;
 }
 var baseDir = Path.Combine(Environment.CurrentDirectory, "artifacts", "test-scratch", "Hermes-tests-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(baseDir);
+if (args.Contains("--continuation-engine")) { await ContinuationEngineTests.Run(Path.Combine(baseDir, "continuation-engine"), args[Array.IndexOf(args, "--codex") + 1]); return; }
+if (args.Contains("--continuation-queue")) { await ContinuationQueueTests.Run(Path.Combine(baseDir, "continuation-queue"), (ok,label) => { if (!ok) throw new Exception(label); Console.WriteLine("PASS: " + label); }); return; }
 if (args.Contains("--simple-ui-engine-smoke"))
 {
     await SimpleUiEngineTests.Run(Path.Combine(baseDir, "simple-ui-engine"), args[Array.IndexOf(args, "--app") + 1], args[Array.IndexOf(args, "--report") + 1]); return;
@@ -124,6 +126,7 @@ using (var failed = JsonDocument.Parse("""{"id":"memory-1","tool":"hermes_memory
 Assert(toolTask.Transcript.Single().Kind == "도구 오류" && toolTask.Transcript[0].Text.Contains("개선 근거"), "actual tool failure exposes returned cause even when item completed");
 await TaskLoopTests.Run(Path.Combine(baseDir, "task-loop"), Assert);
 await ExecutionPolicyTests.Run(Path.Combine(baseDir, "execution-policy"), Assert);
+await ContinuationQueueTests.Run(Path.Combine(baseDir, "continuation-queue"), Assert);
 var progressTask = new WorkItem();
 ProgressMessages.Delta(progressTask, "one", "0", "Checking ");
 ProgressMessages.Delta(progressTask, "two", "0", "Other task");

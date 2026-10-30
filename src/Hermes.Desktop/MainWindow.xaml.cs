@@ -71,6 +71,8 @@ public partial class MainWindow : Window
         TaskDetails.Text = CurrentTask == null ? "선택한 작업 없음" : Review.Detail(desk.State, CurrentTask);
         Writable.IsEnabled = CurrentTask == null || !DeskController.IsRunning(CurrentTask);
         ContinueUntilComplete.IsEnabled = Writable.IsEnabled;
+        RequirementMode.IsEnabled = CurrentTask?.Status is "실행 중" or "계속 실행 대기";
+        if (!RequirementMode.IsEnabled) RequirementMode.SelectedIndex = 0;
         ContinueUntilComplete.IsChecked = CurrentTask?.LoopPreference ?? true;
         Writable.IsChecked = CurrentTask?.IsReview != true;
         SwitchDraft(); RenderConversation(); RenderChatTabs(); ShowChatBrowser(); UpdateShellState();
@@ -78,7 +80,7 @@ public partial class MainWindow : Window
     private void Writable_Click(object sender, RoutedEventArgs e)
     { if (CurrentTask is { } task) { Writable.IsChecked = true; task.WritablePreference = true; desk.Save(); } }
     private bool CanSubmit() => !connectingCompany && (CurrentTask == null || !CurrentTask.Archived)
-        && (CurrentTask == null || !DeskController.IsRunning(CurrentTask) || CurrentTask.Status == "실행 중");
+        && (CurrentTask == null || !DeskController.IsRunning(CurrentTask) || CurrentTask.Status is "실행 중" or "계속 실행 대기");
     private async Task Guard(Func<Task> action, string operation = "ui-action", bool showDialog = true)
     {
         try { await action(); }
@@ -242,10 +244,11 @@ public partial class MainWindow : Window
             }
             finally { connectingCompany = false; Refresh(); }
         }
-        if (task.Status == "실행 중")
+        if (task.Status is "실행 중" or "계속 실행 대기")
         {
             if (pendingImages.Count > 0 || pendingFiles.Count > 0 || pendingSkills.Count > 0) throw new Hermes.Core.HermesException("추가 지시는 텍스트로 전송하세요. 첨부는 다음 실행에서 사용할 수 있습니다.");
-            await desk.SteerAsync(task, prompt);
+            await desk.SteerAsync(task, prompt, RequirementMode.SelectedIndex switch { 1 => RequirementChange.CancelPending, 2 => RequirementChange.ReplacePending, _ => RequirementChange.Append });
+            RequirementMode.SelectedIndex = 0;
             if (CurrentTask == task && Prompt.Text == prompt) Prompt.Clear();
             else if (CurrentTask != task && desk.State.Desktop.Drafts.GetValueOrDefault(task.Id) == prompt) desk.State.Desktop.Drafts[task.Id] = "";
             return;
