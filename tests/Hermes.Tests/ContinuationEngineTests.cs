@@ -7,6 +7,8 @@ internal static class ContinuationEngineTests
 {
     internal static async Task Run(string root, string exe)
     {
+        ProgressDeadline.Verify();
+        var runClock = Stopwatch.StartNew();
         Directory.CreateDirectory(root); var dispatch = new ConcurrentQueue<Action>(); var phase = -1; var calls = 0; var extraRequest = "";
         var trace = new ConcurrentQueue<string>();
         Exception? serverFailure = null;
@@ -83,6 +85,8 @@ internal static class ContinuationEngineTests
         async Task Wait(DeskController desk, string target, Func<bool> reached, Action sample)
         {
             var clock = Stopwatch.StartNew();
+            var deadline = new ProgressDeadline(runClock.Elapsed, desk.Processes.SingleOrDefault()?.Operations ?? []);
+            Trace("wait-policy", new { idleSeconds = 90, overallSeconds = 600, progress = "distinct-completed-operation", individualCommandSeconds = 30, individualRpcSeconds = 45 });
             void Fail(string reason)
             {
                 var p = desk.Processes.SingleOrDefault();
@@ -98,15 +102,16 @@ internal static class ContinuationEngineTests
             while (true)
             {
                 sample();
-                if (reached()) return;
+                if (Volatile.Read(ref serverFailure) != null) Fail("fixture-error");
                 // Recheck after EACH callback so an automatic next turn cannot hide the checkpoint.
                 if (dispatch.TryDequeue(out var action)) { action(); sample(); }
-                if (reached()) return;
                 if (Volatile.Read(ref serverFailure) != null) Fail("fixture-error");
                 var p = desk.Processes.SingleOrDefault();
                 if (p != null && (p.UserStopped || p.BlockKind.Length > 0 || p.PausedForBudget ||
                     p.State is "연결 복구 필요" or "실행 결과 확인 필요" or "승인 대기" or "시작 실패" or "연결 끊김" or "종료됨" or "사용자 확인 필요" or "의존관계 확인 필요" or "오류" or "실패")) Fail("blocked-or-error");
-                if (clock.Elapsed >= TimeSpan.FromMinutes(4)) Fail("timeout");
+                var deadlineFailure = deadline.Check(runClock.Elapsed, p?.Operations ?? []);
+                if (deadlineFailure != null) Fail(deadlineFailure);
+                if (reached()) return;
                 if (dispatch.IsEmpty) await Task.Delay(20);
             }
         }
@@ -134,5 +139,54 @@ internal static class ContinuationEngineTests
             File.WriteAllLines(Path.Combine(root,"continuation-diagnostics.jsonl"),trace.ToArray());
             File.WriteAllText(Path.Combine(root,"continuation-engine.json"),JsonSerializer.Serialize(report,new JsonSerializerOptions{WriteIndented=true}));Console.WriteLine(JsonSerializer.Serialize(report));
         }
+    }
+}
+
+// Test-only policy. The production command (30s) and RPC (45s) guards are unchanged.
+// CI observed ~11.3s between commands, max ~20s: 27 commands * 20s + 60s
+// headroom = a 10 minute whole-fixture ceiling, independent of the 90s idle guard.
+internal sealed class ProgressDeadline
+{
+    private readonly HashSet<string> completed;
+    private TimeSpan lastProgress;
+    internal ProgressDeadline(TimeSpan now, IEnumerable<OperationReceipt> baseline)
+    {
+        lastProgress = now;
+        completed = baseline.Where(o => o.State == "completed").Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
+    }
+    internal string? Check(TimeSpan now, IEnumerable<OperationReceipt> operations)
+    {
+        var snapshot = operations.ToArray();
+        if (snapshot.Any(o => o.State is "failed" or "unknown")) return "operation-failed-or-unknown";
+        // Requests, started receipts, repeated cached receipts and progress messages do not reset idle.
+        var progress = false;
+        foreach (var operation in snapshot.Where(o => o.State == "completed"))
+            progress |= completed.Add(operation.Key);
+        if (progress) lastProgress = now;
+        if (now >= TimeSpan.FromMinutes(10)) return "overall-timeout";
+        if (now - lastProgress >= TimeSpan.FromSeconds(90)) return "no-completed-progress";
+        return null;
+    }
+    internal static void Verify()
+    {
+        var checks = 0;
+        void Check(bool ok, string label) { if (!ok) throw new IOException("Progress deadline regression: " + label); checks++; }
+        static OperationReceipt Receipt(string key, string state) => new() { Key = key, State = state };
+        var started = new ProgressDeadline(TimeSpan.Zero, []);
+        Check(started.Check(TimeSpan.FromSeconds(89), [Receipt("one", "started")]) == null, "idle grace");
+        Check(started.Check(TimeSpan.FromSeconds(90), [Receipt("two", "started")]) == "no-completed-progress", "new started receipts cannot hide a stall");
+        var healthy = new ProgressDeadline(TimeSpan.Zero, []);
+        for (var i = 1; i <= 27; i++)
+            Check(healthy.Check(TimeSpan.FromSeconds(i * 20), [Receipt("effect-" + i, "completed")]) == null, "completed chain past old 4 minute ceiling");
+        Check(healthy.Check(TimeSpan.FromSeconds(600), [Receipt("effect-28", "completed")]) == "overall-timeout", "progress cannot extend absolute ceiling");
+        var replay = new ProgressDeadline(TimeSpan.Zero, [Receipt("cached", "completed")]);
+        Check(replay.Check(TimeSpan.FromSeconds(90), [Receipt("cached", "completed")]) == "no-completed-progress", "restored or cached receipts are not new progress");
+        var failed = new ProgressDeadline(TimeSpan.Zero, []);
+        Check(failed.Check(TimeSpan.FromSeconds(1), [Receipt("bad", "failed")]) == "operation-failed-or-unknown", "fail immediately");
+        Check(failed.Check(TimeSpan.FromSeconds(1), [Receipt("uncertain", "unknown")]) == "operation-failed-or-unknown", "unknown side effect fails immediately");
+        var stalled = new ProgressDeadline(TimeSpan.Zero, []);
+        Check(stalled.Check(TimeSpan.FromSeconds(20), [Receipt("done", "completed")]) == null, "real completion resets idle");
+        Check(stalled.Check(TimeSpan.FromSeconds(110), [Receipt("done", "completed"), Receipt("next", "started")]) == "no-completed-progress", "stall after partial completion");
+        Console.WriteLine("PASS " + checks + " progress-deadline checks; virtual time, idle/failure/absolute guards enforced, no real model calls");
     }
 }
