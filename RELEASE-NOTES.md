@@ -1,4 +1,11 @@
-# HermesDevDesk 0.8.38 (experimental)
+# HermesDevDesk 0.8.39 (experimental)
+
+## 0.8.39 검증 보완
+
+지속 실행 합성 시험은 새로 완료된 고유 실행 영수증만 진행으로 인정합니다. 요청·시작 이벤트·캐시 결과는 진행으로 세지 않습니다. 무진행 90초와 재시작 전후 전체 10분의 안전 제한을 분리하고, 명령 30초·RPC 45초 제한은 유지했습니다. 실패는 즉시 보고하며 종료 코드와 고정 오류 분류만 기록합니다. 명령·응답 원문이나 비밀정보는 진단 출력에 포함하지 않습니다.
+
+기존 431개 회귀와 대기 정책 35개·종료 코드 및 정보 제외 8개 검사를 유지합니다. 공식 엔진과 합성 공급자로 25개 고유 효과, 중복 0개, 추가 요구 보존과 재시작 후 전체 완료를 검증합니다. 실제 회사 모델 호출 시험은 아닙니다. 이전 CI의 간헐적 명령 실패는 재현되지 않았으며 완전히 해결됐다고 주장하지 않습니다.
+
 
 ## 완료까지 이어가기와 도구 횟수 상한 제거
 
@@ -32,9 +39,9 @@
 - 요청 헤더·첫 유효 출력·전체 시간, 도구 대기/처리와 자동 대기를 본문 없는 수치로 기록합니다. 로컬 heartbeat는 새 진전으로 취급하지 않습니다. 회사 모델의 실측 성능 향상은 주장하지 않습니다.
 
 
-## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.36/HermesDevDesk-0.8.36-win-x64-Setup.exe)
+## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.39/HermesDevDesk-0.8.39-win-x64-Setup.exe)
 
-[포터블 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.36/HermesDevDesk-0.8.36-win-x64-Portable.zip)
+[포터블 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.39/HermesDevDesk-0.8.39-win-x64-Portable.zip)
 
 Office에 등록된 추가 기능을 Office 실행 시 자동으로 로드합니다.
 
