@@ -40,8 +40,8 @@ public partial class MainWindow
         var output=task.Transcript.FindIndex(t=>t.ItemId=="stream-output");task.Transcript[output]=task.Transcript[output] with{Text=task.Transcript[output].Text+"\nLATEST_OUTPUT"};
         conversationStamp="";RenderConversation();Check(View("stream-output").IsExpanded&&View("stream-output").Content!=null,"user-expanded long output stays expanded on stream update");
         Check(task.Transcript[output].Text.EndsWith("LATEST_OUTPUT"),"stream update preserves full original text");
-        ShowProgressSummaries.IsChecked=false;ShowProgressSummaries_Click(this,new RoutedEventArgs());Check(View("stream-output").IsExpanded,"global report toggle does not reset command expansion");
-        ShowProgressSummaries.IsChecked=true;ShowProgressSummaries_Click(this,new RoutedEventArgs());
+        ShowProgressSummaries.IsChecked=false;ShowProgressSummaries_Click(this,new RoutedEventArgs());Check(!renderedEntries.Values.Any(e=>e.ItemId=="stream-output"),"report toggle removes entire command output card");
+        ShowProgressSummaries.IsChecked=true;ShowProgressSummaries_Click(this,new RoutedEventArgs());Check(View("stream-output").IsExpanded,"restoring tool cards preserves explicit expansion");
         for(var i=0;i<50;i++)task.Transcript.Add(new("사용자","page filler "+i,DateTime.UtcNow));
         conversationStamp="";RenderConversation();ConversationOlder_Click(this,new RoutedEventArgs());Check(View("stream-output").IsExpanded,"explicit command expansion survives paging away and back");
         var sibling=desk.NewTask(project,"sibling");sibling.Transcript.Add(new TranscriptEntry("명령 출력","other command",DateTime.UtcNow,"stream-output"){Origin="도구: commandExecution"});

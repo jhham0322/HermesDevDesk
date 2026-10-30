@@ -32,7 +32,9 @@ public partial class App : Application
             var data = dataIndex >= 0 && e.Args.Length > dataIndex + 1 ? e.Args[dataIndex + 1] : Hermes.Core.AppProfiles.Resolve(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HermesDevDesk"));
             Hermes.Core.AppLog.Configure(data);
             var window = new MainWindow(data); MainWindow = window;
-            if (e.Args.Contains("--conversation-title-smoke"))
+            if (e.Args.Contains("--tool-card-visibility-smoke") || e.Args.Contains("--tool-card-restart-smoke"))
+            { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunToolCardVisibilityChecks(data, e.Args.Contains("--tool-card-restart-smoke")); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "tool-card-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
+            else if (e.Args.Contains("--conversation-title-smoke"))
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunConversationTitleChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "conversation-title-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
             else if (e.Args.Contains("--process-panel-smoke"))
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunProcessPanelChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "process-panel-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
