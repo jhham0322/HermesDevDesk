@@ -8,6 +8,7 @@ internal static class ContinuationEngineTests
     internal static async Task Run(string root, string exe)
     {
         ProgressDeadline.Verify();
+        ReceiptDiagnostics.Verify();
         var runClock = Stopwatch.StartNew();
         Directory.CreateDirectory(root); var dispatch = new ConcurrentQueue<Action>(); var phase = -1; var calls = 0; var extraRequest = "";
         var trace = new ConcurrentQueue<string>();
@@ -95,6 +96,7 @@ internal static class ContinuationEngineTests
                     completedOperations = p?.Operations.Count(o => o.State == "completed"),
                     unknownOperations = p?.Operations.Count(o => o.State == "unknown"),
                     lastOperationState = p?.Operations.LastOrDefault()?.State,
+                    failedReceipt = ReceiptDiagnostics.Describe(p?.Operations.LastOrDefault(o => o.State is "failed" or "unknown")),
                     exceptionType = Volatile.Read(ref serverFailure)?.GetType().Name });
                 File.WriteAllLines(Path.Combine(root, "continuation-diagnostics.jsonl"), trace.ToArray());
                 throw new IOException("Continuation engine " + reason + " phase=" + phase);
@@ -188,5 +190,48 @@ internal sealed class ProgressDeadline
         Check(stalled.Check(TimeSpan.FromSeconds(20), [Receipt("done", "completed")]) == null, "real completion resets idle");
         Check(stalled.Check(TimeSpan.FromSeconds(110), [Receipt("done", "completed"), Receipt("next", "started")]) == "no-completed-progress", "stall after partial completion");
         Console.WriteLine("PASS " + checks + " progress-deadline checks; virtual time, idle/failure/absolute guards enforced, no real model calls");
+    }
+}
+
+// Only numeric exit codes and fixed marker labels leave this synthetic fixture.
+// Do not emit the receipt's command, stdout/stderr, exception message or arbitrary text.
+internal static class ReceiptDiagnostics
+{
+    internal sealed record Summary(long? ExitCode, bool ExitCodePresent, string[] Markers);
+    internal static Summary? Describe(OperationReceipt? receipt)
+    {
+        if (receipt == null) return null;
+        var text = receipt.Result ?? "";
+        var match = Regex.Match(text, @"\AevidenceId=\d+; exit=(-?\d+)\r?(?:\n|$)", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+        long? exit = match.Success && long.TryParse(match.Groups[1].Value, out var parsed) ? parsed : null;
+        var markers = new List<string>();
+        if (exit == null) markers.Add("missing-exit-code");
+        else if (exit != 0) markers.Add("nonzero-exit-code");
+        foreach (var (label, patterns) in new (string, string[])[] {
+            ("timeout-text", ["timed out", "timeout", "time limit", "시간 초과"]),
+            ("access-denied-text", ["access is denied", "access denied", "permission denied", "unauthorizedaccess"]),
+            ("command-not-found-text", ["commandnotfoundexception", "not recognized as", "cannot find the file"]),
+            ("powershell-error-text", ["fullyqualifiederrorid", "categoryinfo"]),
+            ("collection-modified-text", ["collection was modified"])
+        })
+            if (patterns.Any(pattern => text.Contains(pattern, StringComparison.OrdinalIgnoreCase))) markers.Add(label);
+        return new(exit, exit != null, markers.ToArray());
+    }
+    internal static void Verify()
+    {
+        var checks = 0;
+        void Check(bool ok, string label) { if (!ok) throw new IOException("Receipt diagnostic regression: " + label); checks++; }
+        static OperationReceipt Receipt(string result) => new() { State = "failed", Result = result };
+        Check(Describe(null) == null, "no receipt");
+        var timeout = Describe(Receipt("evidenceId=1; exit=124\nCommand timed out after 30000ms"))!;
+        Check(timeout.ExitCode == 124 && timeout.Markers.Contains("timeout-text"), "numeric exit and observed timeout marker");
+        Check(Describe(Receipt("evidenceId=2; exit=-1\n"))!.ExitCode == -1, "signed exit");
+        Check(Describe(Receipt("evidenceId=3; exit=4294967295\n"))!.ExitCode == 4294967295, "unsigned Windows exit");
+        Check(Describe(Receipt("evidenceId=4; exit=\n"))!.ExitCodePresent == false, "missing exit stays unknown");
+        Check(Describe(Receipt("untrusted output exit=124"))!.ExitCodePresent == false, "do not parse arbitrary output as an exit code");
+        var privateText = Describe(Receipt("evidenceId=5; exit=1\nFAKE_SECRET_customer_path Access is denied"))!;
+        Check(privateText.Markers.Contains("access-denied-text") && !JsonSerializer.Serialize(privateText).Contains("FAKE_SECRET"), "fixed labels omit private text");
+        Check(!Describe(Receipt("evidenceId=6; exit=1\nunknown error"))!.Markers.Contains("timeout-text"), "elapsed time alone does not label timeout");
+        Console.WriteLine("PASS " + checks + " receipt-diagnostic checks; numeric exit and fixed markers only");
     }
 }
