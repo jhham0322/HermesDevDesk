@@ -21,7 +21,12 @@ internal static class ContinuationEngineTests
         var effects = Path.Combine(root, "effects.txt").Replace("'", "''");
         var extra = Path.Combine(root, "extra.txt").Replace("'", "''"); var done = Path.Combine(root, "done.txt").Replace("'", "''");
         object Item(string id, string file, string marker, string request = "initial", int priority = 0, params string[] deps) => new { id, requestId = request, title = "Work " + id, acceptance = "Actual artifact must contain " + marker, kind = "artifact", priority, dependsOn = deps, artifacts = new[] { new { path = file, contains = marker } } };
-        object Command(int i) => new { purpose = "Create exactly one fixture effect " + i, operationId = "effect-" + i, command = "Add-Content -LiteralPath '" + effects + "' -Value 'OP_" + i + "'; Write-Output VERIFIED_" + i };
+        var bodyStart = Path.Combine(root, "first-body-start.ticks").Replace("'", "''");
+        var bodyEnd = Path.Combine(root, "first-body-end.ticks").Replace("'", "''");
+        object Command(int i) => new { purpose = "Create exactly one fixture effect " + i, operationId = "effect-" + i,
+            command = (i == 1 ? "[IO.File]::WriteAllText('" + bodyStart + "',[DateTime]::UtcNow.Ticks.ToString()); " : "") +
+                "Add-Content -LiteralPath '" + effects + "' -Value 'OP_" + i + "'; Write-Output VERIFIED_" + i +
+                (i == 1 ? "; [IO.File]::WriteAllText('" + bodyEnd + "',[DateTime]::UtcNow.Ticks.ToString())" : "") };
         await using var server = new LoopbackHttp(async (request, stream, ct) =>
         {
             var n = Interlocked.Increment(ref phase); Interlocked.Increment(ref calls);
@@ -123,7 +128,9 @@ internal static class ContinuationEngineTests
             var checkpointReached = 0; var sample = Observe(desk, "다음 실행 대기", () => Interlocked.Exchange(ref checkpointReached, 1));
             desk.Configure(new(){Endpoint=server.BaseUri.AbsoluteUri+"v1/chat/completions",Deployment="continuation-model",Protocol=ProviderProtocol.GatewayChatCompletions,UseAdvancedSettings=true},"SYNTHETIC_CONTINUATION_TOKEN");
             var project=desk.Register(root);project.BrowserEnabled=project.ComputerEnabled=project.LocalMcpEnabled=false;
-            await desk.ConnectAsync(exe,root);Pump();var task=desk.NewTask(project,"Continuation restart fixture");
+            await desk.ConnectAsync(exe,root);Pump();
+            await using var startupProbe = new CommandStartupProbe(desk.Engine!, root, Trace);
+            var task=desk.NewTask(project,"Continuation restart fixture");
             await desk.StartAsync(task,"A. Create twenty five unique effects exactly once.\nB. Verify the count and final artifact, continuing until all requirements are complete.","continuation-model",true,continueUntilComplete:true);
             await Wait(desk,"다음 실행 대기",()=>Volatile.Read(ref checkpointReached)==1,sample);var p=desk.Processes.Single();
             if(p.Items.Single(i=>i.Id=="build").State!="verified"||File.ReadAllLines(effects).Length!=25)throw new IOException("Long tool chain or duplicate receipt failed");

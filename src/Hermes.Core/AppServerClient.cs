@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -18,6 +18,10 @@ public sealed class AppServerClient : IAsyncDisposable
     public event Action<ServerRequest>? Approval;
     public event Action<string>? Diagnostic;
     public event Action? Disconnected;
+    // Internal, metadata-only hooks used solely by the isolated engine diagnostic fixture.
+    internal event Action<string>? CommandTiming;
+    internal int? DiagnosticProcessId => process?.Id;
+    private void CommandStamp(string stage) { try { CommandTiming?.Invoke(stage); } catch { /* Diagnostics cannot change RPC execution. */ } }
     public bool Connected => process is { HasExited: false } && !closing;
     public async Task ConnectAsync(string exe, string cwd, string? isolatedHome = null, Uri? companyBridge = null, string? bridgeKey = null, string? deployment = null, Dictionary<string, object>? mcpServers = null)
     {
@@ -74,8 +78,12 @@ public sealed class AppServerClient : IAsyncDisposable
         pending[key] = completion;
         try
         {
+            if (method == "command/exec") CommandStamp("rpc-queued");
             await WriteAsync(new { id, method, @params = parameters });
-            return await completion.Task.WaitAsync(TimeSpan.FromSeconds(timeoutSeconds));
+            if (method == "command/exec") CommandStamp("rpc-sent");
+            var result = await completion.Task.WaitAsync(TimeSpan.FromSeconds(timeoutSeconds));
+            if (method == "command/exec") CommandStamp("rpc-response");
+            return result;
         }
         finally { pending.TryRemove(key, out _); }
     }

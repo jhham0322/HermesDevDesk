@@ -1,7 +1,7 @@
 name: Continuation diagnostic verification
 on:
   push:
-    branches: [verify/continuation-diagnostics]
+    branches: [verify/command-startup-diagnostics]
 permissions:
   contents: read
 jobs:
