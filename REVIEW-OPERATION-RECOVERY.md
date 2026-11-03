@@ -1,6 +1,6 @@
-# Local review build: operation result reconciliation
+# Historical local review checkpoint: operation result reconciliation
 
-This is an unpublished local review build based on public 0.8.40. It is not a new public release and must not replace an existing release asset. No user PC installation or company model call is performed.
+This document records the unpublished local review checkpoint f456a64 based on public 0.8.40. Its successor is the separately versioned 0.8.41 release; see RELEASE-NOTES.md. It is not a new public release and must not replace an existing release asset. No user PC installation or company model call is performed.
 
 Command transport failures remain unknown. Once a terminal exit code is actually received, later state/RAG persistence errors no longer overwrite that known result with unknown. A redacted, flushed, immutable per-operation local response is retained before checkpoint replacement. Missing exit codes remain unknown. Successful cached command responses retain their evidenceId contract.
 

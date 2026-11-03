@@ -51,7 +51,7 @@ jobs:
         shell: pwsh
         run: |
           $app = Join-Path $PWD 'src/Hermes.Desktop/bin/Release/net10.0-windows10.0.17763.0/HermesDevDesk.exe'
-          foreach ($test in @('simple-settings','conversation-performance')) {
+          foreach ($test in @('simple-settings','conversation-performance','process-panel')) {
             $data = Join-Path $env:RUNNER_TEMP $test
             $process = Start-Process $app -ArgumentList @("--$test-smoke", '--data-dir', ('"'+$data+'"')) -WindowStyle Hidden -PassThru
             if (-not $process.WaitForExit(60000)) { throw "$test timed out" }

@@ -63,6 +63,20 @@ internal static class OperationRecoveryTests
         var mismatch=new OperationReceipt{Key="event:legacy-result",State="unknown",MethodDigest="other-command"};
         var other= new TaskProcess{TaskId=task.Id,State="중단됨"};other.Operations.Add(mismatch);restarted.State.Processes.Add(other);
         try{restarted.RecoverKnownOperation(other.Id,mismatch.Key);throw new Exception("Wrong command trusted");}catch(HermesException){check(mismatch.State=="unknown","legacy event with different command digest stays unknown");}
+        var blockedData=Path.Combine(root,"blocked-result-store");
+        await using(var blockedDesk=new DeskController(blockedData,a=>a(),true))
+        {
+            var bp=blockedDesk.Register(root);var bt=blockedDesk.NewTask(bp,"Owned blocked journal");var run=blockedDesk.BeginProcess(bt,"Do not repeat known effects");run.State="중단됨";bt.Status="중단됨";run.UserStopped=true;
+            var br=new OperationReceipt{Key="blocked-journal",MethodDigest="owned"};run.Operations.Add(br);blockedDesk.Save();
+            var blockedPath=Path.Combine(blockedData,"command-results");File.WriteAllText(blockedPath,"OWNED_DIRECTORY_CONFLICT");
+            try{blockedDesk.RecordCommandResponse(bt,br,success.RootElement);throw new Exception("Blocked journal accepted");}catch(OperationReviewRequiredException){}
+            check(br.ResultReceived&&br.ExitCode==0&&br.State=="completed"&&br.RecordingPending,"blocked result storage preserves known response and blocks replay");
+            try{blockedDesk.RecoverKnownOperation(run.Id,br.Key);throw new Exception("Blocked journal recovered");}catch(IOException){}
+            check(br.NeedsReview&&br.Resolution==null,"unavailable result storage cannot be falsely resolved");
+            File.Delete(blockedPath); // Owned synthetic file only; no user data or permissions changed.
+            blockedDesk.RecoverKnownOperation(run.Id,br.Key);
+            check(!br.NeedsReview&&run.UserStopped&&bt.Status=="중단됨","storage repair reconciles retained response without command replay or automatic resume");
+        }
         check(!restored.Items.Any(i=>i.State=="verified"),"receipt reconciliation does not invent task completion evidence");
     }
 }

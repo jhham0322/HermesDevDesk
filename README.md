@@ -1,4 +1,10 @@
-# Hermes DevDesk 0.8.40
+# Hermes DevDesk 0.8.41
+
+## 실행 기록 확인 (0.8.41)
+
+프로세스에서 **실행 기록 확인**을 열면 미확인 실행과 보존 응답·저장 오류·대조 이력을 볼 수 있습니다. **수신 응답과 대조 · 실행하지 않음**은 같은 실행의 정확한 호스트 응답이 있는 경우에만 기록을 복원합니다. 업무 목표 완료를 판정하거나 작업을 자동 재개하지 않습니다. 응답이 없으면 사용자 확인만으로 완료/실패 처리하거나 다시 실행하지 않습니다. 사용자 중지·승인·외부 제한은 별도로 확인해야 합니다.
+
+별도 업무 PC에서 발생한 접근 거부의 실제 원인은 미확정입니다. 권한을 자동 변경하지 않으며 기존 미확인 기록을 삭제하지 않습니다.
 
 ## 완료까지 이어가기와 도구 횟수 상한 제거
 
@@ -29,11 +35,11 @@
 - 요청 헤더·첫 유효 출력·전체 시간, 도구 대기/처리와 자동 대기를 본문 없는 수치로 기록합니다. 로컬 heartbeat는 새 진전으로 취급하지 않습니다. 회사 모델의 실측 성능 향상은 주장하지 않습니다.
 
 
-## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.40/HermesDevDesk-0.8.40-win-x64-Setup.exe)
+## [⬇ Windows 설치 파일 바로 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.41/HermesDevDesk-0.8.41-win-x64-Setup.exe)
 
 Windows 64비트용 설치 프로그램입니다. 위 링크를 누르면 설치 파일 다운로드가 시작됩니다.
 
-[설치 없이 실행하는 포터블 ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.40/HermesDevDesk-0.8.40-win-x64-Portable.zip) · [최신 릴리스 보기](https://github.com/jhham0322/HermesDevDesk/releases/latest)
+[설치 없이 실행하는 포터블 ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.41/HermesDevDesk-0.8.41-win-x64-Portable.zip) · [최신 릴리스 보기](https://github.com/jhham0322/HermesDevDesk/releases/latest)
 
 ---
 
@@ -99,7 +105,7 @@ Hermes는 추가 OS 샌드박스를 적용하지 않습니다. AI 작업, 자동
 
 로컬 검증은 합성 토큰과 로컬 서버만 사용했습니다. 공식 엔진으로 동일 채팅에서 A → B → A의 서버·모델·인증 전환을 확인했습니다. 5,001개 메시지의 WPF 검사에서 화면 컨트롤은 40개, 추가 렌더링은 약 7ms였습니다(이 PC의 측정값).
 
-[Windows 설치 파일 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.40/HermesDevDesk-0.8.40-win-x64-Setup.exe) · [Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.40/HermesDevDesk-0.8.40-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
+[Windows 설치 파일 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.41/HermesDevDesk-0.8.41-win-x64-Setup.exe) · [Portable ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.41/HermesDevDesk-0.8.41-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
 
 0.8.18은 Chat API의 답변 조각을 즉시 전달합니다. 이전 구현은 Chat 요청을 비스트리밍으로 보내고 응답 전체를 기다리다가 4분 제한으로 실패할 수 있었습니다. 서버의 일시적인 지연이나 대기열도 시간 초과 원인이 될 수 있으므로 외부 장애로 단정하지 않습니다. 실행 요청은 `messages`의 텍스트를 문자열로 전달하고 `max_tokens`를 사용하며 불필요한 `parallel_tool_calls`를 보내지 않습니다. 실제 에이전트·도구 호출·후속 답변까지 스트리밍으로 검증합니다.
 
