@@ -55,8 +55,10 @@ public partial class MainWindow
     {
         if (!browserTabOwners.ContainsKey(view)) return;
         var owner = browserTabOwners.GetValueOrDefault(view);
+        var affected = chatBrowsers.Where(p => p.Value == view).Select(p => p.Key).Concat(owner == null ? [] : new[] { owner }).Distinct().ToArray();
         var active = activeBrowserView == view;
         browserTabOwners.Remove(view);
+        foreach (var id in affected) CancelBrowserRequestsById(id);
         if (browserContainers.Remove(view, out var container)) { browserSurface.Children.Remove(container); container.Child = null; }
         if (browserTabReady.Remove(view, out var ready)) ready.TrySetCanceled();
         sourcePickers.Remove(view); browserProjectRoots.Remove(view); browserNavigationTargets.Remove(view); ResetLocalBrowserAttempts(view);

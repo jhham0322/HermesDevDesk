@@ -96,12 +96,22 @@ public sealed class StateStore
 {
     public int SaveCount { get; private set; }
     private readonly string path;
-    private readonly object sync = new();
-    public StateStore(string directory) { Directory.CreateDirectory(directory); path = Path.Combine(directory, "state.json"); }
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> PathLocks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object sync;
+    public StateStore(string directory)
+    {
+        Directory.CreateDirectory(directory); path = Path.GetFullPath(Path.Combine(directory, "state.json"));
+        sync = PathLocks.GetOrAdd(path, _ => new object());
+    }
     public AppState Load()
     {
-        if (!File.Exists(path)) return new();
-        var state = JsonSerializer.Deserialize<AppState>(File.ReadAllText(path)) ?? throw new HermesException("이력 파일 손상: 원본을 보존했습니다.");
+        AppState state;
+        lock (sync)
+        {
+            if (!File.Exists(path)) return new();
+            using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            state = JsonSerializer.Deserialize<AppState>(input) ?? throw new HermesException("이력 파일 손상: 원본을 보존했습니다.");
+        }
         foreach (var entry in state.Usage.Where(e => e.Status == "started")) { entry.Status = "unknown-after-restart"; entry.Requests = null; entry.Note = "연결 종료 전 최종 usage를 받지 못함"; }
         foreach (var task in state.Tasks.Where(t => t.Status is "실행 중" or "승인 대기" or "시작 중" or "중단 중" or "계속 실행 대기")) { task.Status = "연결 끊김 · 재개 가능"; task.TurnId = null; }
         foreach (var process in state.Processes.Where(p => p.Active)) { process.State = "앱 종료로 중단됨"; process.Detail = "앱이 다시 시작되었습니다. 작업을 확인한 뒤 다시 실행하세요."; }
@@ -120,11 +130,42 @@ public sealed class StateStore
         }
         foreach (var process in state.Processes) { process.Goal = ExecutionMemory.Clean(process.Goal, 100000); process.Detail = ExecutionMemory.Clean(process.Detail, 4000); }
         var json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
-        var pending = path + ".new";
-        File.WriteAllText(pending, json);
-        if (File.Exists(path)) File.Copy(path, path + ".backup", true);
-        File.Move(pending, path, true);
+        CommitSnapshot(json);
         SaveCount++;
+        }
+    }
+    private void CommitSnapshot(string json)
+    {
+        // Never overwrite an interrupted save or another StateStore instance's staging file.
+        var suffix = "." + Guid.NewGuid().ToString("N") + ".pending";
+        var pending = path + suffix;
+        var backupPending = path + ".backup" + suffix;
+        using (var output = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            using var writer = new StreamWriter(output, new System.Text.UTF8Encoding(false), 4096, leaveOpen: true);
+            writer.Write(json); writer.Flush(); output.Flush(flushToDisk: true);
+        }
+        try
+        {
+            if (Directory.Exists(path)) throw new IOException("상태 파일 경로가 폴더입니다.");
+            if (File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReadOnly) != 0)
+                throw new UnauthorizedAccessException("상태 파일이 읽기 전용입니다. 속성이나 접근 권한을 자동 변경하지 않았습니다.");
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    // Stage the backup too: a locked backup must not be truncated.
+                    if (File.Exists(path)) { File.Copy(path, backupPending, true); File.Move(backupPending, path + ".backup", true); }
+                    File.Move(pending, path, true); return;
+                }
+                catch (Exception ex) when (attempt < 3 && (ex is IOException or UnauthorizedAccessException) && (ex.HResult & 0xffff) is (5 or 32 or 33))
+                { Thread.Sleep(40 << attempt); }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Keep both the old state and the complete new snapshot for explicit recovery.
+            throw new HermesException("상태 파일을 교체하지 못했습니다. 기존 원본을 보존했습니다. 읽기 전용·접근 권한·다른 프로그램의 파일 잠금을 확인하세요. 복구용 최신 스냅샷: " + pending, ex);
         }
     }
 }

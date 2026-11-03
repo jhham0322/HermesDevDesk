@@ -115,7 +115,7 @@ public partial class MainWindow
             RefreshBrowserTabs();
         }
     }
-    private void DisposeBrowsers() { browserSaveTimer.Stop(); desk.Save(); foreach (var view in browserTabOwners.Keys.ToArray()) RemoveBrowserTab(view); chatBrowsers.Clear(); sourcePickers.Clear(); browserNavigationTargets.Clear(); localHttpAttempts.Clear(); localBrowserRecoveries.Clear(); }
+    private void DisposeBrowsers() { CancelBrowserRequests(null); browserSaveTimer.Stop(); desk.Save(); foreach (var view in browserTabOwners.Keys.ToArray()) RemoveBrowserTab(view); chatBrowsers.Clear(); sourcePickers.Clear(); browserNavigationTargets.Clear(); localHttpAttempts.Clear(); localBrowserRecoveries.Clear(); }
 
 
 
@@ -149,6 +149,7 @@ public partial class MainWindow
             project.BrowserEnabled = browserEnable.IsChecked == true; desk.Save(); browserStatus.Text = "새 채팅부터 적용됩니다. 모델 요청은 별도 승인 없이 실행합니다.";
         };
         desk.BrowserTool = BrowserAction;
+        desk.ComputerStopRequested += CancelBrowserRequests;
     }
     private async Task EnsureBrowser()
     {
@@ -215,16 +216,21 @@ public partial class MainWindow
         using var output = new MemoryStream(); encoder.Save(output);
         return "data:image/png;base64," + Convert.ToBase64String(output.ToArray());
     }
-    private async Task<BrowserToolResult> BrowserAction(WorkItem task, JsonElement args)
+    private Task<BrowserToolResult> BrowserAction(WorkItem task, JsonElement args) => BrowserAction(task, args, CancellationToken.None);
+    private async Task<BrowserToolResult> BrowserAction(WorkItem task, JsonElement args, CancellationToken cancellation)
     {
         if (closing || task.ThreadBrowserEnabled != true || task.Status != "실행 중") throw new Hermes.Core.HermesException("실행 중인 브라우저 채팅이 아닙니다.");
         if (!browserLocks.TryGetValue(task.Id, out var gate)) browserLocks[task.Id] = gate = new(1, 1);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
-        var ct = timeout.Token;
-        await gate.WaitAsync(ct);
+        // No elapsed-time cancellation: only caller/Stop/tab disposal/application lifecycle.
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        if (!browserRequests.TryGetValue(task.Id, out var requests)) browserRequests[task.Id] = requests = [];
+        requests.Add(request);
+        var ct = request.Token;
+        var entered = false;
         WebView2? operationView = null;
         try
         {
+            await gate.WaitAsync(ct); entered = true;
             if (closing || task.Status != "실행 중") throw new Hermes.Core.HermesException("작업이 중단되었습니다.");
             var view = await EnsureChatBrowser(task, ct);
             operationView = view;
@@ -281,13 +287,25 @@ public partial class MainWindow
             if (CurrentTask == task) browserStatus.Text = "브라우저 요청 완료 · " + action + " · " + view.Source;
             return new(text, image);
         }
-        catch (Exception ex) when (ex is OperationCanceledException or TimeoutException)
+        catch (OperationCanceledException ex)
         {
             if (operationView != null) RemoveBrowserTab(operationView);
-            browserStatus.Text = "브라우저 응답 시간 초과 · 다음 요청에서 다시 연결합니다.";
+            browserStatus.Text = "브라우저 요청이 취소되었습니다.";
             throw new Hermes.Core.HermesException(browserStatus.Text, ex);
         }
-        finally { gate.Release(); ShowChatBrowser(); }
+        catch (TimeoutException ex)
+        {
+            if (operationView != null) RemoveBrowserTab(operationView);
+            browserStatus.Text = "브라우저 페이지 응답 시간이 초과되었습니다. 페이지 상태를 확인하세요.";
+            throw new Hermes.Core.HermesException(browserStatus.Text, ex);
+        }
+        finally
+        {
+            requests.Remove(request);
+            if (requests.Count == 0) browserRequests.Remove(task.Id);
+            if (entered) gate.Release();
+            ShowChatBrowser();
+        }
     }
     private async void BrowserPanel_Click(object sender, RoutedEventArgs e) { OpenPanel(8); await Guard(OpenSavedBrowser, "browser-restore"); }
 }

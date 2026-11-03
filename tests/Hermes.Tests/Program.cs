@@ -114,6 +114,8 @@ if (args.Contains("--multi-chat-only"))
 int count = 0;
 void Assert(bool truth, string label) { if (!truth) throw new Exception("FAIL: " + label); count++; Console.WriteLine("PASS: " + label); }
 void Reject(Action act, string label) { try { act(); } catch (IOException) { Assert(true, label); return; } throw new Exception("FAIL: " + label); }
+await StatePersistenceTests.Run(Path.Combine(baseDir, "state-persistence"), Assert);
+await ReportedErrorGuardTests.Run(Path.Combine(baseDir, "reported-errors"), Assert);
 var toolTask = new WorkItem();
 using (var started = JsonDocument.Parse("""{"id":"memory-1","tool":"hermes_memory"}"""))
     ToolProgress.Start(toolTask, started.RootElement);

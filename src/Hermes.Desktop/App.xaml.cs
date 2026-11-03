@@ -44,6 +44,8 @@ public partial class App : Application
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunLocalBrowserChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "local-browser-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
             else if (e.Args.Contains("--learning-panel-smoke"))
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunLearningPanelChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "learning-panel-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
+            else if (e.Args.Contains("--browser-cancellation-smoke"))
+            { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunBrowserCancellationChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "browser-cancellation-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
             else if (e.Args.Contains("--browser-experience-smoke"))
             { window.Show(); window.Dispatcher.BeginInvoke(async () => { try { await window.RunBrowserExperienceChecks(data); await window.ShutdownController(); Shutdown(0); } catch (Exception ex) { File.WriteAllText(Path.Combine(data, "browser-experience-error.txt"), ex.ToString()); await window.ShutdownController(); Shutdown(1); } }); }
             else if (e.Args.Contains("--command-details-smoke"))
