@@ -116,6 +116,7 @@ void Assert(bool truth, string label) { if (!truth) throw new Exception("FAIL: "
 void Reject(Action act, string label) { try { act(); } catch (IOException) { Assert(true, label); return; } throw new Exception("FAIL: " + label); }
 await StatePersistenceTests.Run(Path.Combine(baseDir, "state-persistence"), Assert);
 await ReportedErrorGuardTests.Run(Path.Combine(baseDir, "reported-errors"), Assert);
+await OperationRecoveryTests.Run(Path.Combine(baseDir, "operation-recovery"), Assert);
 var toolTask = new WorkItem();
 using (var started = JsonDocument.Parse("""{"id":"memory-1","tool":"hermes_memory"}"""))
     ToolProgress.Start(toolTask, started.RootElement);

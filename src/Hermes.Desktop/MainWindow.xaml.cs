@@ -84,6 +84,12 @@ public partial class MainWindow : Window
     private async Task Guard(Func<Task> action, string operation = "ui-action", bool showDialog = true)
     {
         try { await action(); }
+        catch (OperationReviewRequiredException ex)
+        {
+            Footer.Text = ex.Message;
+            Logs.AppendText($"[{DateTime.Now:HH:mm:ss}] 실행 기록 확인 필요: {Safety.Redact(ex.Message)}\n");
+            if (showDialog && desk.State.Processes.Any(p => p.Id == ex.ProcessId)) ShowOperationReview(ex.ProcessId);
+        }
         catch (Exception ex)
         {
             var path = AppLog.Write(ex, operation); var message = ConnectionErrors.Describe(ex);

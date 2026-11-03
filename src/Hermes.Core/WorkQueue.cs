@@ -38,7 +38,15 @@ public sealed class OperationReceipt
     public string MethodDigest { get; set; } = "";
     public string State { get; set; } = "started";
     public string Result { get; set; } = "";
+    public bool ResultReceived { get; set; }
+    public int? ExitCode { get; set; }
+    public bool RecordingPending { get; set; }
+    public string RecordingError { get; set; } = "";
+    public OperationResolution? Resolution { get; set; }
+    public bool NeedsReview => State is "started" or "unknown" || RecordingPending;
+    public override string ToString() => $"[{State}{(RecordingPending ? " / 저장 확인 필요" : "")}] {Key} · 항목 {ItemId}";
 }
+public sealed record OperationResolution(string PreviousState, string PreviousResult, DateTime At, string Source);
 public enum RequirementChange { Append, CancelPending, ReplacePending }
 public static class WorkQueue
 {

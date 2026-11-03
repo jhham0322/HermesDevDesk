@@ -78,21 +78,28 @@ public sealed partial class DeskController
         var processId = "learning-" + Guid.NewGuid().ToString("N"); commandProcesses[task.Id] = processId;
         try
         {
-            var result = await engine.RequestAsync("command/exec", new { command = new[] { "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop';\n" + command + "\nif ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }" }, cwd = root, processId, streamStdoutStderr = false, streamStdin = false, tty = false, timeoutMs = timeout, sandboxPolicy = policy }, timeout / 1000 + 15);
+            JsonElement result;
+            try
+            {
+                result = await engine.RequestAsync("command/exec", new { command = new[] { "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop';\n" + command + "\nif ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }" }, cwd = root, processId, streamStdoutStderr = false, streamStdin = false, tty = false, timeoutMs = timeout, sandboxPolicy = policy }, timeout / 1000 + 15);
+            }
+            catch (Exception ex)
+            {
+                if (receipt != null) { receipt.State = "unknown"; receipt.Result = ExecutionMemory.Clean(ex.Message); Save(); }
+                Memory.Record(MemoryScope(task), task.Id, eventId, purpose, "command", command, false, ex.Message);
+                throw;
+            }
+            // The engine has answered. A later journal/RAG/state failure is not an unknown execution.
+            RecordCommandResponse(task, receipt, result);
             PublishToolReport(task);
             var output = result.Text("stdout") + result.Text("stderr");
-            var succeeded = result.Property("exitCode")?.GetInt32() == 0;
+            var succeeded = receipt?.ExitCode == 0 || (receipt == null && result.Property("exitCode")?.GetInt32() == 0);
             var evidence = Memory.Record(MemoryScope(task), task.Id, eventId, purpose, "command", command, succeeded, output);
             var summary = $"evidenceId={evidence.Id}; exit={result.Property("exitCode")}\n" + ExecutionMemory.Clean(output, 20000);
+            if (receipt != null) receipt.Result = summary; // Preserve the evidenceId contract on duplicate-ID cache hits.
             task.Transcript.Add(new TranscriptEntry("명령 결과", ExecutionMemory.Clean(command) + "\n" + summary, DateTime.UtcNow) { Origin = "도구: hermes_command", Stage = succeeded ? "완료" : "에러원인" }); Save();
-            if (receipt != null) { receipt.State = succeeded ? "completed" : "failed"; receipt.Result = summary; Save(); }
             if (task.TurnId != turnId || task.Status != "실행 중") return "명령 결과를 기록했지만 원래 실행은 중단되었습니다.";
             return summary + Memory.RecoveryContext(MemoryScope(task), task.Id, evidence);
-        }
-        catch (Exception ex)
-        {
-            if (receipt != null) { receipt.State = "unknown"; receipt.Result = ExecutionMemory.Clean(ex.Message); Save(); }
-            Memory.Record(MemoryScope(task), task.Id, eventId, purpose, "command", command, false, ex.Message); throw;
         }
         finally { commandProcesses.Remove(task.Id); }
     }

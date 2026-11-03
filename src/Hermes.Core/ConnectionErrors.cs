@@ -1,6 +1,6 @@
 namespace Hermes.Core;
 
-public sealed class HermesException(string message, Exception? inner = null) : IOException(ConnectionErrors.Local(message), inner);
+public class HermesException(string message, Exception? inner = null) : IOException(ConnectionErrors.Local(message), inner);
 public sealed class ModelServerException(string message) : IOException(message);
 public static class ConnectionErrors
 {

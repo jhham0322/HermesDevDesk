@@ -1,0 +1,13 @@
+# Local review build: operation result reconciliation
+
+This is an unpublished local review build based on public 0.8.40. It is not a new public release and must not replace an existing release asset. No user PC installation or company model call is performed.
+
+Command transport failures remain unknown. Once a terminal exit code is actually received, later state/RAG persistence errors no longer overwrite that known result with unknown. A redacted, flushed, immutable per-operation local response is retained before checkpoint replacement. Missing exit codes remain unknown. Successful cached command responses retain their evidenceId contract.
+
+The Process panel's execution record review identifies each operation, linked item, result, recording error and reconciliation history. Expected resume safety blocks open this review instead of showing only an exception stack. Reconciliation accepts only the same task/process/key/method response. Legacy event receipts additionally accept an exact task/event/command/purpose successful execution-memory record. Stable legacy operation IDs without an exact event link are not guessed. User assertions, unrelated artifacts, failed evidence and missing responses cannot establish a result.
+
+Reconciliation only restores a command receipt. It does not verify a business goal, resume a request, clear user Stop or unrelated approval/provider blocks, or replay a command. Original receipt state/result are retained in the resolution audit. Failed checkpoint persistence rolls back the in-memory reconciliation; the original checkpoint and pending recovery snapshots are preserved.
+
+Validation: 474 synthetic/unit regressions; WPF process/review checks; official engine plus loopback synthetic provider continuation fixture (38 requests, 25 unique effects, zero replay, restart and added requirement retained). The initial official fixture exposed missing evidenceId on cache hits; the response contract was restored and the same fixture passed. An initial full-test launch inside the source repository hit the existing parent-repository safety guard, and a dotnet-hosted launch could not act as the fixture executable; final regression uses the test apphost from the established isolated workspace.
+
+The user's separate business PC incident remains unconfirmed. Old unknown operations without exact retained proof intentionally remain blocked. No ACL changes, external side-effect checks, automatic execution, public push, tag or release changes are included.

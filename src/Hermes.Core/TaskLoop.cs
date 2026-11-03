@@ -59,7 +59,7 @@ public sealed partial class DeskController
         }
         if (action == "complete")
         {
-            if (process.NeedsPlan || process.Requirements.Any(r => !r.Planned && r.Id != "initial") || process.Items.Any(i => !i.Terminal) || process.Operations.Any(o => o.State is "started" or "unknown")) throw new HermesException("미완료·미계획 요구 또는 결과 미확인 실행이 남아 있습니다. 다음 작업을 이어가세요.");
+            if (process.NeedsPlan || process.Requirements.Any(r => !r.Planned && r.Id != "initial") || process.Items.Any(i => !i.Terminal) || process.Operations.Any(o => o.NeedsReview)) throw new HermesException("미완료·미계획 요구 또는 결과 미확인 실행이 남아 있습니다. 다음 작업을 이어가세요.");
             if (process.Items.Count > 0)
             {
                 if (process.Requirements.Any(r => !r.Planned)) throw new HermesException("모든 원문 요구를 작업 항목에 연결하세요.");
@@ -88,7 +88,7 @@ public sealed partial class DeskController
         if (external.Length > 0) { process.BlockKind = "provider_limit_or_denial"; process.Checkpoint = WorkQueue.Summary(process); EndProcess(task, "외부 제한 확인 필요", external); task.Status = "외부 제한 확인 필요"; task.Transcript.Add(TranscriptPresentation.Host("입력 필요", external + "\n상태를 보존했습니다. 공급자 한도·인증·권한 문제가 해결된 뒤 명시적으로 재개하세요.")); Save(); return; }
         if (process.BlockKind == "permission_denied") { EndProcess(task, "승인 거절", "사용자가 거절한 동작은 자동 재시도하지 않습니다."); task.Status = "승인 거절"; Save(); return; }
         if (Approvals.Any(a => a.Params.Text("threadId") == task.ThreadId) || process.BlockKind == "approval") { process.State = "승인 대기"; task.Status = "승인 대기"; Save(); return; }
-        if (process.Operations.Any(o => o.State is "started" or "unknown")) { process.BlockKind = "uncertain_operation"; EndProcess(task, "실행 결과 확인 필요", "완료 여부를 확인하지 못한 실행이 있어 중복 실행을 막았습니다."); task.Status = "실행 결과 확인 필요"; Save(); return; }
+        if (process.Operations.Any(o => o.NeedsReview)) { process.BlockKind = "uncertain_operation"; EndProcess(task, "실행 결과 확인 필요", "완료 여부를 확인하지 못한 실행이 있어 중복 실행을 막았습니다."); task.Status = "실행 결과 확인 필요"; Save(); return; }
 
         if (process.State == "종료 중") { EndProcess(task, "종료됨", "사용자가 프로세스를 종료했습니다."); task.Status = "중단됨"; return; }
         if (status == "interrupted") { EndProcess(task, "종료됨", "사용자 또는 엔진이 실행을 중단했습니다."); return; }

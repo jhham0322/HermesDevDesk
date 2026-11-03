@@ -15,7 +15,9 @@ public partial class MainWindow
         var panel = new DockPanel { Margin = new Thickness(8) }; var top = new StackPanel(); DockPanel.SetDock(top, Dock.Top); panel.Children.Add(top);
         top.Children.Add(new TextBlock { Text = "완료까지 계속 실행 · 전체 프로젝트 프로세스\n완료 근거가 보고될 때까지 같은 요청을 이어갑니다. 승인·외부 차단·연결 복구가 필요하면 상태에 표시합니다. 재시작 후 같은 연결에서 체크포인트를 복원합니다. 결과 미확인 실행·정지·승인·외부 제한은 자동 재시도하지 않습니다.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4) });
         var actions = new WrapPanel(); var refresh = new Button { Content = "새로고침" }; var stop = new Button { Content = "선택 프로세스 종료" }; var resume = new Button { Content = "조건 확인 후 재개" }; actions.Children.Add(refresh); actions.Children.Add(stop); actions.Children.Add(resume);
-        resume.Click += async (_, _) => await Guard(async () => { if (processList.SelectedItem is TaskProcess selected) { if (selected.PausedForBudget && selected.Items.Count == 0) await desk.ResumeBudgetAsync(selected.Id); else if (MessageBox.Show(this, "취소·승인·외부 제한 조건이 해결됐는지 확인하세요. 완료 항목은 보존하며 결과 미확인 실행은 자동 반복하지 않습니다. 재개할까요?", "체크포인트 재개", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await desk.ResumeSavedProcessAsync(selected.Id, true); } RefreshProcesses(); }); top.Children.Add(actions); top.Children.Add(processList); panel.Children.Add(processDetails);
+        resume.Click += async (_, _) => await Guard(async () => { if (processList.SelectedItem is TaskProcess selected) { if (selected.PausedForBudget && selected.Items.Count == 0) await desk.ResumeBudgetAsync(selected.Id); else if (MessageBox.Show(this, "취소·승인·외부 제한 조건이 해결됐는지 확인하세요. 완료 항목은 보존하며 결과 미확인 실행은 자동 반복하지 않습니다. 재개할까요?", "체크포인트 재개", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await desk.ResumeSavedProcessAsync(selected.Id, true); } RefreshProcesses(); }); var inspect = new Button { Content = "실행 기록 확인" };
+        inspect.Click += (_, _) => { if (processList.SelectedItem is TaskProcess selected) ShowOperationReview(selected.Id); };
+        actions.Children.Add(inspect); top.Children.Add(actions); top.Children.Add(processList); panel.Children.Add(processDetails);
         processTab = new TabItem { Header = "프로세스", Content = panel }; InspectorTabs.Items.Add(processTab);
         refresh.Click += (_, _) => RefreshProcesses();
         stop.Click += async (_, _) => await Guard(async () => { if (processList.SelectedItem is TaskProcess selected) await desk.StopProcessAsync(selected.Id); RefreshProcesses(); });
@@ -37,6 +39,7 @@ public partial class MainWindow
         var usage = desk.State.Usage.LastOrDefault(u => u.TaskId == task?.Id && u.Source == "company-api-response");
         processDetails.Text = $"최근 요청 계측(ms): 헤더 {usage?.HeadersMs} / 첫 유효 출력 {usage?.FirstUsefulOutputMs} / 전체 {usage?.TotalMs} · 버퍼 응답 {usage?.Buffered}\n예산: {process.Budget.MaxRounds}라운드 / {process.Budget.MaxMinutes}분 · 도구 횟수 상한 없음 / 사용 {process.ToolCalls} · 무진전 {process.StagnantRounds}\n계측(ms): 도구 대기 {process.ToolQueueMs} / 실행 {process.ToolExecutionMs} / 자동 대기 {process.AutomaticWaitMs}\n작업 큐: {process.Items.Count(i => i.State == "verified")}개 검증 / {process.Items.Count(i => !i.Terminal)}개 미완료 · 내부 단계 {process.StageNumber}\n다음 항목: {WorkQueue.Next(process)?.Title}\n차단 구분: {process.BlockKind}\n재개 지점: {process.Checkpoint}\n프로세스: {process.Id}\n프로젝트: {project?.Name}\n채팅: {task?.Title}\n상태: {process.State} / {task?.Status}\n실행 회차: {process.Round}\n시작: {process.Started.ToLocalTime():g}\n최근 변경: {process.Updated.ToLocalTime():g}\n\n목표\n{process.Goal}\n\n최근 결과·완료 검증 보고\n{process.Detail}\n\n완료 근거는 모델의 검증 보고이며 호스트는 인용된 실행 근거의 출처를 확인합니다.";
         processDetails.AppendText("\n\n항목별 실행·검증 기록\n" + string.Join("\n\n", process.Items.Select(i => $"[{i.State}] {i.Id} · {i.Title}\n완료 조건: {i.Acceptance}\n선행: {string.Join(", ", i.DependsOn)}\n검증: {i.Verification}")));
+        processDetails.AppendText("\n\n실행 기록\n" + string.Join("\n", process.Operations.Select(o => o.ToString())));
         processDetails.AppendText($"\n\n추가 요구 {process.Requirements.Count(r => r.Id != "initial")}개 / 미계획 요구 {process.Requirements.Count(r => !r.Planned)}개");
 
     }
@@ -54,12 +57,28 @@ public partial class MainWindow
         await desk.StopProcessAsync(process.Id); RefreshProcesses();
         if (process.Active || process.State != "종료됨" || task.Status != "중단됨") throw new IOException("Process panel stop left the loop active");
         if (ContinueUntilComplete.IsChecked != true) throw new IOException("Completion loop must default on in composer");
+        var known = new OperationReceipt { Key = "owned-known-response", ItemId = "owned-item", MethodDigest = "owned-method" };
+        process.Operations.Add(known);
+        using (var response = JsonDocument.Parse("{\"exitCode\":0,\"stdout\":\"OWNED_RESPONSE\",\"stderr\":\"\"}")) typeof(DeskController).GetMethod("RecordCommandResponse", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(desk, new object?[] { task, known, response.RootElement });
+        known.State = "started"; known.ResultReceived = false; known.ExitCode = null; known.Result = "";
+        var missing = new OperationReceipt { Key = "owned-no-response", State = "unknown" }; process.Operations.Add(missing); desk.Save();
+        var review = BuildOperationReview(process.Id); review.Show(); review.UpdateLayout();
+        var layout = (DockPanel)review.Content;
+        var list = layout.Children.OfType<ListBox>().Single(); var details = layout.Children.OfType<TextBox>().Single();
+        var compare = layout.Children.OfType<WrapPanel>().Single().Children.OfType<Button>().Single(b => b.Name == "ReconcileOperation");
+        list.SelectedItem = known;
+        if (!details.Text.Contains("OWNED_RESPONSE") || !details.Text.Contains(known.Key)) throw new IOException("Review omits exact receipt/response");
+        compare.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (known.NeedsReview || known.Resolution == null || process.Active || !process.UserStopped || task.Status != "중단됨") throw new IOException("Review changes stop/run state or loses response audit");
+        list.SelectedItem = missing; compare.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (missing.State != "unknown" || !details.Text.Contains("실행하지 않았습니다")) throw new IOException("Review accepts missing evidence");
+        review.Close();
         var scope = ExecutionMemory.Scope(root);
         desk.Memory.Record(scope, task.Id, "bad1", "의존성 복구", "command", "missing-one", false, "Error: dependency missing");
         desk.Memory.Record(scope, task.Id, "bad2", "의존성 복구", "command", "missing-one", false, "Error: dependency missing");
         desk.Memory.Record(scope, task.Id, "fixed", "의존성 복구", "command", "fixed-two", true, "verified");
         LoadLearningErrors(); if (learningMethods.Items.Count != 1 || learningMethods.Items[0] is not ErrorRecord) throw new IOException("Error registry UI missing");
         LoadLearningRecoveries(); if (learningMethods.Items.Count != 1 || learningMethods.Items[0] is not RecoveryRecord) throw new IOException("Improvement registry UI missing");
-        File.WriteAllText(Path.Combine(data, "process-panel-report.json"), JsonSerializer.Serialize(new { passed = true, version = AppVersion.Current, checks = 5 }));
+        File.WriteAllText(Path.Combine(data, "process-panel-report.json"), JsonSerializer.Serialize(new { passed = true, version = AppVersion.Current, checks = 9, operationReview = true, realModelCalls = 0, commandsExecuted = 0 }));
     }
 }

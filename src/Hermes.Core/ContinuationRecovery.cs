@@ -25,7 +25,7 @@ public sealed partial class DeskController
     private OperationReceipt? BeginOperation(WorkItem task, JsonElement args, string eventId)
     {
         var process = ActiveProcess(task); if (process == null) return null;
-        if (process.Operations.Any(o => o.State is "started" or "unknown")) throw new HermesException("결과가 미확인인 실행이 있습니다. 부작용을 다시 실행하지 말고 실제 상태를 확인하세요.");
+        if (process.Operations.Any(o => o.NeedsReview)) throw new HermesException("결과가 미확인인 실행이 있습니다. 부작용을 다시 실행하지 말고 실제 상태를 확인하세요.");
         var operation = ExecutionMemory.Clean(args.Text("operationId"), 120);
         if (process.Items.Count > 0 && operation.Length == 0) throw new HermesException("작업 큐의 명령에는 항목별 안정적인 operationId가 필요합니다. 완료된 부작용은 반복하지 마세요.");
         if (operation.StartsWith("observed:", StringComparison.Ordinal) || operation.Length > 120 || operation.Any(char.IsControl)) throw new HermesException("operationId 형식을 확인하세요.");
@@ -40,7 +40,7 @@ public sealed partial class DeskController
     {
         foreach (var p in State.Processes.Where(p => p.ContinuationEnabled && !p.UserStopped && p.State == "앱 종료로 중단됨").ToList())
         {
-            if (p.BlockKind.Length > 0 || p.Operations.Any(o => o.State is "started" or "unknown"))
+            if (p.BlockKind.Length > 0 || p.Operations.Any(o => o.NeedsReview))
             { p.State = "실행 결과 확인 필요"; p.Detail = "승인/외부 차단 또는 결과 미확인 실행을 보존했습니다. 자동 재실행하지 않습니다."; continue; }
             try { await ResumeSavedProcessAsync(p.Id); }
             catch (Exception ex) { p.State = "연결 복구 필요"; p.Detail = ConnectionErrors.Describe(ex); }
@@ -53,7 +53,7 @@ public sealed partial class DeskController
         var task = State.Tasks.Single(t => t.Id == p.TaskId);
         if (p.ThreadId.Length > 0 && p.ThreadId != task.ThreadId) throw new HermesException("현재 대화가 다른 요청으로 바뀌었습니다. 이전 체크포인트를 새 요청의 실행 상태에 덮어쓰지 않습니다.");
         if (!p.ContinuationEnabled || p.Active || p.State == "완료" || IsRunning(task)) throw new HermesException("재개할 미완료 체크포인트를 선택하세요.");
-        if (p.Operations.Any(o => o.State is "started" or "unknown")) throw new HermesException("결과 미확인 실행이 있어 자동 재실행을 차단했습니다. 실제 부작용 상태 확인이 필요합니다.");
+        if (p.Operations.Any(o => o.NeedsReview)) throw new OperationReviewRequiredException(p.Id, OperationReviewSummary(p));
         if ((p.UserStopped || p.BlockKind.Length > 0) && !userConfirmed) throw new HermesException("사용자 정지·외부 제한·승인 조건이 해결됐는지 확인한 뒤 명시적으로 재개하세요.");
         if (Engine == null || !SubscriptionReady || task.ThreadId == null || connectedFingerprint != State.Provider.Fingerprint || task.ProviderFingerprint != connectedFingerprint) throw new HermesException("같은 모델·공급자의 유효한 연결을 확인하세요.");
         var root = Safety.ProjectRoot(Project(task).Root); company?.BeginTask(task.Id, task.Model);
