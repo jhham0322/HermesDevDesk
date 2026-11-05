@@ -118,8 +118,7 @@ jobs:
           $repo = 'jhham0322/HermesDevDesk'
           gh release view v0.8.42 --repo $repo --json tagName 2>$null
           if ($LASTEXITCODE -eq 0) { throw 'Release already exists; existing assets will not be overwritten' }
-          Add-Content -LiteralPath RELEASE-NOTES.md -Value '
-Known validation limitation: continuation integration failed at the first command after about 30.4 seconds with no parsed exit code (run 41955509592). Main CI 41955505803 passed. Publication was explicitly approved with this failure disclosed; this release does not claim the continuation test passed.'
+          Add-Content -LiteralPath RELEASE-NOTES.md -Value 'Known validation limitation: continuation integration failed at the first command after about 30.4 seconds with no parsed exit code (run 41955509592). Main CI 41955505803 passed. Publication was explicitly approved with this failure disclosed; this release does not claim the continuation test passed.'
           gh release create v0.8.42 --repo $repo --verify-tag --title 'HermesDevDesk 0.8.42 (experimental)' --notes-file RELEASE-NOTES.md artifacts/release-0.8.42/HermesDevDesk-0.8.42-win-x64-Setup.exe artifacts/release-0.8.42/HermesDevDesk-0.8.42-win-x64-Portable.zip
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
           gh release view v0.8.42 --repo $repo --json url,tagName,assets
