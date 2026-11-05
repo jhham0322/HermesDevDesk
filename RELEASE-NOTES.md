@@ -1,3 +1,10 @@
+# HermesDevDesk 0.8.42
+
+- Clear command input only after execution dispatch succeeds.
+- Preserve unsent drafts on confirmation cancellation, connection failure, or edits during connection.
+- Prevent duplicate submission and duplicate command output. Preserve manual stop and execution approval.
+- Command-input verification: 482 regression checks and 9 synthetic WPF checks; no business commands or company model calls.
+
 # HermesDevDesk 0.8.41 (experimental)
 
 - 명령 응답 수신 후 상태/RAG 저장 오류가 발생해도 이미 수신한 종료 코드를 결과 미확인으로 덮어쓰지 않습니다. 응답은 동일 실행의 로컬 기록으로 먼저 보존합니다.
