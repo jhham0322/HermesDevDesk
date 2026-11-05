@@ -184,12 +184,44 @@ public partial class MainWindow : Window
     {
         var dialog = new SaveFileDialog { FileName = "Hermes-observed-usage.json", Filter = "JSON|*.json" }; if (dialog.ShowDialog(this) == true) File.WriteAllText(dialog.FileName, Safety.Redact(JsonSerializer.Serialize(SelectedUsage(), new JsonSerializerOptions { WriteIndented = true }))); return Task.CompletedTask;
     });
-    private async void CommandRun_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
+    private bool commandSubmitting;
+    private long commandInputRevision;
+    private void CommandText_Changed(object sender, TextChangedEventArgs e) => commandInputRevision++;
+    private async void CommandRun_Click(object sender, RoutedEventArgs e) => await Guard(() => RunCommandInputAsync());
+    private async Task RunCommandInputAsync(Func<string, string, bool>? confirm = null)
     {
-        var project = CurrentProject ?? throw new Hermes.Core.HermesException("프로젝트를 선택하세요."); var command = CommandText.Text;
-        if (MessageBox.Show(this, $"경로: {project.Root}\n모드: Hermes 추가 샌드박스 없음\n\n{Safety.Redact(command)}\n\n이 명령을 현재 Windows 계정 권한으로 실행할까요?", "명령 일회성 확인", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
-        var exe = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new Hermes.Core.HermesException("공식 codex.exe를 선택하세요."); CommandOutput.Clear(); CommandOutput.AppendText(await terminal.RunAsync(exe, project.Root, command, true));
-    });
+        if (commandSubmitting || terminal.Running) return;
+        commandSubmitting = true; CommandRunButton.IsEnabled = false;
+        try
+        {
+            var project = CurrentProject ?? throw new HermesException("프로젝트를 선택하세요.");
+            var command = CommandText.Text; var revision = commandInputRevision;
+            if (string.IsNullOrWhiteSpace(command) || command.Length > 20000) throw new HermesException("실행할 명령을 확인하세요.");
+            if (!(confirm ?? ConfirmCommand)(project.Root, command)) return;
+            var exe = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new HermesException("공식 codex.exe를 선택하세요.");
+            await ExecuteCommandInputAsync(exe, project.Root, command, revision);
+        }
+        finally { commandSubmitting = false; CommandRunButton.IsEnabled = true; }
+    }
+    private bool ConfirmCommand(string root, string command) => MessageBox.Show(this, $"경로: {root}\n정책: Hermes 추가 샌드박스 없음\n\n{Safety.Redact(command)}\n\n이 명령을 현재 Windows 계정 권한으로 실행할까요?", "명령 실행 확인", MessageBoxButton.YesNo) == MessageBoxResult.Yes;
+    private async Task ExecuteCommandInputAsync(string exe, string root, string command, long revision)
+    {
+        bool dispatched = false;
+        try
+        {
+            await terminal.RunAsync(exe, root, command, true, () =>
+            {
+                dispatched = true;
+                if (commandInputRevision == revision && CommandText.Text == command) CommandText.Clear();
+                CommandOutput.Clear(); CommandOutput.AppendText("전송한 명령 (자동 재실행하지 않음)\n" + Safety.Redact(command) + "\n\n");
+            });
+        }
+        catch
+        {
+            if (dispatched) CommandOutput.AppendText("\n명령 전송 후 중단 또는 오류가 발생했습니다. 실제 실행 결과를 확인한 뒤 다시 실행하세요. 새로 작성한 입력은 보존했습니다.\n");
+            throw;
+        }
+    }
     private async void CommandStop_Click(object sender, RoutedEventArgs e) => await Guard(() => terminal.StopAsync());
     private void Register_Click(object sender, RoutedEventArgs e)
     {

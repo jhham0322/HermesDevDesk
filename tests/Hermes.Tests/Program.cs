@@ -15,6 +15,15 @@ if (args.Contains("app-server"))
         using var d = JsonDocument.Parse(line); var e = d.RootElement;
         if (!e.TryGetProperty("method", out var m)) { Console.WriteLine(JsonSerializer.Serialize(new { method = "fixture/answered", @params = new { } })); continue; }
         if (!e.TryGetProperty("id", out var id)) continue;
+        if (m.GetString() == "command/exec")
+        {
+            var cmd = e.GetProperty("params").GetProperty("command").EnumerateArray().Last().GetString() ?? "";
+            if (cmd.Contains("FIXTURE_CLOSE")) return;
+            if (cmd.Contains("FIXTURE_WAIT")) await Task.Delay(20000);
+            else await Task.Delay(200);
+            Console.WriteLine(JsonSerializer.Serialize(new { id = id.Clone(), result = new { exitCode = cmd.Contains("FIXTURE_NONZERO") ? 7 : 0, stdout = "FIXTURE_RESULT", stderr = "" } }));
+            continue;
+        }
         object response = m.GetString() switch
         {
             "initialize" => new { userAgent = "unit-fixture" },
@@ -117,6 +126,7 @@ void Reject(Action act, string label) { try { act(); } catch (IOException) { Ass
 await StatePersistenceTests.Run(Path.Combine(baseDir, "state-persistence"), Assert);
 await ReportedErrorGuardTests.Run(Path.Combine(baseDir, "reported-errors"), Assert);
 await OperationRecoveryTests.Run(Path.Combine(baseDir, "operation-recovery"), Assert);
+await CommandDispatchTests.Run(Path.Combine(baseDir, "command-dispatch"), Assert);
 var toolTask = new WorkItem();
 using (var started = JsonDocument.Parse("""{"id":"memory-1","tool":"hermes_memory"}"""))
     ToolProgress.Start(toolTask, started.RootElement);

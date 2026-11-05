@@ -65,7 +65,7 @@ public sealed class AppServerClient : IAsyncDisposable
         }
         catch { await DisposeAsync(); throw; }
     }
-    public async Task<JsonElement> RequestAsync(string method, object parameters, int timeoutSeconds = 45)
+    public async Task<JsonElement> RequestAsync(string method, object parameters, int timeoutSeconds = 45, Action? onDispatched = null)
     {
         if (!Connected) throw new HermesException("App Server 연결이 끊겼습니다.");
         var id = Interlocked.Increment(ref nextId);
@@ -75,6 +75,7 @@ public sealed class AppServerClient : IAsyncDisposable
         try
         {
             await WriteAsync(new { id, method, @params = parameters });
+            onDispatched?.Invoke();
             return await completion.Task.WaitAsync(TimeSpan.FromSeconds(timeoutSeconds));
         }
         finally { pending.TryRemove(key, out _); }

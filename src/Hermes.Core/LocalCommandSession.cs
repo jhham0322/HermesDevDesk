@@ -8,7 +8,7 @@ public sealed class LocalCommandSession : IAsyncDisposable
     public event Action<string>? Output;
     private readonly string home;
     public LocalCommandSession(string home) => this.home = home;
-    public async Task<string> RunAsync(string exe, string root, string command, bool writable)
+    public async Task<string> RunAsync(string exe, string root, string command, bool writable, Action? onDispatched = null)
     {
         if (Interlocked.CompareExchange(ref active, 1, 0) != 0) throw new HermesException("명령이 이미 실행 중입니다.");
         try
@@ -20,7 +20,7 @@ public sealed class LocalCommandSession : IAsyncDisposable
             await client.ConnectAsync(exe, root, home);
             var policy = new { type = "dangerFullAccess" };
             // Buffered engine execution without an additional Hermes OS sandbox.
-            var result = await client.RequestAsync("command/exec", new { command = new[] { "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command }, cwd = root, streamStdoutStderr = false, streamStdin = false, tty = false, timeoutMs = 30000, sandboxPolicy = policy }, 40);
+            var result = await client.RequestAsync("command/exec", new { command = new[] { "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command }, cwd = root, streamStdoutStderr = false, streamStdin = false, tty = false, timeoutMs = 30000, sandboxPolicy = policy }, 40, onDispatched);
             var output = Safety.Redact(result.Text("stdout") + result.Text("stderr"));
             if (output.Length > 200000) output = output[..200000] + "\n[display truncated]";
             var text = $"exit={result.Property("exitCode")?.ToString() ?? "unknown"}\n{output}";
