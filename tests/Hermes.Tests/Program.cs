@@ -28,7 +28,7 @@ if (args.Contains("app-server"))
         {
             "initialize" => new { userAgent = "unit-fixture" },
             "echo" => e.GetProperty("params").Clone(),
-            "execution-profile" => new { arguments = Environment.GetCommandLineArgs() },
+            "execution-profile" => new { arguments = Environment.GetCommandLineArgs(), hasPlanToken = Environment.GetEnvironmentVariable("ACCESS_TOKEN") == "fixture-access-not-real" },
             _ => new { ok = true }
         };
         Console.WriteLine(JsonSerializer.Serialize(new { id = id.Clone(), result = response }));
@@ -62,6 +62,7 @@ if (args.Contains("--resume-only"))
     Console.WriteLine("RESUME: " + node["resumeVerified"]); File.WriteAllText(reportPath, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true })); return;
 }
 var baseDir = Path.Combine(Environment.CurrentDirectory, "artifacts", "test-scratch", "Hermes-tests-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(baseDir);
+if (args.Contains("--chatgpt-plan-only")) { int total=0; await ChatGptPlanTests.Run(Path.Combine(baseDir,"chatgpt-plan-only"),(ok,label)=>{if(!ok)throw new IOException(label);total++;Console.WriteLine("PASS: "+label);});Console.WriteLine("OAuth checks="+total+"; no real login/model calls");return; }
 if (args.Contains("--continuation-engine")) { await ContinuationEngineTests.Run(Path.Combine(baseDir, "continuation-engine"), args[Array.IndexOf(args, "--codex") + 1]); return; }
 if (args.Contains("--continuation-queue")) { await ContinuationQueueTests.Run(Path.Combine(baseDir, "continuation-queue"), (ok,label) => { if (!ok) throw new Exception(label); Console.WriteLine("PASS: " + label); }); return; }
 if (args.Contains("--simple-ui-engine-smoke"))
@@ -126,6 +127,7 @@ void Reject(Action act, string label) { try { act(); } catch (IOException) { Ass
 await StatePersistenceTests.Run(Path.Combine(baseDir, "state-persistence"), Assert);
 await ReportedErrorGuardTests.Run(Path.Combine(baseDir, "reported-errors"), Assert);
 await OperationRecoveryTests.Run(Path.Combine(baseDir, "operation-recovery"), Assert);
+await ChatGptPlanTests.Run(Path.Combine(baseDir, "chatgpt-plan"), Assert);
 await CommandDispatchTests.Run(Path.Combine(baseDir, "command-dispatch"), Assert);
 var toolTask = new WorkItem();
 using (var started = JsonDocument.Parse("""{"id":"memory-1","tool":"hermes_memory"}"""))

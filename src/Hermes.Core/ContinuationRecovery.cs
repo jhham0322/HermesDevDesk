@@ -49,6 +49,7 @@ public sealed partial class DeskController
     }
     public async Task ResumeSavedProcessAsync(string id, bool userConfirmed = false)
     {
+        CheckOAuthSession();
         var p = State.Processes.Single(x => x.Id == id);
         var task = State.Tasks.Single(t => t.Id == p.TaskId);
         if (p.ThreadId.Length > 0 && p.ThreadId != task.ThreadId) throw new HermesException("현재 대화가 다른 요청으로 바뀌었습니다. 이전 체크포인트를 새 요청의 실행 상태에 덮어쓰지 않습니다.");
@@ -61,8 +62,8 @@ public sealed partial class DeskController
         {
             var mcp = new Dictionary<string, object>(disabledMcp);
             if (task.ThreadMcpEnabled == true) foreach (var server in McpConfiguration.BuiltIn(Environment.ProcessPath!, root, !task.IsReview, Path.GetDirectoryName(Memory.DatabasePath), task.Id)) mcp[server.Key] = server.Value;
-            var result = await Engine.RequestAsync("thread/resume", new { threadId = task.ThreadId, cwd = root, model = task.Model, modelProvider = company == null ? "openai" : "hermes_company", approvalPolicy = task.IsReview ? "on-request" : "never", approvalsReviewer = "user", sandbox = "danger-full-access", config = new Dictionary<string, object> { ["mcp_servers"] = mcp, ["features.shell_tool"] = false, ["features.unified_exec"] = false, ["model_providers.hermes_company.base_url"] = company?.TaskBaseUri(task.Id).AbsoluteUri ?? "http://127.0.0.1" } });
-            if (result.GetProperty("thread").Text("id") != task.ThreadId || !string.Equals(Path.GetFullPath(result.Text("cwd")), root, StringComparison.OrdinalIgnoreCase) || result.Text("modelProvider") != (company == null ? "openai" : "hermes_company") || result.GetProperty("sandbox").Text("type") != "dangerFullAccess") throw new HermesException("복원 스레드의 경로·출처·정책이 일치하지 않습니다.");
+            var result = await Engine.RequestAsync("thread/resume", new { threadId = task.ThreadId, cwd = root, model = task.Model, modelProvider = ActiveModelProvider, approvalPolicy = task.IsReview ? "on-request" : "never", approvalsReviewer = "user", sandbox = "danger-full-access", config = new Dictionary<string, object> { ["mcp_servers"] = mcp, ["features.shell_tool"] = false, ["features.unified_exec"] = false, ["model_providers.hermes_company.base_url"] = company?.TaskBaseUri(task.Id).AbsoluteUri ?? "http://127.0.0.1" } });
+            if (result.GetProperty("thread").Text("id") != task.ThreadId || !string.Equals(Path.GetFullPath(result.Text("cwd")), root, StringComparison.OrdinalIgnoreCase) || result.Text("modelProvider") != (ActiveModelProvider) || result.GetProperty("sandbox").Text("type") != "dangerFullAccess") throw new HermesException("복원 스레드의 경로·출처·정책이 일치하지 않습니다.");
             loadedThreads.Add(task.ThreadId);
         }
         p.UserStopped = false; p.BlockKind = ""; p.PausedForBudget = false; p.BudgetReason = ""; p.Decision = null; p.DecisionTurnId = ""; p.LastCompletedTurnId = "";

@@ -1,3 +1,16 @@
+# HermesDevDesk 0.8.43 — OAuth preview
+
+- Adds a separate File > ChatGPT account (OAuth) path for official Sign in with ChatGPT plan usage. Existing company model registration, editing, selection, URL/token storage and inference implementations are preserved.
+- Includes PKCE/state/nonce and signed identity validation, account-specific protected storage, model catalog, refresh/sign-out and pre-browser cancellation/retry handling.
+- Synthetic verification: 549 regression checks and 8 programmatic OAuth WPF checks passed locally. These are not real account or model entitlement tests.
+- NOT VERIFIED: actual ChatGPT login/consent, live account-specific model availability, real model inference/stream completion, usage-limit handling and live token-expiry recovery. No real account credentials or company API were used.
+- KNOWN BASELINE FAILURE: company provider UI assertion for HTTP 404 display still fails when a nonempty error body omits the status code from the display string. HTTP failure is recorded internally and model settings are preserved. Neither company implementation nor its assertion was changed to hide this failure.
+- KNOWN CONTINUATION LIMITATION: the prior release continuation integration test failed at its first command around the default 30-second command boundary (run 41955509592). The old receipt text parser could omit a stored exit code from diagnostics. Exact cause and reliable long-running continuation remain unverified; this release does not claim that test passed or remove the command policy.
+- This preview does not import ChatGPT conversations/memory, change subscriptions, purchase credits, bypass account policy or silently switch billing/providers. OAuth changes credentials; inference uses the official Responses API. Read the consent screen and account-specific app limits.
+- User installations, settings and history were not replaced during preparation. Installer tests use isolated fixture destinations.
+
+## Previous version documentation
+
 # Hermes DevDesk 0.8.41
 
 ## 실행 기록 확인 (0.8.41)

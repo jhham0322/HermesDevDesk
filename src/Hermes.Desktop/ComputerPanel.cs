@@ -176,7 +176,7 @@ public partial class MainWindow
     }
     private bool ReviewComputerRequest(AllowedComputerWindow target, ComputerAction action)
     {
-        var destination = desk.State.Provider.Mode == ConnectionMode.CompanyApi ? desk.State.Provider.Endpoint : "선택한 ChatGPT CLI 연결";
+        var destination = desk.State.Provider.IsChatGptPlanOAuth ? "ChatGPT plan OAuth · https://api.openai.com/v1" : desk.State.Provider.Mode == ConnectionMode.CompanyApi ? desk.State.Provider.Endpoint : "선택한 ChatGPT CLI 연결";
         var details = $"대상: {target.Window.Title}\n동작: {action.Action}\n연결: {destination}\n\n";
         if (action.Action is "click" or "scroll" or "drag") details += $"이미지 좌표: ({action.X}, {action.Y})\n";
         if (action.Action == "drag") details += $"끝 좌표: ({action.ToX}, {action.ToY})\n";

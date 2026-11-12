@@ -55,7 +55,7 @@ public partial class MainWindow : Window
             var visibleModels = desk.DisplayModels.Count > 0 ? desk.DisplayModels.ToList() : new List<string> { "모델명을 입력하세요" };
             if (!Model.Items.Cast<string>().SequenceEqual(visibleModels)) { var selected = desk.HasPendingModel ? desk.State.PendingModel : Model.SelectedItem as string; Model.ItemsSource = visibleModels; Model.SelectedItem = visibleModels.Contains(selected!) ? selected : visibleModels.FirstOrDefault(); }
             Model.ToolTip = desk.HasPendingModel ? "입력한 모델 · URL/키를 저장하고 연결하세요" : "설정한 모델 · " + desk.AccountStatus;
-            ProviderHint.Text = desk.State.Provider.Mode == ConnectionMode.CompanyApi ? desk.State.Provider.IsAnthropic ? "Anthropic Messages · " + desk.ProviderCheckStatus : desk.State.Provider.Protocol + " · " + desk.ProviderCheckStatus : "ChatGPT CLI · 구독 사용량 사용";
+            ProviderHint.Text = desk.State.Provider.IsChatGptPlanOAuth ? "ChatGPT plan OAuth · " + desk.AccountStatus : desk.State.Provider.Mode == ConnectionMode.CompanyApi ? desk.State.Provider.IsAnthropic ? "Anthropic Messages · " + desk.ProviderCheckStatus : desk.State.Provider.Protocol + " · " + desk.ProviderCheckStatus : "ChatGPT CLI · 구독 사용량 사용";
             StartButton.IsEnabled = CanSubmit();
             RenderTask();
             RenderSidebar(); UpdateShellState();
@@ -111,6 +111,7 @@ public partial class MainWindow : Window
         try { var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image)); using (var stream = File.Create(path)) encoder.Save(stream); AddImage(path); }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
+    private void ChatGptPlan_Click(object sender, RoutedEventArgs e) { new ChatGptPlanWindow(desk) { Owner = this }.ShowDialog(); Refresh(); }
     private void Settings_Click(object sender, RoutedEventArgs e) { var window = new SettingsWindow(desk) { Owner = this }; window.ShowDialog(); Refresh(); }
     private void Schedule_Click(object sender, RoutedEventArgs e) { if (CurrentProject is { } project) new ScheduleWindow(desk, project) { Owner = this }.ShowDialog(); }
     private void ProcessDrafts()
@@ -260,7 +261,7 @@ public partial class MainWindow : Window
         if (CurrentProject == null) { Footer.Text = "질문을 실행할 프로젝트 폴더를 선택하세요."; Register_Click(this, new RoutedEventArgs()); if (CurrentProject == null) return; }
         var chosenModel = Model.SelectedItem as string ?? "";
         if (CurrentTask?.Status == "실행 중" && chosenModel != CurrentTask.Model) throw new Hermes.Core.HermesException("모델을 바꾸려면 실행을 중단한 뒤 다시 전송하세요.");
-        if (CurrentTask?.Status != "실행 중") desk.SelectModelConnection(chosenModel);
+        if (!desk.State.Provider.IsChatGptPlanOAuth && CurrentTask?.Status != "실행 중") desk.SelectModelConnection(chosenModel);
         if (desk.HasPendingModel || (!desk.SubscriptionReady && !desk.CanConnectCompany && desk.State.Provider.Mode == ConnectionMode.CompanyApi))
         {
             Footer.Text = "서버 URL, API 키, 모델명을 저장하세요.";

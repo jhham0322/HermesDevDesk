@@ -19,7 +19,7 @@ public sealed class AppServerClient : IAsyncDisposable
     public event Action<string>? Diagnostic;
     public event Action? Disconnected;
     public bool Connected => process is { HasExited: false } && !closing;
-    public async Task ConnectAsync(string exe, string cwd, string? isolatedHome = null, Uri? companyBridge = null, string? bridgeKey = null, string? deployment = null, Dictionary<string, object>? mcpServers = null)
+    public async Task ConnectAsync(string exe, string cwd, string? isolatedHome = null, Uri? companyBridge = null, string? bridgeKey = null, string? deployment = null, Dictionary<string, object>? mcpServers = null, ChatGptLease? chatGptPlan = null)
     {
         if (process != null) throw new InvalidOperationException("이미 연결되었습니다.");
         exe = Path.GetFullPath(exe);
@@ -53,6 +53,19 @@ public sealed class AppServerClient : IAsyncDisposable
             };
             foreach (var pair in config) { info.ArgumentList.Add("-c"); info.ArgumentList.Add(pair.Key + "=" + pair.Value); }
         }
+        if (chatGptPlan != null)
+        {
+            if (companyBridge != null || isolatedHome == null) throw new IOException("OAuth requires its own isolated engine profile");
+            Safety.RegisterSecret(chatGptPlan.AccessToken); info.Environment["ACCESS_TOKEN"] = chatGptPlan.AccessToken;
+            foreach (var pair in new Dictionary<string,string> {
+                ["model_provider"]="\"openai_chatgpt_plan\"", ["model_providers.openai_chatgpt_plan.name"]="\"ChatGPT plan\"",
+                ["model_providers.openai_chatgpt_plan.base_url"]="\"https://api.openai.com/v1\"",
+                ["model_providers.openai_chatgpt_plan.env_key"]="\"ACCESS_TOKEN\"", ["model_providers.openai_chatgpt_plan.wire_api"]="\"responses\"",
+                ["model_providers.openai_chatgpt_plan.requires_openai_auth"]="false", ["model_providers.openai_chatgpt_plan.supports_websockets"]="false",
+                ["model_providers.openai_chatgpt_plan.request_max_retries"]="0", ["model_providers.openai_chatgpt_plan.stream_max_retries"]="0",
+                ["shell_environment_policy.inherit"]="\"core\"", ["shell_environment_policy.exclude"]="[\"ACCESS_TOKEN\",\"*API_KEY*\",\"*TOKEN*\"]" })
+            { info.ArgumentList.Add("-c"); info.ArgumentList.Add(pair.Key+"="+pair.Value); }
+        }
         info.Environment["RUST_LOG"] = "warn";
         if (mcpServers != null) { info.ArgumentList.Add("-c"); info.ArgumentList.Add("mcp_servers=" + McpConfiguration.Toml(mcpServers)); }
         process = Process.Start(info) ?? throw new HermesException("App Server 실행 실패");
@@ -60,7 +73,7 @@ public sealed class AppServerClient : IAsyncDisposable
         _ = ReadDiagnosticsAsync();
         try
         {
-            await RequestAsync("initialize", new { clientInfo = new { name = "hermes_devdesk", title = "Hermes DevDesk (independent client)", version = "0.8.18" }, capabilities = new { experimentalApi = true } });
+            await RequestAsync("initialize", new { clientInfo = new { name = chatGptPlan != null ? "HermesDevDesk" : "hermes_devdesk", title = "Hermes DevDesk (independent client)", version = chatGptPlan != null ? typeof(AppServerClient).Assembly.GetName().Version?.ToString() ?? "unknown" : "0.8.18" }, capabilities = new { experimentalApi = true } });
             await WriteAsync(new { method = "initialized", @params = new { } });
         }
         catch { await DisposeAsync(); throw; }

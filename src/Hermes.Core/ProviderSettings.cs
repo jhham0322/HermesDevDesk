@@ -8,6 +8,10 @@ public enum ConnectionMode { CompanyApi, ExistingChatGptCli }
 public sealed class ProviderSettings
 {
     public ConnectionMode Mode { get; set; } = ConnectionMode.CompanyApi;
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? OAuthAccountId { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsChatGptPlanOAuth => Mode == ConnectionMode.ExistingChatGptCli && !string.IsNullOrEmpty(OAuthAccountId);
     public string Endpoint { get; set; } = "";
     public string Deployment { get; set; } = "";
     public ProviderProtocol Protocol { get; set; } = ProviderProtocol.GatewayAuto;
@@ -17,7 +21,7 @@ public sealed class ProviderSettings
     public int MaxOutputTokens { get; set; } = 8192;
     public bool IsAnthropic => Protocol == ProviderProtocol.AnthropicMessages;
     public bool IsChat => Protocol == ProviderProtocol.GatewayChatCompletions;
-    public string Fingerprint => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { Mode, Endpoint, Deployment, Protocol, Authentication, KeyRevision, MaxOutputTokens }))))[..16];
+    public string Fingerprint => IsChatGptPlanOAuth ? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { Mode, OAuthAccountId, Endpoint, Deployment, Protocol, Authentication, KeyRevision, MaxOutputTokens }))))[..16] : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { Mode, Endpoint, Deployment, Protocol, Authentication, KeyRevision, MaxOutputTokens }))))[..16];
     public static string ResolveEndpointInput(string input, EndpointSchemeChoice choice = EndpointSchemeChoice.RequireExplicitScheme)
     {
         var value = input.Trim();

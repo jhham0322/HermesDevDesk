@@ -143,11 +143,13 @@ public sealed partial class DeskController
     }
     private async Task ContinueLoopAsync(WorkItem task, TaskProcess process, AppServerClient? engine)
     {
+
         if (disposed || engine == null || engine != Engine || ActiveProcess(task) != process || process.State != "다음 실행 대기") return;
         if (PauseAtBoundary(task, process)) return;
         if (loopWaits.Remove(task.Id, out var wait)) wait.Dispose();
         try
         {
+            CheckOAuthSession();
             if (!SubscriptionReady || task.ProviderFingerprint != connectedFingerprint || connectedFingerprint != State.Provider.Fingerprint || task.ThreadId == null)
                 throw new HermesException("연결 상태가 바뀌었습니다. 같은 모델에 다시 연결한 뒤 실행하세요.");
             task.ActiveRequestId = ""; task.ResponseModel = "";

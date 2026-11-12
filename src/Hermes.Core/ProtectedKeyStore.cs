@@ -24,7 +24,7 @@ public sealed class ProtectedKeyStore
         finally { CryptographicOperations.ZeroMemory(clear); }
     }
     public void DeleteOwnKey() { if (File.Exists(path)) { Safety.RejectReparseAncestors(path); File.Delete(path); } }
-    private static byte[] Transform(byte[] input, bool decrypt)
+    internal static byte[] Transform(byte[] input, bool decrypt)
     {
         if (!OperatingSystem.IsWindows()) throw new HermesException("Windows 사용자 DPAPI 보호가 필요합니다.");
         var data = new Blob { Size = input.Length, Data = Marshal.AllocHGlobal(input.Length) }; Blob output = default;
