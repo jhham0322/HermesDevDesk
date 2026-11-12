@@ -133,6 +133,28 @@ jobs:
       - name: Disclose diagnostic outcome
         shell: pwsh
         run: Write-Warning 'Company 404 diagnostic outcome is ${{ steps.company404.outcome }}; a failed diagnostic is not reported as passed. Real OAuth account/model E2E and prior continuation reliability remain unverified.'
+      - name: Record original shell UI diagnostic with baseline limitation
+        id: shellbaseline
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $app = Join-Path $PWD 'artifacts/release-0.8.43/app/HermesDevDesk.exe'
+          $data = Join-Path $env:RUNNER_TEMP 'known-shell-baseline'
+          $check = Start-Process $app -ArgumentList @('--ui-smoke','--data-dir',('"'+$data+'"')) -WindowStyle Hidden -PassThru
+          if (-not $check.WaitForExit(60000)) { throw 'Original shell diagnostic timeout' }
+          if ($check.ExitCode -ne 0) { Get-Content (Join-Path $data 'ui-smoke-error.txt'); throw 'Original shell expanded-default assertion failed; disclosed and reproduced on baseline 0.8.42' }
+      - name: Verify actual isolated-installed OAuth and company settings UI
+        shell: pwsh
+        run: |
+          $root = Join-Path $PWD 'artifacts/release-0.8.43'
+          $installed = (Get-Content (Join-Path $root 'force-reinstall-report.json') -Raw | ConvertFrom-Json).installPath
+          foreach ($mode in @('--chatgpt-plan-ui-smoke','--simple-settings-smoke')) {
+            $data = Join-Path $env:RUNNER_TEMP ('installed-' + $mode.TrimStart('-'))
+            $check = Start-Process (Join-Path $installed 'HermesDevDesk.exe') -ArgumentList @($mode,'--data-dir',('"'+$data+'"')) -WindowStyle Hidden -PassThru
+            if (-not $check.WaitForExit(60000)) { throw 'Installed application check timeout' }
+            if ($check.ExitCode -ne 0) { throw "Installed application check failed: $mode" }
+            Get-ChildItem $data -Filter '*report.json' | ForEach-Object { Get-Content $_.FullName }
+          }
       - name: Publish verified Windows installer and portable ZIP
         shell: pwsh
         env:
