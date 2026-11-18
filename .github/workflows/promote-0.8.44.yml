@@ -1,0 +1,23 @@
+name: Publish verified 0.8.44 as latest
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/promote-0.8.44.yml']
+permissions:
+  contents: write
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify existing release and promote without replacing assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/jhham0322/HermesDevDesk/actions/runs/44256892894 > run.json
+          jq -e '.conclusion == "success" and .head_sha == "c8f5c9257fd342772ef86fe364d2567888babd67"' run.json
+          gh api repos/jhham0322/HermesDevDesk/releases/tags/v0.8.44 > release.json
+          jq -e '.id == 449637873 and .draft == false and .target_commitish == "c8f5c9257fd342772ef86fe364d2567888babd67" and ([.assets[] | select(.name == "HermesDevDesk-0.8.44-win-x64-Setup.exe" and .state == "uploaded" and .digest == "sha256:08b90c6fbb7baa815e9eef619d46e64d7112075fb0fdccefcdc8885ad983da66")] | length == 1) and ([.assets[] | select(.name == "HermesDevDesk-0.8.44-win-x64-Portable.zip" and .state == "uploaded")] | length == 1)' release.json
+          gh release edit v0.8.44 --repo jhham0322/HermesDevDesk --prerelease=false --latest
+          gh api repos/jhham0322/HermesDevDesk/releases/latest | jq -e '.tag_name == "v0.8.44" and .prerelease == false and .draft == false'
