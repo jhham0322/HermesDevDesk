@@ -1,3 +1,12 @@
+# Hermes DevDesk 0.8.44 — length responses and daily-token recovery
+
+- Chat Completions `finish_reason=length` with no answer is now a valid incomplete response, not a generic server-format failure. It is not a daily-token quota or success. Truncated tool calls are not executable output; private reasoning stays private.
+- Explicit daily-token exhaustion schedules the existing checkpoint for the following calendar day at 09:30 Korea time. The app must be open and connected to the same model/provider; an overdue reservation is checked after reconnect. No machine wake or guaranteed provider reset is claimed.
+- Stop cancels the reservation. Persisted exclusive claims prevent duplicate requests, uncertain admissions require review, and automatic quota retries stop after three attempts. Authentication, permission, payment, generic HTTP 429, content filtering, one-response length and uncertain side effects are not automatically retried.
+- This release preserves existing settings, checkpoints and prior verification limitations. See `docs/daily-token-recovery.md` and `VALIDATION-0.8.44.md` for tested scope.
+
+## Prior release documentation and retained limitations
+
 # HermesDevDesk 0.8.43 — OAuth preview
 
 - Adds a separate File > ChatGPT account (OAuth) path for official Sign in with ChatGPT plan usage. Existing company model registration, editing, selection, URL/token storage and inference implementations are preserved.

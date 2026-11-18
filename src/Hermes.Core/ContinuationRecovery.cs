@@ -40,6 +40,7 @@ public sealed partial class DeskController
     {
         foreach (var p in State.Processes.Where(p => p.ContinuationEnabled && !p.UserStopped && p.State == "앱 종료로 중단됨").ToList())
         {
+            if (p.DailyQuotaClaimedAt != null) { p.BlockKind = "daily_quota_admission_review"; p.State = "자동 재개 접수 확인 필요"; p.Detail = "앱 종료 전 자동 재개를 시도했습니다. 실제 요청 결과 확인 전에는 재전송하지 않습니다."; continue; }
             if (p.BlockKind.Length > 0 || p.Operations.Any(o => o.NeedsReview))
             { p.State = "실행 결과 확인 필요"; p.Detail = "승인/외부 차단 또는 결과 미확인 실행을 보존했습니다. 자동 재실행하지 않습니다."; continue; }
             try { await ResumeSavedProcessAsync(p.Id); }
@@ -57,15 +58,32 @@ public sealed partial class DeskController
         if (p.Operations.Any(o => o.NeedsReview)) throw new OperationReviewRequiredException(p.Id, OperationReviewSummary(p));
         if ((p.UserStopped || p.BlockKind.Length > 0) && !userConfirmed) throw new HermesException("사용자 정지·외부 제한·승인 조건이 해결됐는지 확인한 뒤 명시적으로 재개하세요.");
         if (Engine == null || !SubscriptionReady || task.ThreadId == null || connectedFingerprint != State.Provider.Fingerprint || task.ProviderFingerprint != connectedFingerprint) throw new HermesException("같은 모델·공급자의 유효한 연결을 확인하세요.");
+        var quotaClaim = p.DailyQuotaClaimedAt;
+        var resumeEngine = Engine; var resumeThread = task.ThreadId; var resumeModel = task.Model; var resumeFingerprint = connectedFingerprint;
+        bool AdmissionStillValid() => quotaClaim == null || DailyQuotaRecovery.CanContinueAdmission(p, task, quotaClaim, resumeThread, resumeModel, resumeFingerprint,
+            !disposed && ReferenceEquals(Engine, resumeEngine) && SubscriptionReady && connectedFingerprint == resumeFingerprint && State.Provider.Fingerprint == resumeFingerprint,
+            Approvals.Any(a => a.Params.Text("threadId") == resumeThread));
+        bool PreserveChangedAdmission()
+        {
+            if (AdmissionStillValid()) return false;
+            // A Stop during thread/resume is final. Do not reset UserStopped or
+            // overwrite a newer task's status after this asynchronous boundary.
+            if (!p.UserStopped && !p.DailyQuotaCancelled)
+            { p.BlockKind = "daily_quota_admission_review"; p.State = "자동 재개 조건 변경"; p.Detail = "스레드 복원 중 연결·작업·모델 또는 승인 상태가 변경되어 실행을 시작하지 않았습니다."; }
+            Save(); return true;
+        }
         var root = Safety.ProjectRoot(Project(task).Root); company?.BeginTask(task.Id, task.Model);
         if (!loadedThreads.Contains(task.ThreadId))
         {
             var mcp = new Dictionary<string, object>(disabledMcp);
             if (task.ThreadMcpEnabled == true) foreach (var server in McpConfiguration.BuiltIn(Environment.ProcessPath!, root, !task.IsReview, Path.GetDirectoryName(Memory.DatabasePath), task.Id)) mcp[server.Key] = server.Value;
             var result = await Engine.RequestAsync("thread/resume", new { threadId = task.ThreadId, cwd = root, model = task.Model, modelProvider = ActiveModelProvider, approvalPolicy = task.IsReview ? "on-request" : "never", approvalsReviewer = "user", sandbox = "danger-full-access", config = new Dictionary<string, object> { ["mcp_servers"] = mcp, ["features.shell_tool"] = false, ["features.unified_exec"] = false, ["model_providers.hermes_company.base_url"] = company?.TaskBaseUri(task.Id).AbsoluteUri ?? "http://127.0.0.1" } });
+            if (PreserveChangedAdmission()) return;
             if (result.GetProperty("thread").Text("id") != task.ThreadId || !string.Equals(Path.GetFullPath(result.Text("cwd")), root, StringComparison.OrdinalIgnoreCase) || result.Text("modelProvider") != (ActiveModelProvider) || result.GetProperty("sandbox").Text("type") != "dangerFullAccess") throw new HermesException("복원 스레드의 경로·출처·정책이 일치하지 않습니다.");
             loadedThreads.Add(task.ThreadId);
         }
+        if (PreserveChangedAdmission()) return;
+        CheckOAuthSession();
         p.UserStopped = false; p.BlockKind = ""; p.PausedForBudget = false; p.BudgetReason = ""; p.Decision = null; p.DecisionTurnId = ""; p.LastCompletedTurnId = "";
         p.Budget = State.Desktop.ExecutionBudget.Copy();
         p.StageStarted = DateTime.UtcNow; p.StageRoundOffset = p.Round; p.StagnantRounds = 0; p.ConsecutiveFailures = 0;

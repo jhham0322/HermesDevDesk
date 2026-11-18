@@ -43,6 +43,7 @@ public sealed partial class DeskController : IAsyncDisposable
     private readonly Dictionary<string, object> disabledMcp = [];
     private readonly Dictionary<string, List<string>> pendingChanges = [];
     private readonly Timer persistenceTimer;
+    private readonly Timer dailyQuotaTimer;
     private bool dirty;
     private bool connecting;
     private bool disposed;
@@ -56,6 +57,7 @@ public sealed partial class DeskController : IAsyncDisposable
         if (migrated) Store.Save(State);
         MigrateModelConnections();
         batchPersistence = dispatch != null;
+        dailyQuotaTimer = new(_ => this.dispatch(() => { if (!disposed) _ = RunDueDailyQuotaResumesAsync(DateTimeOffset.UtcNow); }), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         persistenceTimer = new(_ => this.dispatch(() => { if (!dirty || disposed) return; dirty = false; Store.Save(State); }), null, Timeout.Infinite, Timeout.Infinite);
     }
     private string ModelScope => State.Provider.IsChatGptPlanOAuth ? "chatgpt-plan/" + State.Provider.OAuthAccountId : State.Provider.Endpoint.TrimEnd('/');
@@ -425,7 +427,12 @@ public sealed partial class DeskController : IAsyncDisposable
             if (task.Status is "시작 중" or "실행 중") { task.TurnId = turn.GetProperty("turn").Text("id"); task.Status = "실행 중"; }
             Save();
         }
-        catch (Exception ex) { EndProcess(task, "시작 실패", ConnectionErrors.Describe(ex)); task.Status = "실패"; task.Transcript.Add(new("오류", ConnectionErrors.Describe(ex), DateTime.UtcNow)); Save(); throw; }
+        catch (Exception ex) {
+            // Attachments are recorded only after turn admission. Never resume a
+            // rejected first request without those original inputs.
+            if (startingProcess != null && attachments.Count == 0 && selectedFiles.Count == 0 && selectedSkills.Count == 0 &&
+                TryScheduleDailyQuotaRpc(task, startingProcess, ex, DateTimeOffset.UtcNow)) return;
+            EndProcess(task, "시작 실패", ConnectionErrors.Describe(ex)); task.Status = "실패"; task.Transcript.Add(new("오류", ConnectionErrors.Describe(ex), DateTime.UtcNow)); Save(); throw; }
     }
     public async Task StopAsync(WorkItem task)
     {
@@ -655,7 +662,7 @@ public sealed partial class DeskController : IAsyncDisposable
     {
         ComputerStopRequested?.Invoke(null);
         foreach (var task in State.Tasks.Where(t => ActiveProcess(t) != null)) EndProcess(task, "앱 종료로 중단됨", "앱 종료로 자동 실행이 중단되었습니다.");
-        disposed = true; Store.Save(State); await persistenceTimer.DisposeAsync();
+        disposed = true; Store.Save(State); await dailyQuotaTimer.DisposeAsync(); await persistenceTimer.DisposeAsync();
         if (dirty) { dirty = false; Store.Save(State); }
         if (Engine != null) await Engine.DisposeAsync(); if (company != null) await company.DisposeAsync(); ChatGptPlan.Dispose();
     }

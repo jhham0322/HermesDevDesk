@@ -24,6 +24,11 @@ if (args.Contains("app-server"))
             Console.WriteLine(JsonSerializer.Serialize(new { id = id.Clone(), result = new { exitCode = cmd.Contains("FIXTURE_NONZERO") ? 7 : 0, stdout = "FIXTURE_RESULT", stderr = "" } }));
             continue;
         }
+        if (m.GetString() == "turn/start" && e.GetProperty("params").TryGetProperty("dailyQuotaFixture", out _))
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new { id = id.Clone(), error = new { code = -32001, message = "Daily token limit exceeded", data = new { type = "provider_quota", code = "daily_token_limit_exceeded" } } }));
+            continue;
+        }
         object response = m.GetString() switch
         {
             "initialize" => new { userAgent = "unit-fixture" },
@@ -62,6 +67,7 @@ if (args.Contains("--resume-only"))
     Console.WriteLine("RESUME: " + node["resumeVerified"]); File.WriteAllText(reportPath, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true })); return;
 }
 var baseDir = Path.Combine(Environment.CurrentDirectory, "artifacts", "test-scratch", "Hermes-tests-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(baseDir);
+if (args.Contains("--daily-quota-only")) { int total=0; await DailyQuotaTests.Run(Path.Combine(baseDir,"daily-quota-only"),(ok,label)=>{if(!ok)throw new IOException(label);total++;Console.WriteLine("PASS: "+label);});Console.WriteLine("Daily quota checks="+total+"; no real model or native UI calls");return; }
 if (args.Contains("--chatgpt-plan-only")) { int total=0; await ChatGptPlanTests.Run(Path.Combine(baseDir,"chatgpt-plan-only"),(ok,label)=>{if(!ok)throw new IOException(label);total++;Console.WriteLine("PASS: "+label);});Console.WriteLine("OAuth checks="+total+"; no real login/model calls");return; }
 if (args.Contains("--continuation-engine")) { await ContinuationEngineTests.Run(Path.Combine(baseDir, "continuation-engine"), args[Array.IndexOf(args, "--codex") + 1]); return; }
 if (args.Contains("--continuation-queue")) { await ContinuationQueueTests.Run(Path.Combine(baseDir, "continuation-queue"), (ok,label) => { if (!ok) throw new Exception(label); Console.WriteLine("PASS: " + label); }); return; }
@@ -252,6 +258,7 @@ Console.WriteLine($"PASS {count} checks. Fixture transport is unit testing, not 
 await RecoveryTests.Run(Assert);
 await ToolHistoryRecoveryTests.Run(baseDir, Assert);
 await ChatCompatibilityTests.Run(Assert);
+await DailyQuotaTests.Run(Path.Combine(baseDir,"daily-quota"),Assert);
 await ResponseWaitingTests.Run(baseDir, Assert);
 BrowserLibraryTests.Run(Assert);
 ExecutionMemoryTests.Run(baseDir, Assert);

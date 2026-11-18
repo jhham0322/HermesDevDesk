@@ -1,7 +1,7 @@
 namespace Hermes.Core;
 
 public class HermesException(string message, Exception? inner = null) : IOException(ConnectionErrors.Local(message), inner);
-public sealed class ModelServerException(string message) : IOException(message);
+public class ModelServerException(string message) : IOException(message);
 public static class ConnectionErrors
 {
     public static string Local(string message) => Safety.Redact(message.StartsWith("[HERMES_ERROR]", StringComparison.Ordinal) ? message : "[HERMES_ERROR] " + message);

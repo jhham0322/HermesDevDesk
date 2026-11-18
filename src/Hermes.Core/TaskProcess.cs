@@ -26,6 +26,10 @@ public sealed class TaskProcess
     public int StagnantRounds { get; set; }
     public string LastProgressDigest { get; set; } = "";
     public string Checkpoint { get; set; } = "";
+    public DateTimeOffset? DailyQuotaResumeAt { get; set; }
+    public DateTimeOffset? DailyQuotaClaimedAt { get; set; }
+    public int DailyQuotaResumeAttempts { get; set; }
+    public bool DailyQuotaCancelled { get; set; }
     public string BudgetReason { get; set; } = "";
     public long ToolQueueMs { get; set; }
     public long ToolExecutionMs { get; set; }

@@ -87,11 +87,14 @@ public static class ChatAdapter
     {
 
         if (chat.Property("error") != null) throw new ModelServerException(ProviderErrors.ReadableMessage(chat.GetRawText()));        var choice = chat.GetProperty("choices")[0]; var message = choice.GetProperty("message"); var output = new JsonArray();
+        var finish = choice.Text("finish_reason");
+        var incomplete = finish is "length" or "content_filter";
         var text = message.Text("content");
         if (message.Property("content") is { ValueKind: JsonValueKind.Array } parts)
             text = string.Join("", parts.EnumerateArray().Where(p => p.ValueKind == JsonValueKind.Object).Select(p => p.Text("text")));
-        if (text.Length > 0) output.Add(new JsonObject { ["id"] = "msg_" + Guid.NewGuid().ToString("N"), ["type"] = "message", ["role"] = "assistant", ["status"] = "completed", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = text, ["annotations"] = new JsonArray() }) });
-        if (message.Property("tool_calls") is { ValueKind: JsonValueKind.Array } calls) foreach (var call in calls.EnumerateArray())
+        if (text.Length > 0) output.Add(new JsonObject { ["id"] = "msg_" + Guid.NewGuid().ToString("N"), ["type"] = "message", ["role"] = "assistant", ["status"] = incomplete ? "incomplete" : "completed", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = text, ["annotations"] = new JsonArray() }) });
+        // A truncated turn must never emit executable tool calls, even if its partial JSON parses.
+        if (!incomplete && message.Property("tool_calls") is { ValueKind: JsonValueKind.Array } calls) foreach (var call in calls.EnumerateArray())
         {
             var function = call.GetProperty("function"); var encoded = function.Text("name"); if (!adaptation.Tools.TryGetValue(encoded, out var tool)) throw new HermesException("Unknown tool returned by gateway");
             var item = new JsonObject { ["id"] = "fc_" + Guid.NewGuid().ToString("N"), ["call_id"] = call.Text("id"), ["type"] = tool.Type == "custom" ? "custom_tool_call" : "function_call", ["name"] = tool.Name, ["status"] = "completed" };
@@ -99,7 +102,7 @@ public static class ChatAdapter
             if (tool.Type == "custom") { using var arguments = JsonDocument.Parse(function.Text("arguments")); item["input"] = arguments.RootElement.Text("input"); }
             else item["arguments"] = function.Text("arguments"); output.Add(item);
         }
-        if (output.Count == 0 && !allowEmptyProbe) throw new HermesException("모델이 답변 본문이나 도구 호출을 반환하지 않았습니다. finish_reason=" + choice.Text("finish_reason") + (message.Property("reasoning_content") != null ? " · 추론 내용만 반환됨. 서버의 출력 토큰 제한과 응답 형식을 확인하세요." : " · 서버의 응답 형식을 확인하세요."));
+        if (output.Count == 0 && !allowEmptyProbe && !incomplete) throw new HermesException("모델이 답변 본문이나 도구 호출을 반환하지 않았습니다. finish_reason=" + choice.Text("finish_reason") + (message.Property("reasoning_content") != null ? " · 추론 내용만 반환됨. 서버의 출력 토큰 제한과 응답 형식을 확인하세요." : " · 서버의 응답 형식을 확인하세요."));
         var usage = TokenCounts.FromResponse(chat); JsonObject? tokens = usage.Input.HasValue && usage.Output.HasValue && usage.Total.HasValue ? new() { ["input_tokens"] = usage.Input, ["output_tokens"] = usage.Output, ["total_tokens"] = usage.Total } : null;
         if (tokens != null && usage.Cached.HasValue) tokens["input_tokens_details"] = new JsonObject { ["cached_tokens"] = usage.Cached };
         if (tokens != null && usage.Reasoning.HasValue) tokens["output_tokens_details"] = new JsonObject { ["reasoning_tokens"] = usage.Reasoning };

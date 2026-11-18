@@ -234,7 +234,7 @@ public sealed class CompanyBridge : IAsyncDisposable
             else if (adaptation != null)
             {
                 using var chat = JsonDocument.Parse(text); entry.Tokens = TokenCounts.FromResponse(chat.RootElement); entry.Model = chat.RootElement.Text("model") is { Length: > 0 } model ? model : "";
-                var converted = ChatAdapter.Response(chat.RootElement, adaptation); output = wantsStream ? ResponseWire.Sse(converted) : converted.ToJsonString(); contentType = wantsStream ? "text/event-stream" : "application/json";
+                var converted = ChatAdapter.Response(chat.RootElement, adaptation); finalStatus = converted["status"]!.GetValue<string>(); output = wantsStream ? ResponseWire.Sse(converted) : converted.ToJsonString(); contentType = wantsStream ? "text/event-stream" : "application/json";
             }
             else if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             {

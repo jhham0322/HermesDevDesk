@@ -11,6 +11,7 @@ public sealed class AppServerClient : IAsyncDisposable
 {
     private Process? process;
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> pending = new();
+    private readonly ConcurrentDictionary<string, string> pendingMethods = new();
     private readonly SemaphoreSlim writer = new(1, 1);
     private long nextId;
     private bool closing;
@@ -84,6 +85,7 @@ public sealed class AppServerClient : IAsyncDisposable
         var id = Interlocked.Increment(ref nextId);
         var key = id.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        pendingMethods[key] = method;
         pending[key] = completion;
         try
         {
@@ -91,7 +93,7 @@ public sealed class AppServerClient : IAsyncDisposable
             onDispatched?.Invoke();
             return await completion.Task.WaitAsync(TimeSpan.FromSeconds(timeoutSeconds));
         }
-        finally { pending.TryRemove(key, out _); }
+        finally { pending.TryRemove(key, out _); pendingMethods.TryRemove(key, out _); }
     }
     public Task RespondAsync(ServerRequest request, object result) => WriteAsync(new { id = request.Id, result });
     public Task RejectUnsupportedAsync(ServerRequest request) => WriteAsync(new { id = request.Id, error = new { code = -32601, message = "[HERMES_ERROR] Unsupported or denied by Hermes DevDesk safety policy" } });
@@ -127,7 +129,8 @@ public sealed class AppServerClient : IAsyncDisposable
                 }
                 else if (msg.TryGetProperty("id", out var id) && pending.TryRemove(id.ToString(), out var c))
                 {
-                    if (msg.TryGetProperty("error", out var error)) c.TrySetException(new ModelServerException(Safety.Redact(error.Text("message"))));
+                    pendingMethods.TryRemove(id.ToString(), out var requestMethod);
+                    if (msg.TryGetProperty("error", out var error)) c.TrySetException(EngineRpcException.FromResponse(requestMethod ?? "", error));
                     else if (msg.TryGetProperty("result", out var result)) c.TrySetResult(result.Clone());
                     else c.TrySetException(new HermesException("잘못된 프로토콜 응답"));
                 }
@@ -137,7 +140,7 @@ public sealed class AppServerClient : IAsyncDisposable
         finally
         {
             foreach (var c in pending.Values) c.TrySetException(new HermesException("App Server 연결 종료"));
-            pending.Clear();
+            pending.Clear(); pendingMethods.Clear();
             if (!closing) Disconnected?.Invoke();
         }
     }

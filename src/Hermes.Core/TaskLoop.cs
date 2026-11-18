@@ -37,6 +37,7 @@ public sealed partial class DeskController
     public async Task StopProcessAsync(string id)
     {
         var process = State.Processes.SingleOrDefault(p => p.Id == id) ?? throw new HermesException("프로세스를 찾을 수 없습니다.");
+        if (process.DailyQuotaResumeAt != null || (process.DailyQuotaClaimedAt != null && !process.Active)) { CancelDailyQuotaResume(id); return; }
         if (!process.Active) return;
         var task = State.Tasks.SingleOrDefault(t => t.Id == process.TaskId);
         if (task == null) { process.State = "종료됨"; Save(); return; }
@@ -83,7 +84,9 @@ public sealed partial class DeskController
         var status = turn.Text("status");
         if (process.LastCompletedTurnId == turn.Text("id") || !process.CompletedTurnIds.Add(turn.Text("id"))) return;
         process.LastCompletedTurnId = turn.Text("id");
+        process.DailyQuotaClaimedAt = null;
         if (process.UserStopped || process.State == "종료 중" || status == "interrupted") { EndProcess(task, "종료됨", "사용자 또는 엔진이 실행을 중단했습니다."); task.Status = "중단됨"; return; }
+        if (TryScheduleDailyQuotaResume(task, process, turn, DateTimeOffset.UtcNow)) return;
         var external = ExternalStopReason(turn);
         if (external.Length > 0) { process.BlockKind = "provider_limit_or_denial"; process.Checkpoint = WorkQueue.Summary(process); EndProcess(task, "외부 제한 확인 필요", external); task.Status = "외부 제한 확인 필요"; task.Transcript.Add(TranscriptPresentation.Host("입력 필요", external + "\n상태를 보존했습니다. 공급자 한도·인증·권한 문제가 해결된 뒤 명시적으로 재개하세요.")); Save(); return; }
         if (process.BlockKind == "permission_denied") { EndProcess(task, "승인 거절", "사용자가 거절한 동작은 자동 재시도하지 않습니다."); task.Status = "승인 거절"; Save(); return; }
@@ -170,6 +173,7 @@ public sealed partial class DeskController
         catch (Exception ex)
         {
             if (ActiveProcess(task) != process) return;
+            if (TryScheduleDailyQuotaRpc(task, process, ex, DateTimeOffset.UtcNow)) return;
             EndProcess(task, "연결 복구 필요", ConnectionErrors.Describe(ex)); task.Status = "연결 복구 필요";
             task.Transcript.Add(new("자동 실행 오류", ConnectionErrors.Describe(ex), DateTime.UtcNow)); Save();
         }
