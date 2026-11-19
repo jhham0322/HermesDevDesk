@@ -1,6 +1,6 @@
-# Hermes DevDesk 0.8.45
+# Hermes DevDesk 0.8.46
 
-[Windows 64비트 설치 파일](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.45/HermesDevDesk-0.8.45-win-x64-Setup.exe) · [포터블 ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.45/HermesDevDesk-0.8.45-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
+[Windows 64비트 설치 파일](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.46/HermesDevDesk-0.8.46-win-x64-Setup.exe) · [포터블 ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.46/HermesDevDesk-0.8.46-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
 
 작업 결과 전체를 저장합니다. 응답 스트림이 불완전하게 종료되면 해당 결과를 완료로 기록하지 않습니다.
 
