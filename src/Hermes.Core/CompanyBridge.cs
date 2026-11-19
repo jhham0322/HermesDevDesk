@@ -176,7 +176,7 @@ public sealed class CompanyBridge : IAsyncDisposable
                 streaming = true;
                 await downstream.StartAsync(linked.Token);
                 var converted = await ChatStream.Translate(await response.Content.ReadAsStreamAsync(linked.Token), downstream, adaptation, linked.Token, Observe);
-                using var parsed = JsonDocument.Parse(converted.ToJsonString()); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model"); entry.Status = parsed.RootElement.Text("status"); entry.Note = "Chat SSE → Responses 실시간 전달"; Emit(entry); return;
+                using var parsed = JsonDocument.Parse(converted.ToJsonString()); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model"); entry.Status = parsed.RootElement.Text("status"); entry.Note = "Chat SSE → Responses 실시간 전달"; ResponseInterruption.Terminal(entry, parsed.RootElement); Emit(entry); return;
             }
             if (anthropic != null && response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             {
@@ -184,7 +184,7 @@ public sealed class CompanyBridge : IAsyncDisposable
                 streaming = true;
                 await downstream.StartAsync(linked.Token);
                 var converted = await AnthropicStream.Translate(await response.Content.ReadAsStreamAsync(linked.Token), downstream, anthropic, linked.Token, Observe);
-                using var parsed = JsonDocument.Parse(converted.ToJsonString()); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model"); entry.Status = parsed.RootElement.Text("status"); entry.Note = "Anthropic SSE → Responses 변환"; Emit(entry); return;
+                using var parsed = JsonDocument.Parse(converted.ToJsonString()); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model"); entry.Status = parsed.RootElement.Text("status"); entry.Note = "Anthropic SSE → Responses 변환"; ResponseInterruption.Terminal(entry, parsed.RootElement); Emit(entry); return;
             }
             if (anthropic == null && adaptation == null && wantsStream && response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             {
@@ -219,44 +219,44 @@ public sealed class CompanyBridge : IAsyncDisposable
                 entry.Tokens = final.HasValue ? TokenCounts.FromResponse(final.Value) : TokenCounts.Missing;
                 entry.Model = final?.Text("model") is { Length: > 0 } streamModel ? streamModel : "";
                 entry.Status = final?.Text("status") ?? "unknown";
-                entry.Note = "실시간 Responses SSE 전달 · 최종 서버 usage만 집계"; Emit(entry); return;
+                entry.Note = "실시간 Responses SSE 전달 · 최종 서버 usage만 집계"; if (final.HasValue) ResponseInterruption.Terminal(entry, final.Value); Emit(entry); return;
             }
             entry.Buffered = true;
             var text = Safety.Redact(await response.Content.ReadAsStringAsync(linked.Token));
             if (response.Content.Headers.ContentType?.MediaType != "text/event-stream") { using var buffered = JsonDocument.Parse(text); var value = buffered.RootElement;
                 var useful = value.Property("output") is { ValueKind: JsonValueKind.Array } o && o.GetArrayLength() > 0 || value.Property("content") is { ValueKind: JsonValueKind.Array } c && c.GetArrayLength() > 0 || value.Property("choices") is { ValueKind: JsonValueKind.Array } choices && choices.EnumerateArray().Any(x => x.Property("message") is { } m && (m.Text("content").Length > 0 || m.Property("tool_calls") is { ValueKind: JsonValueKind.Array } calls && calls.GetArrayLength() > 0));
                 Observe(value.Text("model"), useful); }
-            string output; string contentType; string finalStatus = "completed";
+            string output; string contentType; string finalStatus = "completed"; JsonElement? terminalResponse = null;
             if (anthropic != null)
             {
                 using var message = JsonDocument.Parse(text); var converted = AnthropicAdapter.Response(message.RootElement, anthropic);
-                using var parsed = JsonDocument.Parse(converted.ToJsonString()); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model"); finalStatus = parsed.RootElement.Text("status");
+                using var parsed = JsonDocument.Parse(converted.ToJsonString()); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model"); finalStatus = parsed.RootElement.Text("status"); terminalResponse = parsed.RootElement.Clone();
                 output = wantsStream ? ResponseWire.Sse(converted) : converted.ToJsonString(); contentType = wantsStream ? "text/event-stream" : "application/json";
             }
             else if (adaptation != null)
             {
                 using var chat = JsonDocument.Parse(text); entry.Tokens = TokenCounts.FromResponse(chat.RootElement); entry.Model = chat.RootElement.Text("model") is { Length: > 0 } model ? model : "";
-                var converted = ChatAdapter.Response(chat.RootElement, adaptation); finalStatus = converted["status"]!.GetValue<string>(); output = wantsStream ? ResponseWire.Sse(converted) : converted.ToJsonString(); contentType = wantsStream ? "text/event-stream" : "application/json";
+                var converted = ChatAdapter.Response(chat.RootElement, adaptation); finalStatus = converted["status"]!.GetValue<string>(); terminalResponse = JsonSerializer.SerializeToElement(converted); output = wantsStream ? ResponseWire.Sse(converted) : converted.ToJsonString(); contentType = wantsStream ? "text/event-stream" : "application/json";
             }
             else if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
             {
                 JsonElement? final = ResponseWire.LastResponse(text);
                 entry.Tokens = final.HasValue ? TokenCounts.FromResponse(final.Value) : TokenCounts.Missing; entry.Model = final?.Text("model") is { Length: > 0 } model ? model : "";
-                finalStatus = final?.Text("status") ?? "unknown";
+                finalStatus = final?.Text("status") ?? "unknown"; terminalResponse = final;
                 output = text; contentType = "text/event-stream";
             }
             else
             {
                 using var parsed = JsonDocument.Parse(text); entry.Tokens = TokenCounts.FromResponse(parsed.RootElement); entry.Model = parsed.RootElement.Text("model") is { Length: > 0 } model ? model : "";
                 finalStatus = parsed.RootElement.Text("status") is { Length: > 0 } status ? status : "unknown";
-                var node = JsonNode.Parse(text)!.AsObject(); output = wantsStream ? ResponseWire.Sse(node) : text; contentType = wantsStream ? "text/event-stream" : "application/json";
+                terminalResponse = parsed.RootElement.Clone(); var node = JsonNode.Parse(text)!.AsObject(); output = wantsStream ? ResponseWire.Sse(node) : text; contentType = wantsStream ? "text/event-stream" : "application/json";
             }
-            entry.Status = finalStatus; entry.Note = "응답 usage 관측. reasoning/cache는 부분집합, 별도 합산 안 함"; Emit(entry);
+            entry.Status = finalStatus; entry.Note = "응답 usage 관측. reasoning/cache는 부분집합, 별도 합산 안 함"; if (terminalResponse.HasValue) ResponseInterruption.Terminal(entry, terminalResponse.Value); Emit(entry);
             await LoopbackHttp.Reply(stream, 200, contentType, output, ct);
         }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException or JsonException or InvalidOperationException or KeyNotFoundException or FormatException or NotSupportedException or ArgumentException)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or TimeoutException or IOException or JsonException or InvalidOperationException or KeyNotFoundException or FormatException or NotSupportedException or ArgumentException)
         {
-            entry.Status = ex is IncompleteResponseStreamException ? "unknown" : ex is OperationCanceledException && (ct.IsCancellationRequested || (context?.Operation.Token ?? operation.Token).IsCancellationRequested) ? "cancelled" : "failed"; entry.Note = ConnectionErrors.Describe(ex, context?.Operation.Token ?? operation.Token); AppLog.Write(ex, "company-bridge"); Emit(entry);
+            entry.Status = ex is IncompleteResponseStreamException ? "unknown" : ex is OperationCanceledException && (ct.IsCancellationRequested || (context?.Operation.Token ?? operation.Token).IsCancellationRequested) ? "cancelled" : "failed"; entry.Note = ConnectionErrors.Describe(ex, context?.Operation.Token ?? operation.Token); if (ex is IncompleteResponseStreamException) entry.FailureKind = "response_early_eof"; else if (ex is OperationCanceledException && entry.Status != "cancelled" || ex is TimeoutException) entry.FailureKind = "response_timeout"; if (entry.FailureKind.Length > 0) entry.Note = ResponseInterruption.Message(entry.FailureKind); AppLog.Write(ex, "company-bridge"); Emit(entry);
             if (streaming && !ct.IsCancellationRequested)
             {
                 var errorEvent = JsonSerializer.Serialize(new { type = "error", code = "server_error", message = entry.Note });

@@ -98,7 +98,7 @@ public sealed partial class ExecutionMemory
     {
         retryIdentity ??= method;
         var fullOutcome = Clean(outcome, int.MaxValue);
-        purpose = Clean(purpose, 1000); tool = Clean(tool, 100); method = Clean(method); outcome = fullOutcome[..Math.Min(4000, fullOutcome.Length)];
+        purpose = Clean(purpose, 1000); tool = Clean(tool, 100); method = Clean(method); outcome = tool == "command" && !succeeded ? CommandDiagnostics.Display(fullOutcome, 4000) : fullOutcome[..Math.Min(4000, fullOutcome.Length)];
         var error = succeeded ? "" : ErrorKey(outcome); var now = DateTimeOffset.UtcNow.ToString("O");
         lock (sync)
         {

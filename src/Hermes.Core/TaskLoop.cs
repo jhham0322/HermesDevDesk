@@ -95,6 +95,8 @@ public sealed partial class DeskController
 
         if (process.State == "종료 중") { EndProcess(task, "종료됨", "사용자가 프로세스를 종료했습니다."); task.Status = "중단됨"; return; }
         if (status == "interrupted") { EndProcess(task, "종료됨", "사용자 또는 엔진이 실행을 중단했습니다."); return; }
+        if (process.BlockKind.StartsWith("response_", StringComparison.Ordinal))
+        { process.Decision = null; process.Checkpoint = WorkQueue.Summary(process); EndProcess(task, "응답 미완료 · 재개 필요", process.Detail); task.Status = "응답 미완료 · 재개 필요"; Save(); return; }
         if (status == "completed" && process.Items.Count > 0 && process.Items.All(i => i.Terminal) && process.Items.Any(i => i.State == "verified") && process.Requirements.All(r => r.Planned))
         {
             try

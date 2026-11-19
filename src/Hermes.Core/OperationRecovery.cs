@@ -60,7 +60,7 @@ public sealed partial class DeskController
         { receipt.State = "unknown"; receipt.Result = "응답에 종료 코드가 없습니다. 실행 상태를 확인해야 합니다."; Save(); throw new OperationReviewRequiredException(ActiveProcess(task)?.Id ?? "", receipt.Result); }
         receipt.ResultReceived = true; receipt.ExitCode = exit;
         receipt.State = exit == 0 ? "completed" : "failed";
-        receipt.Result = "exit=" + exit + "\n" + ExecutionMemory.Clean(result.Text("stdout") + result.Text("stderr"), 20000);
+        receipt.Result = "exit=" + exit + "\n" + CommandDiagnostics.Display(result.Text("stdout") + "\n" + result.Text("stderr"), 20000);
         var process = State.Processes.Single(p => p.TaskId == task.Id && p.Operations.Contains(receipt));
         try { PersistCommandResponse(process, receipt); receipt.RecordingPending = false; receipt.RecordingError = ""; Save(); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

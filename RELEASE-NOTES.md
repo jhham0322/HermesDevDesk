@@ -1,3 +1,12 @@
+# Hermes DevDesk 0.8.48
+
+- Queued commands without operationId receive stable item/method identities; saved success/failure receipts prevent replay. Unknown effects still require review. Timeout input accepts integer 1000..120000 ms and is distinct from an actual execution timeout.
+- Optional cwd/inputFiles/buildTool preflight checks declared existing dependencies without guessing output paths in shell text. Retry protection distinguishes actual working directories while canonical equivalent paths remain the same context.
+- Long received Java compiler output retains the first file:line error and symbol/location in bounded previews and saved receipts. No company project or real Gradle build was used for validation.
+- Output-token limits, missing-terminal EOF and response deadlines retain partial text and explicit reasons; interrupted objectives pause for explicit checkpoint resume. Empty final messages no longer erase received partial answers. Completed or uncertain side effects are not automatically replayed.
+- Settings connection failures display HTTP status alongside the original diagnostic; provider settings and the underlying raw-body connection contract remain intact. Shell validation now checks the existing user-requested collapsed command default.
+- Validation uses synthetic fixtures and an isolated official local engine. No real company API, OAuth login or authenticated model request was made. No production performance improvement is claimed from the single synthetic phase-timing run.
+
 # Hermes DevDesk 0.8.47
 
 - Windows release and main CI record browser startup, manual cancellation, and shutdown stages. The browser cancellation watchdog remains 120 seconds.

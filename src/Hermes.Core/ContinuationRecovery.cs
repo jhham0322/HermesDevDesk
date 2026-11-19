@@ -26,11 +26,18 @@ public sealed partial class DeskController
     {
         var process = ActiveProcess(task); if (process == null) return null;
         if (process.Operations.Any(o => o.NeedsReview)) throw new HermesException("결과가 미확인인 실행이 있습니다. 부작용을 다시 실행하지 말고 실제 상태를 확인하세요.");
-        var operation = ExecutionMemory.Clean(args.Text("operationId"), 120);
-        if (process.Items.Count > 0 && operation.Length == 0) throw new HermesException("작업 큐의 명령에는 항목별 안정적인 operationId가 필요합니다. 완료된 부작용은 반복하지 마세요.");
-        if (operation.StartsWith("observed:", StringComparison.Ordinal) || operation.Length > 120 || operation.Any(char.IsControl)) throw new HermesException("operationId 형식을 확인하세요.");
-        var key = operation.Length == 0 ? "event:" + eventId : operation;
-        var digest = ExecutionBudget.Digest([args.Text("command"), args.Text("purpose")]);
+        var operation = args.Text("operationId");
+        if (operation.Length > 120 || operation.Any(char.IsControl) || operation.StartsWith("observed:", StringComparison.Ordinal)) throw new HermesException("operationId must be at most 120 characters without control characters or the reserved observed: prefix.");
+        operation = operation.Trim();
+        if (ExecutionMemory.Clean(operation, 120) != operation) throw new HermesException("operationId must not contain credentials or registered secret values.");
+        var item = process.Items.FirstOrDefault(i => i.State == "running");
+        if (process.Items.Count > 0 && item == null) throw new HermesException("Select an unfinished queue item with start_item before executing a command.");
+        var context = new[] { "cwd", "inputFiles", "buildTool" }.Where(k => args.Property(k) != null).Select(k => k + ":" + args.GetProperty(k).GetRawText());
+        var digest = ExecutionBudget.Digest(new[] { args.Text("command"), args.Text("purpose") }.Concat(context));
+        // Older thread schemas permit omission. Derive a repeat-stable identity from the
+        // persisted item and exact method, never from a new turn/event or a random ID.
+        // Intentional repetition of an identical method requires a distinct explicit ID.
+        var key = operation.Length > 0 ? operation : item != null ? "queued:" + ExecutionBudget.Digest([item.Id, digest]) : "event:" + eventId;
         var previous = process.Operations.SingleOrDefault(o => o.Key == key);
         if (previous != null) { if (previous.MethodDigest != digest) throw new HermesException("같은 operationId를 다른 실행에 사용할 수 없습니다."); return previous; }
         var receipt = new OperationReceipt { Key = key, ItemId = process.Items.FirstOrDefault(i => i.State == "running")?.Id ?? "", MethodDigest = digest };

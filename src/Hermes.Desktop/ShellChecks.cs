@@ -57,7 +57,9 @@ public partial class MainWindow
         Check(MessageStack.Children.Count == 4 && Welcome.Visibility == Visibility.Collapsed, "user, agent, code and activity render");
         ProgressMessages.Delta(first, "ui-summary", "0", "파일과 실행 결과를 확인 중입니다.");
         first.Transcript.Add(new("작업 진행", "명령 실행 시작", DateTime.UtcNow)); desk.Save();
-        Check(MessageStack.Children.OfType<Expander>().Count(e => e.IsExpanded) >= 2, "progress summaries and tool activity expanded by default");
+        var commandView=renderedEntries.Where(e=>e.Value.Kind=="작업 진행").Select(e=>MessageStack.Children[e.Key]).OfType<Expander>().Single();
+        var summaryView=renderedEntries.Where(e=>e.Value.Kind=="진행 요약").Select(e=>MessageStack.Children[e.Key]).OfType<Expander>().Single();
+        Check(summaryView.IsExpanded&&!commandView.IsExpanded&&commandView.Content==null,"public progress summary expands while command details stay collapsed and lazy by default");
         ProgressMessages.Complete(first, "ui-summary", "0", "파일 확인 완료"); desk.Save();
         Check(first.Transcript.Count(e => e.Kind == "진행 요약") == 1, "stream summary completion has one visible entry");
         var existingMessage = MessageStack.Children[0]; var existingSidebar = SidebarGroups.Children[0];

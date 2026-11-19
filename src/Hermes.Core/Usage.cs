@@ -31,6 +31,8 @@ public sealed class UsageEntry
     public int? Requests { get; set; }
     public TokenCounts Tokens { get; set; } = TokenCounts.Missing;
     public string Note { get; set; } = "";
+    public string FailureKind { get; set; } = "";
+    public string IncompleteReason { get; set; } = "";
     public long? HeadersMs { get; set; }
     public long? FirstUsefulOutputMs { get; set; }
     public long? TotalMs { get; set; }

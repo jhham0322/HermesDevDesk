@@ -105,5 +105,6 @@ public sealed partial class DeskController
         for (var i = 0; i < task.Transcript.Count; i++)
             if (task.Transcript[i].Origin == "model" && task.Transcript[i].RequestId == usage.Id)
                 task.Transcript[i] = task.Transcript[i] with { RequestedModel = usage.Deployment, ResponseModel = usage.Model };
+        ObserveResponseInterruption(task, usage);
     }
 }

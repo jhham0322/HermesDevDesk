@@ -10,6 +10,7 @@ if (args.Contains("--mcp-local-stdio"))
 
 if (args.Contains("app-server"))
 {
+    int fixtureCommands=0; string fixtureTurnInput="";
     while (Console.ReadLine() is { } line)
     {
         using var d = JsonDocument.Parse(line); var e = d.RootElement;
@@ -17,7 +18,17 @@ if (args.Contains("app-server"))
         if (!e.TryGetProperty("id", out var id)) continue;
         if (m.GetString() == "command/exec")
         {
+            fixtureCommands++;
             var cmd = e.GetProperty("params").GetProperty("command").EnumerateArray().Last().GetString() ?? "";
+            if(cmd.Contains("FIXTURE_ACTUAL_TIMEOUT"))
+            {
+                var info=new ProcessStartInfo("powershell.exe"){WorkingDirectory=e.GetProperty("params").Text("cwd"),RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true};
+                foreach(var a in new[]{"-NoLogo","-NoProfile","-NonInteractive","-Command","Write-Output SYNTHETIC_PARTIAL; Start-Sleep -Seconds 10"})info.ArgumentList.Add(a);
+                using var timeoutChild=Process.Start(info)!;var stdout=timeoutChild.StandardOutput.ReadToEndAsync();var stderr=timeoutChild.StandardError.ReadToEndAsync();int exit;
+                try{await timeoutChild.WaitForExitAsync().WaitAsync(TimeSpan.FromMilliseconds(e.GetProperty("params").GetProperty("timeoutMs").GetInt32()));exit=timeoutChild.ExitCode;}
+                catch(TimeoutException){timeoutChild.Kill(true);await timeoutChild.WaitForExitAsync();exit=124;}
+                Console.WriteLine(JsonSerializer.Serialize(new{id=id.Clone(),result=new{exitCode=exit,stdout=await stdout,stderr=await stderr}}));continue;
+            }
             if (cmd.Contains("FIXTURE_CLOSE")) return;
             if (cmd.Contains("FIXTURE_WAIT")) await Task.Delay(20000);
             else await Task.Delay(200);
@@ -29,6 +40,9 @@ if (args.Contains("app-server"))
             Console.WriteLine(JsonSerializer.Serialize(new { id = id.Clone(), error = new { code = -32001, message = "Daily token limit exceeded", data = new { type = "provider_quota", code = "daily_token_limit_exceeded" } } }));
             continue;
         }
+        if(m.GetString()=="fixture/stats"){Console.WriteLine(JsonSerializer.Serialize(new{id=id.Clone(),result=new{commands=fixtureCommands,input=fixtureTurnInput}}));continue;}
+        if(m.GetString()=="turn/start"&&e.GetProperty("params").Text("threadId")=="STAGE3_RESUME_FIXTURE")
+        {fixtureTurnInput=e.GetProperty("params").GetRawText();Console.WriteLine(JsonSerializer.Serialize(new{id=id.Clone(),result=new{turn=new{id="resumed-turn"}}}));continue;}
         object response = m.GetString() switch
         {
             "initialize" => new { userAgent = "unit-fixture" },
@@ -70,6 +84,14 @@ var baseDir = Path.Combine(Environment.CurrentDirectory, "artifacts", "test-scra
 if (args.Contains("--daily-quota-only")) { int total=0; await DailyQuotaTests.Run(Path.Combine(baseDir,"daily-quota-only"),(ok,label)=>{if(!ok)throw new IOException(label);total++;Console.WriteLine("PASS: "+label);});Console.WriteLine("Daily quota checks="+total+"; no real model or native UI calls");return; }
 if (args.Contains("--chatgpt-plan-only")) { int total=0; await ChatGptPlanTests.Run(Path.Combine(baseDir,"chatgpt-plan-only"),(ok,label)=>{if(!ok)throw new IOException(label);total++;Console.WriteLine("PASS: "+label);});Console.WriteLine("OAuth checks="+total+"; no real login/model calls");return; }
 if (args.Contains("--continuation-engine")) { await ContinuationEngineTests.Run(Path.Combine(baseDir, "continuation-engine"), args[Array.IndexOf(args, "--codex") + 1]); return; }
+if (args.Contains("--official-command-recovery")) { await OfficialCommandRecoveryTests.Run(Path.Combine(baseDir,"official-command-recovery"),args[Array.IndexOf(args,"--codex")+1],(ok,label)=>{if(!ok)throw new IOException(label);Console.WriteLine("PASS: "+label);});return; }
+if (args.Contains("--execution-policy-only")) { await ExecutionPolicyTests.Run(Path.Combine(baseDir,"execution-policy-only"),(ok,label)=>{if(!ok)throw new IOException(label);Console.WriteLine("PASS: "+label);});return; }
+if (args.Contains("--phase-timing")) { await SyntheticPhaseTiming.Run(Path.Combine(baseDir,"phase-timing"),args[Array.IndexOf(args,"--javac")+1]);return; }
+if (args.Contains("--response-recovery")) { await ResponseRecoveryTests.Run(Path.Combine(baseDir,"response-recovery"),(ok,label)=>{if(!ok)throw new IOException(label);Console.WriteLine("PASS: "+label);});return; }
+if (args.Contains("--completion-stream-only")) { await CompletionStreamTests.Run(Path.Combine(baseDir,"completion-stream-only"),(ok,label)=>{if(!ok)throw new IOException(label);Console.WriteLine("PASS: "+label);});await ResponseWaitingTests.Run(baseDir,(ok,label)=>{if(!ok)throw new IOException(label);Console.WriteLine("PASS: "+label);});return; }
+if (args.Contains("--stage3-probe")) { await ResponseRecoveryTests.Probe(Path.Combine(baseDir,"stage3-probe"));return; }
+if (args.Contains("--command-diagnostics")) { await CommandDiagnosticsTests.Run(Path.Combine(baseDir,"command-diagnostics"),(ok,label)=>{if(!ok)throw new IOException(label);Console.WriteLine("PASS: "+label);},args.Contains("--javac")?args[Array.IndexOf(args,"--javac")+1]:null);return; }
+if (args.Contains("--queue-command-validation")) { await QueueCommandValidationTests.Run(Path.Combine(baseDir,"queue-command-validation"),(ok,label)=>{if(!ok)throw new IOException(label);Console.WriteLine("PASS: "+label);});return; }
 if (args.Contains("--continuation-queue")) {
 await ContinuationQueueTests.Run(Path.Combine(baseDir, "continuation-queue"), (ok,label) => { if (!ok) throw new Exception(label); Console.WriteLine("PASS: " + label); }); return; }
 if (args.Contains("--simple-ui-engine-smoke"))
@@ -150,7 +172,10 @@ Assert(toolTask.Transcript.Single().Kind == "도구 오류" && toolTask.Transcri
 await TaskLoopTests.Run(Path.Combine(baseDir, "task-loop"), Assert);
 await ExecutionPolicyTests.Run(Path.Combine(baseDir, "execution-policy"), Assert);
 await CompletionStreamTests.Run(Path.Combine(baseDir, "completion-stream"), Assert);
+await ResponseRecoveryTests.Run(Path.Combine(baseDir, "response-recovery"), Assert);
 await ContinuationQueueTests.Run(Path.Combine(baseDir, "continuation-queue"), Assert);
+await QueueCommandValidationTests.Run(Path.Combine(baseDir, "queue-command-validation"), Assert);
+await CommandDiagnosticsTests.Run(Path.Combine(baseDir, "command-diagnostics"), Assert);
 var progressTask = new WorkItem();
 ProgressMessages.Delta(progressTask, "one", "0", "Checking ");
 ProgressMessages.Delta(progressTask, "two", "0", "Other task");
