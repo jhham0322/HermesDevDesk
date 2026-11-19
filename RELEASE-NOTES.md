@@ -1,3 +1,8 @@
+# Hermes DevDesk 0.8.47
+
+- Windows release and main CI record browser startup, manual cancellation, and shutdown stages. The browser cancellation watchdog remains 120 seconds.
+- Includes the conversation save responsiveness improvements shipped in 0.8.46. Browser cancellation behavior is unchanged.
+
 # HermesDevDesk 0.8.46 — UI save responsiveness
 
 - Based on verified 0.8.45; preserves full-result completion verification, response-stream terminal handling, daily-quota recovery, company model settings and OAuth.

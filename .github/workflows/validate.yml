@@ -63,7 +63,4 @@ jobs:
         run: |
           $app = Join-Path $PWD 'src/Hermes.Desktop/bin/Release/net10.0-windows10.0.17763.0/HermesDevDesk.exe'
           $data = Join-Path $env:RUNNER_TEMP 'browser-cancellation'
-          $check = Start-Process $app -ArgumentList @('--browser-cancellation-smoke','--data-dir',('"'+$data+'"')) -WindowStyle Hidden -PassThru
-          if (-not $check.WaitForExit(120000)) { throw 'Browser cancellation fixture watchdog exceeded' }
-          if ($check.ExitCode -ne 0) { Get-Content (Join-Path $data 'browser-cancellation-error.txt'); throw 'Browser cancellation checks failed' }
-          Get-Content (Join-Path $data 'browser-cancellation-report.json')
+          ./scripts/verify-browser-cancellation.ps1 -AppPath $app -DataDirectory $data
