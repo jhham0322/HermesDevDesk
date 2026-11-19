@@ -122,7 +122,10 @@ public sealed partial class DeskController
             }
             WorkQueue.Validate(candidate); p.Items = candidate;
             foreach (var request in p.Requirements.Where(r => candidate.Any(i => i.RequestId == r.Id && i.State != "superseded"))) request.Planned = true;
-            p.NeedsPlan = p.Requirements.Any(r => !r.Planned); p.Decision = null; SaveCheckpoint(p); return WorkQueue.Summary(p);
+            p.NeedsPlan = p.Requirements.Any(r => !r.Planned); p.Decision = null;
+            if (p.RequirePlan && !p.NeedsPlan && WorkQueue.Next(p) is { } first) StartQueueItem(task, p, first);
+            SaveCheckpoint(p);
+            return WorkQueue.Summary(p);
         }
         var selected = p.Items.SingleOrDefault(i => i.Id == args.Text("itemId")) ?? throw new HermesException("작업 항목 ID를 확인하세요.");
         if (selected.State == "verified") return "이미 검증 완료된 항목입니다. 부작용을 다시 실행하지 마세요. " + selected.Verification;
@@ -130,9 +133,12 @@ public sealed partial class DeskController
         if (action == "start_item")
         {
             if (WorkQueue.Next(p)?.Id != selected.Id) throw new HermesException("현재 실행 가능한 우선 항목·의존관계를 확인하세요.");
-            if (selected.State == "running") return "항목 실행 중. 완료 조건: " + selected.Acceptance;
-            selected.Started = DateTime.UtcNow; selected.State = "running"; selected.EvidenceStart = (selected.Kind == "evidence" || !p.RequirePlan ? Memory.Recent(MemoryScope(task), task.Id).Select(e => e.Id).DefaultIfEmpty().Max() : 0); selected.TranscriptStart = task.Transcript.Count;
-            SaveCheckpoint(p); return "항목 실행 시작. 완료 조건: " + selected.Acceptance;
+            if (selected.State != "running")
+            {
+                StartQueueItem(task, p, selected);
+                SaveCheckpoint(p);
+            }
+            return "항목 실행 중. 완료 조건: " + selected.Acceptance;
         }
         if (action != "verify_item" || selected.State != "running") throw new HermesException("진행 중인 항목의 실제 검증만 완료 처리할 수 있습니다.");
         var verification = ExecutionMemory.Clean(args.Text("verification"), 4000); if (verification.Length < 10) throw new HermesException("관측한 검증 근거를 입력하세요.");
@@ -158,8 +164,23 @@ public sealed partial class DeskController
             selected.EvidenceId = id;
         }
         RecordItemCompletion(p, selected, verification);
+        var next = WorkQueue.Next(p);
+        var startNext = !p.NeedsPlan && next != null && args.Property("startNext") is { ValueKind: JsonValueKind.True };
+        if (startNext) StartQueueItem(task, p, next!);
         SaveCheckpoint(p);
-        return "완료: " + selected.Id + ". 다음: " + (WorkQueue.Next(p)?.Id ?? "최종 결과 전달");
+        return "완료: " + selected.Id + (startNext
+            ? "\n다음 항목 실행 시작: " + JsonSerializer.Serialize(next)
+            : ". 다음: " + (next?.Id ?? "최종 결과 전달"));
+    }
+
+    private void StartQueueItem(WorkItem task, TaskProcess process, QueuedWork item)
+    {
+        if (item.State == "running") return;
+        item.Started = DateTime.UtcNow;
+        item.State = "running";
+        item.TranscriptStart = task.Transcript.Count;
+        if (item.Kind == "evidence" || !process.RequirePlan)
+            item.EvidenceStart = Memory.Recent(MemoryScope(task), task.Id).Select(e => e.Id).DefaultIfEmpty().Max();
     }
 
     private static void RecordItemCompletion(TaskProcess process, QueuedWork item, string verification)

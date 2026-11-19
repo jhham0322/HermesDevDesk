@@ -82,7 +82,7 @@ public sealed partial class DeskController
         var timeout = ValidateCommandTimeout(args);
         var receipt = BeginOperation(task, args, eventId);
         if (receipt is { State: "completed" or "failed" }) return "저장된 실행 결과 (재실행하지 않음):\n" + receipt.Result;
-        task.Transcript.Add(new TranscriptEntry("작업 진행", "명령 실행 · " + ExecutionMemory.Clean(purpose, 300) + "\n" + ExecutionMemory.Clean(command), DateTime.UtcNow) { Origin = "도구: hermes_command", Stage = "중간보고" }); Save();
+        task.Transcript.Add(new TranscriptEntry("작업 진행", "명령 실행 · " + ExecutionMemory.Clean(purpose, 300) + "\n" + ExecutionMemory.Clean(command), DateTime.UtcNow) { Origin = "도구: hermes_command", Stage = "중간보고" }); SaveStream();
         var processId = "learning-" + Guid.NewGuid().ToString("N"); commandProcesses[task.Id] = processId;
         try
         {
@@ -98,7 +98,7 @@ public sealed partial class DeskController
                 throw;
             }
             // The engine has answered. A later journal/RAG/state failure is not an unknown execution.
-            RecordCommandResponse(task, receipt, result);
+            RecordCommandResponse(task, receipt, result, saveSnapshot: false);
             PublishToolReport(task);
             var output = result.Text("stdout") + "\n" + result.Text("stderr");
             var succeeded = receipt?.ExitCode == 0 || (receipt == null && result.Property("exitCode")?.GetInt32() == 0);

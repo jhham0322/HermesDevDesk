@@ -36,7 +36,6 @@ public partial class MainWindow
             var output = probe ? Message("OK") : generations switch
             {
                 1 => Call(new { action = "plan", items = new[] { new { id = "describe", title = "Describe the attachments", acceptance = "Deliver a description of the image and file.", kind = "answer" } } }),
-                2 => Call(new { action = "start_item", itemId = "describe" }),
                 _ => Message("OWNED_RELAY_SEND_OK")
             };
             var response = new JsonObject { ["id"] = "resp_owned_" + (probes + generations), ["object"] = "response", ["model"] = "gpt-6-luna", ["status"] = "completed", ["created_at"] = 1,
@@ -65,7 +64,7 @@ public partial class MainWindow
         while (DateTime.UtcNow < until && !desk.State.Tasks.Any(t => t.Status == "완료" && t.Transcript.Any(x => x.Text.Contains("OWNED_RELAY_SEND_OK"))))
             await Task.Delay(100);
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-        if (!imageSent || !fileSent || pendingImages.Count != 0 || pendingFiles.Count != 0 || generations != 3 || probes != 1 || models != 0 || !desk.State.Tasks.Any(t => t.Status == "완료")) throw new IOException("Relay send did not complete: " + desk.AccountStatus);
+        if (!imageSent || !fileSent || pendingImages.Count != 0 || pendingFiles.Count != 0 || generations != 2 || probes != 1 || models != 0 || !desk.State.Tasks.Any(t => t.Status == "완료")) throw new IOException("Relay send did not complete: " + desk.AccountStatus);
         File.WriteAllText(Path.Combine(data, "relay-send-report.json"), JsonSerializer.Serialize(new { passed = true, exactModel = "gpt-6-luna", probes, generations, models, noExistingTask = true, missingUsageSupported = true, actualOfficialEngine = true, imageSent, fileSent, attachmentOnlySend = true, programmaticWpfButton = true, realCompanyRequests = false }));
     }
 }

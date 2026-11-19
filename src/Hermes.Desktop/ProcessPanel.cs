@@ -60,7 +60,7 @@ public partial class MainWindow
         if (ContinueUntilComplete.IsChecked != true) throw new IOException("Completion loop must default on in composer");
         var known = new OperationReceipt { Key = "owned-known-response", ItemId = "owned-item", MethodDigest = "owned-method" };
         process.Operations.Add(known);
-        using (var response = JsonDocument.Parse("{\"exitCode\":0,\"stdout\":\"OWNED_RESPONSE\",\"stderr\":\"\"}")) typeof(DeskController).GetMethod("RecordCommandResponse", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(desk, new object?[] { task, known, response.RootElement });
+        using (var response = JsonDocument.Parse("{\"exitCode\":0,\"stdout\":\"OWNED_RESPONSE\",\"stderr\":\"\"}")) typeof(DeskController).GetMethod("RecordCommandResponse", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(desk, new object?[] { task, known, response.RootElement, true });
         known.State = "started"; known.ResultReceived = false; known.ExitCode = null; known.Result = "";
         var missing = new OperationReceipt { Key = "owned-no-response", State = "unknown" }; process.Operations.Add(missing); desk.Save();
         var review = BuildOperationReview(process.Id); review.Show(); review.UpdateLayout();

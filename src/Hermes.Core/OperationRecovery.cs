@@ -53,7 +53,7 @@ public sealed partial class DeskController
         if (proof == null || ExecutionBudget.Digest([proof.Method, proof.Purpose]) != receipt.MethodDigest) return null;
         return new(process.TaskId, process.Id, receipt.Key, receipt.MethodDigest, 0, "동일 이벤트의 성공 실행 근거 evidenceId=" + proof.Id + " / exit=0\n" + proof.Outcome);
     }
-    internal void RecordCommandResponse(WorkItem task, OperationReceipt? receipt, JsonElement result)
+    internal void RecordCommandResponse(WorkItem task, OperationReceipt? receipt, JsonElement result, bool saveSnapshot = true)
     {
         if (receipt == null) return;
         if (result.Property("exitCode") is not { ValueKind: JsonValueKind.Number } code || !code.TryGetInt32(out var exit))
@@ -62,7 +62,7 @@ public sealed partial class DeskController
         receipt.State = exit == 0 ? "completed" : "failed";
         receipt.Result = "exit=" + exit + "\n" + CommandDiagnostics.Display(result.Text("stdout") + "\n" + result.Text("stderr"), 20000);
         var process = State.Processes.Single(p => p.TaskId == task.Id && p.Operations.Contains(receipt));
-        try { PersistCommandResponse(process, receipt); receipt.RecordingPending = false; receipt.RecordingError = ""; Save(); }
+        try { PersistCommandResponse(process, receipt); receipt.RecordingPending = false; receipt.RecordingError = ""; if (saveSnapshot) Save(); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             receipt.RecordingPending = true; receipt.RecordingError = ExecutionMemory.Clean(ex.Message, 1000);

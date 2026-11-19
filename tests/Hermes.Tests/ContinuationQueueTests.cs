@@ -62,9 +62,9 @@ internal static class ContinuationQueueTests
         check(File.ReadAllText(Path.Combine(records, "작업계획.txt")).Contains("record-B"), "UTF-8 work plan contains the second step");
         Decide(planned, new { action = "start_item", itemId = "record-A" });
         File.WriteAllText(Path.Combine(root, "record-A.txt"), "VERIFIED_record-A");
-        Decide(planned, new { action = "verify_item", itemId = "record-A", verification = "The file meets its acceptance condition." });
+        Decide(planned, new { action = "verify_item", itemId = "record-A", verification = "The file meets its acceptance condition.", startNext = true });
         var checkpoint = new StateStore(desk.DataDirectory).Load().Processes.Single(p => p.Id == required.Id);
-        check(WorkQueue.Next(checkpoint)?.Id == "record-B" && File.ReadAllText(Path.Combine(records, "작업내역.txt")).Contains("[x] record-A"), "verified step and next step survive reload");
+        check(WorkQueue.Next(checkpoint) is { Id: "record-B", State: "running" } && File.ReadAllText(Path.Combine(records, "작업내역.txt")).Contains("[x] record-A"), "verified step and next step survive reload");
         Decide(planned, new { action = "start_item", itemId = "record-B" });
         File.WriteAllText(Path.Combine(root, "record-B.txt"), "VERIFIED_record-B");
         Decide(planned, new { action = "verify_item", itemId = "record-B", verification = "The second file meets its condition." });

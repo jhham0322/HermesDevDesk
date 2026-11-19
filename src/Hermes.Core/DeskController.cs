@@ -211,7 +211,7 @@ public sealed partial class DeskController : IAsyncDisposable
                 if (State.Provider.Authentication != ProviderAuth.None && !KeyStore.HasKey) throw new HermesException("회사 키를 앱 설정에서 직접 입력하세요. 기존 키를 추출하지 않습니다.");
                 if (State.Provider.Protocol == ProviderProtocol.GatewayAuto || !State.Provider.UseAdvancedSettings) await ResolveGateway(CancellationToken.None);
                 var savedModels = Models.ToList();
-                company = new(State.Provider, KeyStore, allowTestLoopback); company.Usage += e => dispatch(() => { ObserveCompanyUsage(e); if (e.Status == "failed" && (e.FailureKind.Length == 0 || e.TurnId.Length == 0) && State.Tasks.FirstOrDefault(t => t.Id == e.TaskId) is { } failedTask && !failedTask.Transcript.Any(t => t.ItemId == "gateway-error-" + e.Id)) failedTask.Transcript.Add(new TranscriptEntry("오류", ProviderErrors.ReadableMessage(e.Note), DateTime.UtcNow, "gateway-error-" + e.Id) { Origin = "회사 API", Stage = "에러원인" }); Save(); });
+                company = new(State.Provider, KeyStore, allowTestLoopback); company.Usage += e => dispatch(() => { ObserveCompanyUsage(e); if (e.Status == "failed" && (e.FailureKind.Length == 0 || e.TurnId.Length == 0) && State.Tasks.FirstOrDefault(t => t.Id == e.TaskId) is { } failedTask && !failedTask.Transcript.Any(t => t.ItemId == "gateway-error-" + e.Id)) failedTask.Transcript.Add(new TranscriptEntry("오류", ProviderErrors.ReadableMessage(e.Note), DateTime.UtcNow, "gateway-error-" + e.Id) { Origin = "회사 API", Stage = "에러원인" }); if (e.Status == "failed" || e.FailureKind.Length > 0) Save(); else SaveStream(); });
                 await client.ConnectAsync(exe, cwd, Path.Combine(DataDirectory, "engine-home"), company.BaseUri, company.Capability, EngineModel(State.Provider.Deployment));
                 var providerAccount = await client.RequestAsync("account/read", new { refreshToken = false });
                 if (providerAccount.Property("requiresOpenaiAuth") is { ValueKind: JsonValueKind.True }) throw new HermesException("회사 provider가 외부 OpenAI 인증을 요구해 차단했습니다.");
@@ -317,12 +317,20 @@ public sealed partial class DeskController : IAsyncDisposable
         CheckOAuthSession();
         var engine = Engine ?? throw new HermesException("엔진 연결 필요");
         if (HasPendingModel || !SubscriptionReady || connectedFingerprint != State.Provider.Fingerprint || !Models.Contains(model) || State.Tasks.Any(IsRunning)) throw new HermesException("provider 연결/모델을 확인하고 진행 중 작업을 중단하세요.");
-        var root = Safety.ProjectRoot(project.Root); var top = await GitRunner.Run(root, "rev-parse", "--show-toplevel");
-        if (top.Exit != 0 || !string.Equals(Path.GetFullPath(top.Output.Trim()), root, StringComparison.OrdinalIgnoreCase)) throw new HermesException("등록한 루트 자체가 Git 저장소여야 합니다.");
+        var root = Safety.ProjectRoot(project.Root);
+        if ((await Review.ChangesAsync(root)).Count == 0)
+        {
+            var clean = NewTask(project, "AI 변경 검토");
+            clean.IsReview = true;
+            clean.Status = "완료";
+            clean.Transcript.Add(new("검토 결과", "검토할 Git 변경이 없습니다.", DateTime.UtcNow));
+            Save();
+            return clean;
+        }
         var task = NewTask(project, "AI 변경 검토 " + DateTime.Now.ToString("MM-dd HH:mm")); task.IsReview = true; task.Model = model; task.ProviderFingerprint = connectedFingerprint; task.Status = "시작 중"; task.UsageBaselineKnown = true; company?.BeginTask(task.Id, model); Save();
         try
         {
-            var response = await engine.RequestAsync("thread/start", new { cwd = root, model, modelProvider = ActiveModelProvider, approvalPolicy = "on-request", approvalsReviewer = "user", sandbox = "danger-full-access", config = new Dictionary<string, object?> { ["mcp_servers"] = disabledMcp, ["web_search"] = "disabled", ["review_model"] = model, ["features.shell_tool"] = false, ["features.unified_exec"] = false, ["model_providers.hermes_company.base_url"] = company?.TaskBaseUri(task.Id).AbsoluteUri ?? "http://127.0.0.1" }, developerInstructions = "Review only this project. Never read secrets/credentials or other projects. Never write/delete files, change security settings, use network tools or other model APIs. MCP/remote/computer use are disabled for this review." });
+            var response = await engine.RequestAsync("thread/start", new { cwd = root, model, modelProvider = ActiveModelProvider, approvalPolicy = "on-request", approvalsReviewer = "user", sandbox = "danger-full-access", config = new Dictionary<string, object?> { ["mcp_servers"] = disabledMcp, ["web_search"] = "disabled", ["review_model"] = model, ["features.shell_tool"] = false, ["features.unified_exec"] = false, ["model_providers.hermes_company.base_url"] = company?.TaskBaseUri(task.Id).AbsoluteUri ?? "http://127.0.0.1" }, developerInstructions = "Review only this project. Never read secrets/credentials or other projects. Never write/delete files, change security settings, use network tools or other model APIs. MCP/remote/computer use are disabled for this review. Review the changed hunks first. Open related code only to confirm a concrete finding. Skip broad repository scans and routine test runs. Report actionable findings with file and line, or return a short no-findings result." });
             if (!string.Equals(Path.GetFullPath(response.Text("cwd")), root, StringComparison.OrdinalIgnoreCase) || response.Text("modelProvider") != (ActiveModelProvider) || response.GetProperty("sandbox").Text("type") != "dangerFullAccess") throw new HermesException("검토 경로/provider/sandbox 불일치");
             task.ThreadId = response.GetProperty("thread").Text("id"); task.ThreadWritable = false; task.ThreadMcpEnabled = false; loadedThreads.Add(task.ThreadId); Save();
             var review = await engine.RequestAsync("review/start", new { threadId = task.ThreadId, delivery = "inline", target = new { type = "uncommittedChanges" } });
@@ -538,9 +546,10 @@ public sealed partial class DeskController : IAsyncDisposable
                     var proof = Memory.Record(MemoryScope(task), task.Id, "turn-error/" + turn.Text("id"), MemoryPurpose(task), "provider", task.Model, false, message);
                     task.Transcript.Add(new("오류", message + Memory.RecoveryContext(MemoryScope(task), task.Id, proof), DateTime.UtcNow));
                 }
-                RememberWorkflow(task, turn);
                 task.TurnId = null; if (ActiveProcess(task)?.BlockKind != "approval") Approvals.RemoveAll(a => a.Params.Text("threadId") == task.ThreadId);
-                FinishLoopTurn(task, turn); break;
+                FinishLoopTurn(task, turn);
+                if (task.Status == "완료") RememberWorkflow(task, turn);
+                break;
             case "item/reasoning/summaryTextDelta":
                 ProgressMessages.Delta(task, p.Text("itemId"), p.Property("summaryIndex")?.ToString() ?? "0", p.Text("delta")); break;
             case "item/agentMessage/delta": ChatMessages.Delta(task, p.Text("itemId"), p.Text("delta")); break;

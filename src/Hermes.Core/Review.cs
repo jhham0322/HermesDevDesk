@@ -31,16 +31,21 @@ public static class Review
     public static async Task<string> FileDiffAsync(string root, ChangedFile selected)
     {
         Safety.Resolve(root, selected.Path); if (selected.PreviousPath != null) Safety.Resolve(root, selected.PreviousPath);
-        var current = (await ChangesAsync(root)).FirstOrDefault(f => f.Path == selected.Path);
+        await GitRunner.RepositoryRoot(root);
+        var selection = selected.PreviousPath == null ? new[] { selected.Path } : new[] { selected.Path, selected.PreviousPath };
+        var status = await GitRunner.Run(root, ["--literal-pathspecs", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ..selection]);
+        if (status.Exit != 0) throw new HermesException(status.Error);
+        var current = ParseStatus(root, status.Output).FirstOrDefault(f => f.Path == selected.Path);
         if (current == null) return "변경 상태가 바뀌었습니다. 목록을 새로고침하세요.";
         if (current.Status == "??") { try { return "+ 새 파일\n" + WorkspaceFiles.Read(root, current.Path); } catch (Exception ex) when (ex is IOException or DecoderFallbackException) { return "미리 보기 제한: " + ex.Message; } }
         var paths = current.PreviousPath == null ? new[] { current.Path } : new[] { current.Path, current.PreviousPath };
-        var args = new[] { "diff", "--no-ext-diff", "--no-textconv", "HEAD", "--" }.Concat(paths).ToArray();
+        var args = new[] { "--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "HEAD", "--" }.Concat(paths).ToArray();
         var diff = await GitRunner.Run(root, args);
         if (diff.Exit != 0)
         {
-            var staged = await GitRunner.Run(root, new[] { "diff", "--cached", "--no-ext-diff", "--no-textconv", "--" }.Concat(paths).ToArray());
-            var working = await GitRunner.Run(root, new[] { "diff", "--no-ext-diff", "--no-textconv", "--" }.Concat(paths).ToArray());
+            var stagedTask = GitRunner.Run(root, ["--literal-pathspecs", "diff", "--cached", "--no-ext-diff", "--no-textconv", "--", ..paths]);
+            var workingTask = GitRunner.Run(root, ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--", ..paths]);
+            var staged = await stagedTask; var working = await workingTask;
             if (staged.Exit != 0 || working.Exit != 0) throw new HermesException(staged.Error + working.Error);
             return Safety.Redact(staged.Output + working.Output);
         }
