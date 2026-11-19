@@ -1,0 +1,33 @@
+name: Attach AI chatbot source to Windows release
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/attach-ai-chatbot-source.yml']
+permissions:
+  contents: write
+jobs:
+  attach:
+    if: github.repository == 'jhham0322/HermesDevDesk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify and upload the ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=v0.8.47
+          archive=downloads/ai-chatbot-1.0.0-source.zip
+          name=ai-chatbot-1.0.0-source.zip
+          digest=4dcd649a85ccb4921c08aedf57b5c60ca896e5c8ecd3ab4b7a9de395b3943171
+          echo "$digest  $archive" | sha256sum --check
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets > "$RUNNER_TEMP/release-assets.json"
+          if ! jq -e --arg name "$name" '.assets[] | select(.name == $name)' "$RUNNER_TEMP/release-assets.json" >/dev/null; then
+            gh release upload "$tag" "$archive" --repo "$GITHUB_REPOSITORY"
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" |
+            jq -e --arg name "$name" --arg digest "sha256:$digest" '.assets[] | select(.name == $name and .state == "uploaded" and .digest == $digest)'
