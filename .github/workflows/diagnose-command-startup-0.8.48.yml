@@ -1,0 +1,36 @@
+name: Diagnose 0.8.48 command startup
+on:
+  push:
+    branches: [verify/cmdlet-startup-0.8.48]
+    paths: ['.github/workflows/diagnose-command-startup-0.8.48.yml', 'tests/Hermes.Tests/CommandStartupDiagnostics.cs', 'tests/Hermes.Tests/ContinuationEngineTests.cs', 'tests/Hermes.Tests/Program.cs']
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      MSBuildEnableWorkloadResolver: 'false'
+      DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.401'
+      - shell: pwsh
+        run: ./scripts/fetch-engine.ps1
+      - shell: pwsh
+        run: |
+          dotnet build tests/Hermes.Tests/Hermes.Tests.csproj -c Release --nologo -p:NuGetAudit=false
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic test build failed' }
+          $tests = Join-Path $PWD 'tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe'
+          $engine = Get-ChildItem vendor -Filter codex.exe -Recurse | Select-Object -First 1
+          Push-Location $env:RUNNER_TEMP
+          try {
+            & $tests --command-startup-diagnostics --codex $engine.FullName
+            if ($LASTEXITCODE -ne 0) { throw 'Startup diagnostic harness failed' }
+            & $tests --continuation-dotnet-effects --codex $engine.FullName
+            if ($LASTEXITCODE -ne 0) { throw 'Equivalent file-effect safety assertions failed' }
+          } finally { Pop-Location }

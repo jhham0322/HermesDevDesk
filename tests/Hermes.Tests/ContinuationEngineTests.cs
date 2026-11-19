@@ -1,11 +1,11 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Hermes.Core;
 internal static class ContinuationEngineTests
 {
-    internal static async Task Run(string root, string exe)
+    internal static async Task Run(string root, string exe, bool dotNetEffects = false)
     {
         ProgressDeadline.Verify();
         ReceiptDiagnostics.Verify();
@@ -21,7 +21,7 @@ internal static class ContinuationEngineTests
         var effects = Path.Combine(root, "effects.txt").Replace("'", "''");
         var extra = Path.Combine(root, "extra.txt").Replace("'", "''"); var done = Path.Combine(root, "done.txt").Replace("'", "''");
         object Item(string id, string file, string marker, string request = "initial", int priority = 0, params string[] deps) => new { id, requestId = request, title = "Work " + id, acceptance = "Actual artifact must contain " + marker, kind = "artifact", priority, dependsOn = deps, artifacts = new[] { new { path = file, contains = marker } } };
-        object Command(int i) => new { purpose = "Create exactly one fixture effect " + i, operationId = "effect-" + i, command = "Add-Content -LiteralPath '" + effects + "' -Value 'OP_" + i + "'; Write-Output VERIFIED_" + i };
+        object Command(int i) => new { purpose = "Create exactly one fixture effect " + i, operationId = "effect-" + i, command = dotNetEffects ? "[IO.File]::AppendAllText('" + effects + "', 'OP_" + i + "'+[Environment]::NewLine); Write-Output VERIFIED_" + i : "Add-Content -LiteralPath '" + effects + "' -Value 'OP_" + i + "'; Write-Output VERIFIED_" + i };
         await using var server = new LoopbackHttp(async (request, stream, ct) =>
         {
             var n = Interlocked.Increment(ref phase); Interlocked.Increment(ref calls);
@@ -42,10 +42,10 @@ internal static class ContinuationEngineTests
             else if(n==28){name="hermes_task";args=new{action="verify_item",itemId="build",evidenceId=Evidence(),verification="Observed OP_25 in the real effect artifact after all writes."};}
             else if(n==30){if(extraRequest.Length==0)throw new IOException("Additional request was not retained");name="hermes_task";args=new{action="plan",items=new[]{Item("extra","extra.txt","EXTRA_VERIFIED",extraRequest,-10,"build")}};}
             else if(n==31){name="hermes_task";args=new{action="start_item",itemId="extra"};}
-            else if(n==32){name="hermes_command";args=new{purpose="Deliver additional authorized fixture requirement",operationId="extra-once",command="Set-Content -LiteralPath '"+extra+"' -Value EXTRA_VERIFIED; Write-Output EXTRA_VERIFIED"};}
+            else if(n==32){name="hermes_command";args=new{purpose="Deliver additional authorized fixture requirement",operationId="extra-once",command=dotNetEffects?"[IO.File]::WriteAllText('"+extra+"', 'EXTRA_VERIFIED'+[Environment]::NewLine); Write-Output EXTRA_VERIFIED":"Set-Content -LiteralPath '"+extra+"' -Value EXTRA_VERIFIED; Write-Output EXTRA_VERIFIED"};}
             else if(n==33){name="hermes_task";args=new{action="verify_item",itemId="extra",evidenceId=Evidence(),verification="Read and verified the additional actual artifact."};}
             else if(n==34){name="hermes_task";args=new{action="start_item",itemId="verify"};}
-            else if(n==35){name="hermes_command";args=new{purpose="Verify exact effect count without redoing writes",operationId="verify-once",command="$n=(Get-Content -LiteralPath '"+effects+"').Count; if($n -ne 25){throw ('Duplicate or missing effects: '+$n)}; Set-Content -LiteralPath '"+done+"' -Value QUEUE_VERIFIED; Write-Output QUEUE_VERIFIED"};}
+            else if(n==35){name="hermes_command";args=new{purpose="Verify exact effect count without redoing writes",operationId="verify-once",command=dotNetEffects?"$n=[IO.File]::ReadAllLines('"+effects+"').Length; if($n -ne 25){throw ('Duplicate or missing effects: '+$n)}; [IO.File]::WriteAllText('"+done+"', 'QUEUE_VERIFIED'+[Environment]::NewLine); Write-Output QUEUE_VERIFIED":"$n=(Get-Content -LiteralPath '"+effects+"').Count; if($n -ne 25){throw ('Duplicate or missing effects: '+$n)}; Set-Content -LiteralPath '"+done+"' -Value QUEUE_VERIFIED; Write-Output QUEUE_VERIFIED"};}
             else if(n==36){name="hermes_task";args=new{action="verify_item",itemId="verify",evidenceId=Evidence(),verification="Verified exactly twenty five effects and the final artifact."};}
             else if(n>37)throw new IOException("Host continued after verified final completion");
             object response = name == null
