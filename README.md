@@ -1,5 +1,7 @@
 # Hermes DevDesk 0.8.47
 
+**[독립 AI 챗봇 데모 소스 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/raw/refs/heads/main/downloads/ai-chatbot-independent-demo-source.zip)** · 합성 데이터로 실행하는 Java 로컬 데모
+
 **[AI 챗봇 v1.0.0 Java 소스 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.47/ai-chatbot-1.0.0-source.zip)**
 
 [Windows 64비트 설치 파일](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.47/HermesDevDesk-0.8.47-win-x64-Setup.exe) · [포터블 ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.47/HermesDevDesk-0.8.47-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
