@@ -1,4 +1,4 @@
-# Hermes DevDesk 0.8.47
+# Hermes DevDesk 0.8.51
 
 **[독립 AI 챗봇 데모 소스 ZIP 다운로드](https://github.com/jhham0322/HermesDevDesk/raw/refs/heads/main/downloads/ai-chatbot-independent-demo-source.zip)** · 합성 데이터로 실행하는 Java 로컬 데모
 
