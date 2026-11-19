@@ -173,6 +173,10 @@ public sealed partial class DeskController
             var prompt = "Continue the original authorized objective. Do the remaining work and verify its outcome; do not merely repeat a status message. " + (task.ThreadLearningVersion == 1 ? LegacyLoopInstructions : LoopInstructions) + "\nOriginal objective and saved checkpoint:\n" + (task.ThreadLearningVersion == 1 ? string.Join("\n\nAdditional authorized request:\n", process.Requirements.Select(r => r.Text)) : WorkQueue.Summary(process)) + "\n" + Memory.Context(MemoryScope(task), WorkQueue.Next(process)?.Title ?? process.Goal);
             task.Transcript.Add(new("자동 계속", $"{process.Round}회차 · 미완료 작업을 이어서 수행합니다.", DateTime.UtcNow)); Save();
             var input = new List<object> { new { type = "text", text = prompt } };
+            var drmSkill = DocumentSkill.Find(root, []);
+            input.Add(new { type = "text", text = DocumentSkill.Instructions(drmSkill) });
+            if (drmSkill != null && process.Requirements.Any(r => !r.Planned && DocumentSkill.IsDocumentRequest(r.Text, [])))
+                input.Add(new { type = "skill", name = drmSkill.Name, path = ProjectSkills.Resolve(root, drmSkill.RelativePath) });
             var withImages = process.Requirements.Where(r => r.PendingImages.Count > 0).ToArray();
             foreach (var requirement in withImages)
             {
