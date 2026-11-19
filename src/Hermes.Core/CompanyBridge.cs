@@ -192,28 +192,30 @@ public sealed class CompanyBridge : IAsyncDisposable
                 await downstream.StartAsync(linked.Token);
                 await downstream.FlushAsync(linked.Token);
                 using var upstream = new StreamReader(await response.Content.ReadAsStreamAsync(linked.Token), Encoding.UTF8);
-                var frame = new StringBuilder(); JsonElement? final = null; long total = 0;
+                var frame = new StringBuilder(); var completion = new ResponseStreamCompletion(); JsonElement? final = null; long total = 0;
                 async Task Forward()
                 {
                     if (frame.Length == 0) return;
                     var eventText = Safety.Redact(frame.ToString());
                     total += eventText.Length; if (total > 64_000_000) throw new HermesException("Company stream size limit");
-                    var observed = ResponseWire.LastResponse(eventText); if (observed.HasValue) final = observed;
-                    foreach (var data in eventText.Split('\n').Where(l => l.StartsWith("data:", StringComparison.Ordinal)))
+                    var observed = completion.Accept(eventText);
+                    if (observed.HasValue) { final = observed; await downstream.StopHeartbeatAsync(); }
+                    var data = ResponseStreamCompletion.Data(eventText);
+                    if (data.Length > 0 && data != "[DONE]")
                     {
-                        if (data[5..].Trim() == "[DONE]") continue;
-                        using var json = JsonDocument.Parse(data[5..]); var value = json.RootElement;
+                        using var json = JsonDocument.Parse(data); var value = json.RootElement;
                         Observe(value.Property("response")?.Text("model") ?? value.Text("model"), value.Text("type") is "response.output_text.delta" or "response.function_call_arguments.delta" or "response.reasoning_summary_text.delta");
                     }
                     await downstream.WriteAsync(Encoding.UTF8.GetBytes(eventText + "\n"), linked.Token);
                     await downstream.FlushAsync(linked.Token); frame.Clear();
                 }
-                while (await upstream.ReadLineAsync(linked.Token) is { } line)
+                while (!completion.Terminated && await upstream.ReadLineAsync(linked.Token) is { } line)
                 {
                     if (line.Length == 0) await Forward();
                     else { frame.AppendLine(line); if (frame.Length > 2_000_000) throw new HermesException("Company event size limit"); }
                 }
-                await Forward();
+                if (!completion.Terminated) await Forward();
+                completion.RequireTerminal();
                 entry.Tokens = final.HasValue ? TokenCounts.FromResponse(final.Value) : TokenCounts.Missing;
                 entry.Model = final?.Text("model") is { Length: > 0 } streamModel ? streamModel : "";
                 entry.Status = final?.Text("status") ?? "unknown";
@@ -254,7 +256,7 @@ public sealed class CompanyBridge : IAsyncDisposable
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException or JsonException or InvalidOperationException or KeyNotFoundException or FormatException or NotSupportedException or ArgumentException)
         {
-            entry.Status = ex is OperationCanceledException ? "cancelled" : "failed"; entry.Note = ConnectionErrors.Describe(ex, context?.Operation.Token ?? operation.Token); AppLog.Write(ex, "company-bridge"); Emit(entry);
+            entry.Status = ex is IncompleteResponseStreamException ? "unknown" : ex is OperationCanceledException && (ct.IsCancellationRequested || (context?.Operation.Token ?? operation.Token).IsCancellationRequested) ? "cancelled" : "failed"; entry.Note = ConnectionErrors.Describe(ex, context?.Operation.Token ?? operation.Token); AppLog.Write(ex, "company-bridge"); Emit(entry);
             if (streaming && !ct.IsCancellationRequested)
             {
                 var errorEvent = JsonSerializer.Serialize(new { type = "error", code = "server_error", message = entry.Note });

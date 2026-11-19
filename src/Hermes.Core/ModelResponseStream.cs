@@ -38,6 +38,7 @@ public sealed class ModelResponseStream : Stream
     public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken ct) => WriteAsync(buffer.AsMemory(offset, count), ct).AsTask();
     public override async Task FlushAsync(CancellationToken ct)
     { await writer.WaitAsync(ct); try { await destination.FlushAsync(ct); } finally { writer.Release(); } }
+    internal async Task StopHeartbeatAsync() { stop.Cancel(); if (heartbeat != null) await heartbeat; }
     public override async ValueTask DisposeAsync()
     { stop.Cancel(); if (heartbeat != null) await heartbeat; stop.Dispose(); writer.Dispose(); GC.SuppressFinalize(this); }
     public override bool CanRead => false;

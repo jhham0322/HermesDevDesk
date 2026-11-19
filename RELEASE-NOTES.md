@@ -1,3 +1,9 @@
+# Hermes DevDesk 0.8.45
+
+- Saves complete task results for later retrieval.
+- Handles incomplete and prematurely terminated response streams without marking unfinished output as complete.
+- Local handoff validation recorded 634 passing regression checks.
+
 # Hermes DevDesk 0.8.44
 
 Fixes misleading malformed-response errors for valid Chat length-limited empty output, preserves incomplete status, and blocks truncated tool calls from execution. Adds persistent next-day 09:30 KST recovery for explicit daily-token exhaustion only, with same-session/provider checks, Stop cancellation, durable single-claim admission and three-attempt limit.

@@ -28,6 +28,7 @@ public sealed partial class ExecutionMemory
               purpose TEXT NOT NULL, tool TEXT NOT NULL, method TEXT NOT NULL, fingerprint TEXT NOT NULL,
               outcome TEXT NOT NULL, succeeded INTEGER NOT NULL, error_key TEXT NOT NULL, at TEXT NOT NULL,
               UNIQUE(scope,task,event_key));
+            CREATE TABLE IF NOT EXISTS evidence_outcomes (id INTEGER PRIMARY KEY, body TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS retry_lookup ON attempts(scope,task,fingerprint,id);
             CREATE TABLE IF NOT EXISTS methods (
               id INTEGER PRIMARY KEY, scope TEXT NOT NULL, family TEXT NOT NULL, purpose TEXT NOT NULL,
@@ -96,7 +97,8 @@ public sealed partial class ExecutionMemory
     public ExecutionEvidence Record(string scope, string task, string eventKey, string purpose, string tool, string method, bool succeeded, string outcome, string? retryIdentity = null)
     {
         retryIdentity ??= method;
-        purpose = Clean(purpose, 1000); tool = Clean(tool, 100); method = Clean(method); outcome = Clean(outcome, 4000);
+        var fullOutcome = Clean(outcome, int.MaxValue);
+        purpose = Clean(purpose, 1000); tool = Clean(tool, 100); method = Clean(method); outcome = fullOutcome[..Math.Min(4000, fullOutcome.Length)];
         var error = succeeded ? "" : ErrorKey(outcome); var now = DateTimeOffset.UtcNow.ToString("O");
         lock (sync)
         {
@@ -109,6 +111,7 @@ public sealed partial class ExecutionMemory
                 using var idQuery = Command(db, "SELECT id FROM attempts WHERE scope=$s AND task=$t AND event_key=$e", ("$s", scope), ("$t", task), ("$e", eventKey)); var id = Convert.ToInt64(idQuery.ExecuteScalar());
                 if (inserted)
                 {
+                    Execute(db, "INSERT INTO evidence_outcomes(id,body) VALUES($id,$body)", ("$id", id), ("$body", fullOutcome));
                     if (!succeeded) Execute(db, "INSERT INTO error_search(rowid,terms) VALUES($id,$terms)", ("$id", id), ("$terms", string.Join(" ", Terms(purpose + " " + tool + " " + method + " " + outcome))));
                     var family = Hash(Canonical(purpose).ToLowerInvariant());
                     if (succeeded)
@@ -134,6 +137,16 @@ public sealed partial class ExecutionMemory
                 Execute(db, "COMMIT"); return new(id, purpose, tool, method, outcome, succeeded, error);
             }
             catch { Execute(db, "ROLLBACK"); throw; }
+        }
+    }
+    internal bool OutcomeContains(string scope, string task, long id, string expected)
+    {
+        if (string.IsNullOrEmpty(expected)) return false;
+        lock (sync)
+        {
+            using var db = Open();
+            using var query = Command(db, "SELECT COALESCE(o.body,a.outcome) FROM attempts a LEFT JOIN evidence_outcomes o ON o.id=a.id WHERE a.id=$id AND a.scope=$s AND a.task=$t AND a.succeeded=1", ("$id", id), ("$s", scope), ("$t", task));
+            return query.ExecuteScalar() is string body && body.Contains(expected, StringComparison.Ordinal);
         }
     }
     private static void Snapshot(SqliteConnection db, long id) => Execute(db, "INSERT INTO revisions(method_id,revision,method,notes,evidence_id,at) SELECT id,revision,method,notes,evidence_id,updated FROM methods WHERE id=$id", ("$id", id));

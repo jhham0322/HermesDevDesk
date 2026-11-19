@@ -144,7 +144,7 @@ public sealed partial class DeskController
             var id = args.Property("evidenceId")?.GetInt64() ?? 0;
             var proof = Memory.Recent(MemoryScope(task), task.Id).SingleOrDefault(e => e.Id == id && e.Id > selected.EvidenceStart && e.Succeeded && e.Tool is not ("workflow.report" or "provider" or "memory"));
             if (proof == null) throw new HermesException("항목 시작 후 성공한 실제 검증 evidenceId가 필요합니다.");
-            if (selected.Kind == "evidence" && !proof.Outcome.Contains(selected.ExpectedOutput, StringComparison.Ordinal)) throw new HermesException("실행 출력이 항목의 완료 조건과 일치하지 않습니다.");
+            if (selected.Kind == "evidence" && !Memory.OutcomeContains(MemoryScope(task), task.Id, proof.Id, selected.ExpectedOutput)) throw new HermesException("실행 출력이 항목의 완료 조건과 일치하지 않습니다.");
             if (selected.Kind == "artifact") selected.ArtifactDigest = WorkQueue.CheckArtifacts(Project(task).Root, selected);
             selected.EvidenceId = id;
         }

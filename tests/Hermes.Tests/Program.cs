@@ -70,7 +70,8 @@ var baseDir = Path.Combine(Environment.CurrentDirectory, "artifacts", "test-scra
 if (args.Contains("--daily-quota-only")) { int total=0; await DailyQuotaTests.Run(Path.Combine(baseDir,"daily-quota-only"),(ok,label)=>{if(!ok)throw new IOException(label);total++;Console.WriteLine("PASS: "+label);});Console.WriteLine("Daily quota checks="+total+"; no real model or native UI calls");return; }
 if (args.Contains("--chatgpt-plan-only")) { int total=0; await ChatGptPlanTests.Run(Path.Combine(baseDir,"chatgpt-plan-only"),(ok,label)=>{if(!ok)throw new IOException(label);total++;Console.WriteLine("PASS: "+label);});Console.WriteLine("OAuth checks="+total+"; no real login/model calls");return; }
 if (args.Contains("--continuation-engine")) { await ContinuationEngineTests.Run(Path.Combine(baseDir, "continuation-engine"), args[Array.IndexOf(args, "--codex") + 1]); return; }
-if (args.Contains("--continuation-queue")) { await ContinuationQueueTests.Run(Path.Combine(baseDir, "continuation-queue"), (ok,label) => { if (!ok) throw new Exception(label); Console.WriteLine("PASS: " + label); }); return; }
+if (args.Contains("--continuation-queue")) {
+await ContinuationQueueTests.Run(Path.Combine(baseDir, "continuation-queue"), (ok,label) => { if (!ok) throw new Exception(label); Console.WriteLine("PASS: " + label); }); return; }
 if (args.Contains("--simple-ui-engine-smoke"))
 {
     await SimpleUiEngineTests.Run(Path.Combine(baseDir, "simple-ui-engine"), args[Array.IndexOf(args, "--app") + 1], args[Array.IndexOf(args, "--report") + 1]); return;
@@ -147,6 +148,7 @@ using (var failed = JsonDocument.Parse("""{"id":"memory-1","tool":"hermes_memory
 Assert(toolTask.Transcript.Single().Kind == "도구 오류" && toolTask.Transcript[0].Text.Contains("개선 근거"), "actual tool failure exposes returned cause even when item completed");
 await TaskLoopTests.Run(Path.Combine(baseDir, "task-loop"), Assert);
 await ExecutionPolicyTests.Run(Path.Combine(baseDir, "execution-policy"), Assert);
+await CompletionStreamTests.Run(Path.Combine(baseDir, "completion-stream"), Assert);
 await ContinuationQueueTests.Run(Path.Combine(baseDir, "continuation-queue"), Assert);
 var progressTask = new WorkItem();
 ProgressMessages.Delta(progressTask, "one", "0", "Checking ");
