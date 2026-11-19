@@ -62,7 +62,7 @@ $manifestLines = $files | Sort-Object FullName | ForEach-Object { (Get-FileHash 
 [IO.File]::WriteAllLines($manifestPath, [string[]]$manifestLines, [Text.UTF8Encoding]::new($false))
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $payload = Join-Path $outputPath ('HermesPayload-' + [guid]::NewGuid().ToString('N') + '.zip')
-[IO.Compression.ZipFile]::CreateFromDirectory($appPath, $payload, [IO.Compression.CompressionLevel]::NoCompression, $false)
+[IO.Compression.ZipFile]::CreateFromDirectory($appPath, $payload, [IO.Compression.CompressionLevel]::Fastest, $false)
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
 $setup = Join-Path $outputPath ('HermesDevDesk-' + $releaseVersion + '-win-x64-Setup.exe')
 if (Test-Path -LiteralPath $setup) { throw 'Version artifact already exists; use a fresh version/build directory instead of overwriting.' }
@@ -80,6 +80,6 @@ if ($CompressInstaller -and (Test-Path -LiteralPath $SevenZipPath)) {
 }
 $portable = Join-Path $outputPath ('HermesDevDesk-' + $releaseVersion + '-win-x64-Portable.zip')
 if (Test-Path -LiteralPath $portable) { throw 'Portable artifact already exists; use a fresh build directory.' }
-[IO.Compression.ZipFile]::CreateFromDirectory($appPath, $portable, [IO.Compression.CompressionLevel]::Fastest, $false)
+[IO.File]::Move($payload, $portable)
 Get-Item -LiteralPath $setup,$portable | Select-Object FullName,Length
 Get-FileHash -LiteralPath $setup -Algorithm SHA256 | Format-List

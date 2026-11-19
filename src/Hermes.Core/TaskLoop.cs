@@ -179,7 +179,7 @@ public sealed partial class DeskController
                 input.Add(new { type = "text", text = $"Request {requirement.Id} and its images: {requirement.Text}" });
                 AddImageInput(input, root, ImageAttachments.Validate(root, requirement.PendingImages));
             }
-            var result = await engine.RequestAsync("turn/start", new { threadId = task.ThreadId, cwd = root, model = task.Model, effort = task.ReasoningEffort.Length == 0 ? null : task.ReasoningEffort, summary = "auto", approvalPolicy = automatic ? "never" : "on-request", approvalsReviewer = "user", sandboxPolicy = policy, input });
+            var result = await engine.RequestAsync("turn/start", new { threadId = task.ThreadId, cwd = root, model = EngineModel(task.Model), effort = task.ReasoningEffort.Length == 0 ? null : task.ReasoningEffort, summary = "auto", approvalPolicy = automatic ? "never" : "on-request", approvalsReviewer = "user", sandboxPolicy = policy, input });
             foreach (var requirement in withImages.Where(r => r.PendingImages.Count > 0))
             {
                 RecordImages(task, requirement.PendingImages);

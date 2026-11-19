@@ -53,11 +53,16 @@ internal static class ResponseWaitingTests
         var cancellationText = await cancelled.Content.ReadAsStringAsync();
         check((int)cancelled.StatusCode == 499 && cancellationText.Contains("[HERMES_ERROR]") && !cancellationText.Contains("초과"), "manual stop cancels an unanswered upstream request without inventing a timeout");
         await using var networkBridge = new CompanyBridge(settings, new ProtectedKeyStore(Path.Combine(root, "network-keys")), true, new NetworkFailure());
+        UsageEntry? failure = null; networkBridge.Usage += entry => failure = entry;
         using var networkRequest = new HttpRequestMessage(HttpMethod.Post, networkBridge.BaseUri.AbsoluteUri + "/responses") { Content = new StringContent("{\"input\":\"network\"}") };
         networkRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", networkBridge.Capability);
         using var networkReply = await client.SendAsync(networkRequest);
         using var networkBody = JsonDocument.Parse(await networkReply.Content.ReadAsStringAsync());
-        check(networkReply.StatusCode == HttpStatusCode.ServiceUnavailable && networkBody.RootElement.GetProperty("error").Text("message") == "NETWORK_ORIGINAL", "network exception retains original message and is not disguised as an upstream 502");
+        var networkError = networkBody.RootElement.GetProperty("error");
+        check(networkReply.StatusCode == HttpStatusCode.BadGateway &&
+              networkError.Text("type") == "network_error" && networkError.Text("message").Contains("NETWORK_ORIGINAL") &&
+              failure?.FailureKind == "response_upstream_transport",
+              "bridge distinguishes transport failure from upstream 503 and retains its diagnostic");
     }
     private sealed class NetworkFailure : HttpMessageHandler
     {
