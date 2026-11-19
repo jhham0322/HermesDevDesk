@@ -5,7 +5,10 @@ namespace Hermes.Core;
 public static partial class Safety
 {
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> KnownSecrets = new(StringComparer.Ordinal);
-    public static void RegisterSecret(string secret) { if (secret.Length >= 8) KnownSecrets.TryAdd(secret, 0); }
+    private static readonly object SecretRegistryLock = new();
+    private static long secretRevision;
+    internal static long SecretRevision { get { lock (SecretRegistryLock) return secretRevision; } }
+    public static void RegisterSecret(string secret) { if (secret.Length < 8) return; lock (SecretRegistryLock) { if (KnownSecrets.TryAdd(secret, 0)) secretRevision++; } }
     private static readonly HashSet<string> Excluded = new(StringComparer.OrdinalIgnoreCase)
     { ".git", ".codex", ".agents", ".aws", ".ssh", ".azure", "node_modules", "bin", "obj", "AppData", "credentials", "secrets", ".env", "auth.json", "credentials.json", "id_rsa", "id_ed25519", ".hermes-worktree.json", ".hermes-worktree-storage" };
     public static bool IsSecret(string name) => Excluded.Contains(name) || name.StartsWith(".env.", StringComparison.OrdinalIgnoreCase)

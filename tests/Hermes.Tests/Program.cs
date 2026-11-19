@@ -131,6 +131,7 @@ if (args.Contains("--multi-chat-only"))
 int count = 0;
 void Assert(bool truth, string label) { if (!truth) throw new Exception("FAIL: " + label); count++; Console.WriteLine("PASS: " + label); }
 void Reject(Action act, string label) { try { act(); } catch (IOException) { Assert(true, label); return; } throw new Exception("FAIL: " + label); }
+RedactionSaveTests.Run(Path.Combine(baseDir,"redaction-save"), Assert);
 await StatePersistenceTests.Run(Path.Combine(baseDir, "state-persistence"), Assert);
 await ReportedErrorGuardTests.Run(Path.Combine(baseDir, "reported-errors"), Assert);
 await OperationRecoveryTests.Run(Path.Combine(baseDir, "operation-recovery"), Assert);

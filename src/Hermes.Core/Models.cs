@@ -98,6 +98,20 @@ public sealed class StateStore
     private readonly string path;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> PathLocks = new(StringComparer.OrdinalIgnoreCase);
     private readonly object sync;
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<TranscriptEntry, SanitizedEntry> sanitizedEntries = new();
+    private sealed class SanitizedEntry { internal long Revision = -1; internal TranscriptEntry? Value; }
+    private TranscriptEntry SanitizeEntry(TranscriptEntry entry)
+    {
+        var revision = Safety.SecretRevision;
+        var cached = sanitizedEntries.GetValue(entry, _ => new SanitizedEntry());
+        if (cached.Revision != revision)
+        {
+            var text = Safety.Redact(entry.Text);
+            cached.Value = text == entry.Text ? entry : entry with { Text = text };
+            cached.Revision = revision;
+        }
+        return cached.Value!;
+    }
     public StateStore(string directory)
     {
         Directory.CreateDirectory(directory); path = Path.GetFullPath(Path.Combine(directory, "state.json"));
@@ -126,7 +140,14 @@ public sealed class StateStore
         foreach (var task in state.Tasks)
         {
             task.Title = Safety.Redact(task.Title); task.Diff = Safety.Redact(task.Diff);
-            task.Transcript = task.Transcript.Select(e => e with { Text = Safety.Redact(e.Text) }).ToList();
+            var transcript = task.Transcript;
+            List<TranscriptEntry>? sanitized = null;
+            for (var index = 0; index < transcript.Count; index++)
+            {
+                var entry = SanitizeEntry(transcript[index]);
+                if (!ReferenceEquals(entry, transcript[index])) (sanitized ??= new List<TranscriptEntry>(transcript))[index] = entry;
+            }
+            if (sanitized != null) task.Transcript = sanitized;
         }
         foreach (var process in state.Processes) { process.Goal = ExecutionMemory.Clean(process.Goal, 100000); process.Detail = ExecutionMemory.Clean(process.Detail, 4000); }
         var json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
