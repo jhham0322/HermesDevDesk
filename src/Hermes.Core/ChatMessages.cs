@@ -12,13 +12,14 @@ public static class ChatMessages
         }
         else task.Transcript.Add(TranscriptPresentation.Model(task, new("에이전트 스트림", Safety.Redact(delta), DateTime.UtcNow, itemId), "중간보고"));
     }
-    public static void Complete(WorkItem task, string itemId, string text)
+    public static void Complete(WorkItem task, string itemId, string text, bool finalAnswer = false)
     {
         var index = task.Transcript.FindLastIndex(e => e.ItemId == itemId && e.Kind is "에이전트 스트림" or "에이전트");
         // Empty terminal payloads after interruption must not erase received text
         // or promote an existing partial stream entry to a completed message.
         if (text.Length == 0 && index >= 0 && task.Transcript[index].Text.Length > 0) return;
         var entry = index >= 0 ? task.Transcript[index] with { Kind = "에이전트", Text = Safety.Redact(text) } : TranscriptPresentation.Model(task, new TranscriptEntry("에이전트", Safety.Redact(text), DateTime.UtcNow, itemId), "중간보고");
+        if (finalAnswer) entry = entry with { Stage = "완료" };
         if (index >= 0) task.Transcript[index] = entry;
         else task.Transcript.Add(entry);
     }

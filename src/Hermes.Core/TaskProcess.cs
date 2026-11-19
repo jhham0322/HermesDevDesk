@@ -10,6 +10,7 @@ public sealed class TaskProcess
     public string State { get; set; } = "실행 중";
     public bool ContinuationEnabled { get; set; }
     public bool UserStopped { get; set; }
+    public bool RequirePlan { get; set; }
     public bool NeedsPlan { get; set; }
     public string BlockKind { get; set; } = "";
     public int StageNumber { get; set; } = 1;

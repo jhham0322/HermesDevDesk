@@ -70,10 +70,10 @@ public partial class MainWindow : Window
         TaskStatus.Text = CurrentTask == null ? "" : CurrentTask.Status + "  /  " + CurrentTask.Updated.ToLocalTime().ToString("g");
         TaskDetails.Text = CurrentTask == null ? "선택한 작업 없음" : Review.Detail(desk.State, CurrentTask);
         Writable.IsEnabled = CurrentTask == null || !DeskController.IsRunning(CurrentTask);
-        ContinueUntilComplete.IsEnabled = Writable.IsEnabled;
+        ContinueUntilComplete.IsEnabled = false;
         RequirementMode.IsEnabled = CurrentTask?.Status is "실행 중" or "계속 실행 대기";
         if (!RequirementMode.IsEnabled) RequirementMode.SelectedIndex = 0;
-        ContinueUntilComplete.IsChecked = CurrentTask?.LoopPreference ?? true;
+        ContinueUntilComplete.IsChecked = true;
         Writable.IsChecked = CurrentTask?.IsReview != true;
         SwitchDraft(); RenderConversation(); RenderChatTabs(); ShowChatBrowser(); UpdateShellState();
     }
@@ -285,15 +285,21 @@ public partial class MainWindow : Window
         }
         if (task.Status is "실행 중" or "계속 실행 대기")
         {
-            if (pendingImages.Count > 0 || pendingFiles.Count > 0 || pendingSkills.Count > 0) throw new Hermes.Core.HermesException("추가 지시는 텍스트로 전송하세요. 첨부는 다음 실행에서 사용할 수 있습니다.");
-            await desk.SteerAsync(task, prompt, RequirementMode.SelectedIndex switch { 1 => RequirementChange.CancelPending, 2 => RequirementChange.ReplacePending, _ => RequirementChange.Append });
+            if (pendingFiles.Count > 0 || pendingSkills.Count > 0) throw new Hermes.Core.HermesException("파일과 스킬은 다음 작업을 시작할 때 첨부할 수 있습니다.");
+            var images = pendingImages.ToList();
+            await desk.SteerAsync(task, prompt, RequirementMode.SelectedIndex switch { 1 => RequirementChange.CancelPending, 2 => RequirementChange.ReplacePending, _ => RequirementChange.Append }, images);
+            if (images.Count > 0 && CurrentTask == task)
+            {
+                pendingImages.RemoveAll(images.Contains); RefreshAttachments();
+                Footer.Text = "이미지를 저장했습니다. 다음 실행 단계에서 전달합니다.";
+            }
             RequirementMode.SelectedIndex = 0;
             if (CurrentTask == task && Prompt.Text == prompt) Prompt.Clear();
             else if (CurrentTask != task && desk.State.Desktop.Drafts.GetValueOrDefault(task.Id) == prompt) desk.State.Desktop.Drafts[task.Id] = "";
             return;
         }
         SetInitialConversationTitle(task, prompt);
-        await desk.StartAsync(task, prompt, chosenModel, Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList(), effort: Effort.SelectedIndex > 0 ? Effort.SelectedItem as string : null, files: pendingFiles.ToList(), continueUntilComplete: ContinueUntilComplete.IsChecked == true);
+        await desk.StartAsync(task, prompt, chosenModel, Writable.IsChecked == true, pendingImages.ToList(), skills: pendingSkills.ToList(), effort: Effort.SelectedIndex > 0 ? Effort.SelectedItem as string : null, files: pendingFiles.ToList(), continueUntilComplete: true, requirePlan: true);
         if (CurrentTask == task && Prompt.Text == prompt) { Prompt.Clear(); ImageClear_Click(this, new RoutedEventArgs()); SkillClear_Click(this, new RoutedEventArgs()); }
         else if (CurrentTask != task)
         {

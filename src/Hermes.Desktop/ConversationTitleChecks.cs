@@ -20,12 +20,12 @@ public partial class MainWindow
             {
                 var task = desk.NewTask(project, "initial"); SetInitialConversationTitle(task, title); desk.Save(); SelectTask(task);
                 await Dispatcher.InvokeAsync(() => { }); UpdateLayout();
-                Check(TaskTitle.Text == title && task.Title == title, "full initial title stored and rendered: " + checks.Count);
-                Check(TaskTitle.TextWrapping == TextWrapping.Wrap && TaskTitle.ActualWidth <= TitleScroll.ActualWidth + 1, "narrow window wraps title within available width: " + checks.Count);
+                Check(TaskTitle.Text == ShortTitle(title) && TaskTitle.Text != title && task.Title == title, "compact title rendered and full title retained: " + checks.Count);
+                Check(TaskTitle.TextWrapping == TextWrapping.NoWrap && TaskTitle.ActualWidth <= TitleScroll.ActualWidth + 1, "narrow window constrains preview within available width: " + checks.Count);
                 for (var i = 0; i < 3; i++)
                 {
                     TitleExpand.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); UpdateLayout();
-                    Check(double.IsPositiveInfinity(TaskTitle.MaxHeight), "expand exposes complete text: " + checks.Count);
+                    Check(double.IsPositiveInfinity(TaskTitle.MaxHeight) && TaskTitle.Text == title && TaskTitle.TextWrapping == TextWrapping.Wrap, "expand exposes complete text: " + checks.Count);
                     RenderTask(); Check(double.IsPositiveInfinity(TaskTitle.MaxHeight), "refresh preserves expansion: " + checks.Count);
                     TitleExpand.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); UpdateLayout();
                     Check(TaskTitle.MaxHeight == 78, "collapse restores bounded preview: " + checks.Count);

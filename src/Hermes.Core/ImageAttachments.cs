@@ -49,6 +49,19 @@ public static class ImageAttachments
         if (width is < 1 or > 8192 || height is < 1 or > 8192 || (long)width * height > 16_000_000) throw new HermesException("이미지 해상도 제한: 최대 16MP, 한 변 8192px");
         return new(relative, Convert.ToHexString(SHA256.HashData(bytes)), bytes.Length, width, height, mime);
     }
+    private static readonly uint[] PngCrcTable = CreatePngCrcTable();
+    private static uint[] CreatePngCrcTable()
+    {
+        var table = new uint[256];
+        for (uint index = 0; index < table.Length; index++)
+        {
+            var crc = index;
+            for (var bit = 0; bit < 8; bit++)
+                crc = (crc >> 1) ^ ((crc & 1) != 0 ? 0xEDB88320u : 0);
+            table[index] = crc;
+        }
+        return table;
+    }
     private static void ValidatePng(byte[] bytes)
     {
         int position = 8; bool data = false, end = false;
@@ -57,7 +70,7 @@ public static class ImageAttachments
             var length = BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(position, 4));
             if (length < 0 || length > bytes.Length - position - 12) throw new HermesException("손상된 PNG chunk");
             uint crc = uint.MaxValue;
-            foreach (var value in bytes.AsSpan(position + 4, length + 4)) { crc ^= value; for (int bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ ((crc & 1) != 0 ? 0xEDB88320u : 0); }
+            foreach (var value in bytes.AsSpan(position + 4, length + 4)) crc = (crc >> 8) ^ PngCrcTable[(crc ^ value) & 0xff];
             if (~crc != BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(position + 8 + length, 4))) throw new HermesException("PNG CRC 불일치");
             var type = bytes.AsSpan(position + 4, 4); if (position == 8 && (!type.SequenceEqual("IHDR"u8) || length != 13)) throw new HermesException("PNG IHDR 오류");
             if (type.SequenceEqual("IDAT"u8)) data = true;

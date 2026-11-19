@@ -27,26 +27,26 @@ public partial class MainWindow
     private void RefreshProcesses()
     {
         var selected = (processList.SelectedItem as TaskProcess)?.Id;
-        processList.ItemsSource = desk.Processes;
-        processList.SelectedItem = desk.Processes.FirstOrDefault(p => p.Id == selected) ?? desk.Processes.FirstOrDefault();
+        var processes = desk.Processes;
+        processList.ItemsSource = processes;
+        processList.SelectedItem = processes.FirstOrDefault(p => p.Id == selected) ?? processes.FirstOrDefault();
         ShowProcess();
     }
     private void ShowProcess()
     {
-        if (processList.SelectedItem is not TaskProcess process) { processDetails.Text = "프로세스 없음. 입력창의 ‘완료까지 계속 실행’을 켜고 요청을 보내세요."; return; }
+        if (processList.SelectedItem is not TaskProcess process) { processDetails.Text = "프로세스 없음. 작업 요청을 보내세요."; return; }
         var task = desk.State.Tasks.FirstOrDefault(t => t.Id == process.TaskId);
         var project = desk.State.Projects.FirstOrDefault(p => p.Id == task?.ProjectId);
         var usage = desk.State.Usage.LastOrDefault(u => u.TaskId == task?.Id && u.Source == "company-api-response");
         processDetails.Text = $"최근 요청 계측(ms): 헤더 {usage?.HeadersMs} / 첫 유효 출력 {usage?.FirstUsefulOutputMs} / 전체 {usage?.TotalMs} · 버퍼 응답 {usage?.Buffered}\n예산: {process.Budget.MaxRounds}라운드 / {process.Budget.MaxMinutes}분 · 도구 횟수 상한 없음 / 사용 {process.ToolCalls} · 무진전 {process.StagnantRounds}\n계측(ms): 도구 대기 {process.ToolQueueMs} / 실행 {process.ToolExecutionMs} / 자동 대기 {process.AutomaticWaitMs}\n작업 큐: {process.Items.Count(i => i.State == "verified")}개 검증 / {process.Items.Count(i => !i.Terminal)}개 미완료 · 내부 단계 {process.StageNumber}\n다음 항목: {WorkQueue.Next(process)?.Title}\n차단 구분: {process.BlockKind}\n재개 지점: {process.Checkpoint}\n프로세스: {process.Id}\n프로젝트: {project?.Name}\n채팅: {task?.Title}\n상태: {process.State} / {task?.Status}\n실행 회차: {process.Round}\n시작: {process.Started.ToLocalTime():g}\n최근 변경: {process.Updated.ToLocalTime():g}\n\n목표\n{process.Goal}\n\n최근 결과·완료 검증 보고\n{process.Detail}\n\n완료 근거는 모델의 검증 보고이며 호스트는 인용된 실행 근거의 출처를 확인합니다.";
         processDetails.Text += $"\n자동 재개 예약(KST): {process.DailyQuotaResumeAt?.ToOffset(TimeSpan.FromHours(9)).ToString("yyyy-MM-dd HH:mm") ?? "없음"} · 시도 {process.DailyQuotaResumeAttempts}/3 · 취소 {process.DailyQuotaCancelled}";
+        if (process.RequirePlan) processDetails.AppendText("\n\n저장 위치: " + desk.WorkRecordDirectory(process));
         processDetails.AppendText("\n\n항목별 실행·검증 기록\n" + string.Join("\n\n", process.Items.Select(i => $"[{i.State}] {i.Id} · {i.Title}\n완료 조건: {i.Acceptance}\n선행: {string.Join(", ", i.DependsOn)}\n검증: {i.Verification}")));
         processDetails.AppendText("\n\n실행 기록\n" + string.Join("\n", process.Operations.Select(o => o.ToString())));
         processDetails.AppendText($"\n\n추가 요구 {process.Requirements.Count(r => r.Id != "initial")}개 / 미계획 요구 {process.Requirements.Count(r => !r.Planned)}개");
 
     }
     private void Processes_Click(object sender, RoutedEventArgs e) { SetInspector(true); InspectorTabs.SelectedItem = processTab; RefreshProcesses(); }
-    private void LoopPreference_Click(object sender, RoutedEventArgs e)
-    { if (CurrentTask is { } task) { task.LoopPreference = ContinueUntilComplete.IsChecked == true; desk.Save(); } }
 
     internal async Task RunProcessPanelChecks(string data)
     {

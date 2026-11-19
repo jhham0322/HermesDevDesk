@@ -332,7 +332,7 @@ public sealed partial class DeskController : IAsyncDisposable
         catch (Exception e) { task.Status = "실패"; task.Transcript.Add(new("오류", ConnectionErrors.Describe(e), DateTime.UtcNow)); Save(); throw; }
     }
     private ProjectEntry Project(WorkItem task) => State.Projects.Single(p => p.Id == task.ProjectId);
-    public async Task StartAsync(WorkItem task, string prompt, string model, bool writable, IReadOnlyList<ProjectImage>? images = null, string? mcpHostExe = null, IReadOnlyList<ProjectSkill>? skills = null, string? effort = null, IReadOnlyList<ProjectFileAttachment>? files = null, bool continueUntilComplete = false)
+    public async Task StartAsync(WorkItem task, string prompt, string model, bool writable, IReadOnlyList<ProjectImage>? images = null, string? mcpHostExe = null, IReadOnlyList<ProjectSkill>? skills = null, string? effort = null, IReadOnlyList<ProjectFileAttachment>? files = null, bool continueUntilComplete = false, bool requirePlan = false)
     {
         CheckOAuthSession();
         var engine = Engine ?? throw new HermesException("엔진에 먼저 연결하세요.");
@@ -355,9 +355,16 @@ public sealed partial class DeskController : IAsyncDisposable
         var selectedFiles = FileAttachments.Validate(root, files ?? []);
         // A new user request starts with an empty model history. The UI transcript
         // is retained locally, but is never copied into the new engine session.
-        var unfinished = State.Processes.LastOrDefault(p => p.TaskId == task.Id && p.ContinuationEnabled && !p.Active && p.State != "완료" && !p.UserStopped);
+        var unfinished = State.Processes.LastOrDefault(p => p.TaskId == task.Id && p.ContinuationEnabled && !p.Active && p.State != "완료" && !p.UserStopped && p.ThreadId.Length > 0 && p.ThreadId == task.ThreadId && p.BlockKind.Length == 0 && !p.Operations.Any(o => o.NeedsReview));
         if (continueUntilComplete && unfinished != null && (unfinished.Items.Count > 0 || unfinished.NeedsPlan))
-        { QueueRequirement(task, prompt); await ResumeSavedProcessAsync(unfinished.Id); return; }
+        {
+            if (selectedFiles.Count > 0 || selectedSkills.Count > 0)
+                throw new HermesException("이전 작업을 재개하거나 종료한 뒤 파일·스킬을 전송하세요.");
+            QueueRequirement(task, prompt, images: attachments);
+            task.Transcript.Add(new("사용자", Safety.Redact(prompt), DateTime.UtcNow));
+            await ResumeSavedProcessAsync(unfinished.Id);
+            return;
+        }
         var resetForCurrentRequest = !task.IsReview && task.ThreadId != null;
         if (resetForCurrentRequest)
         {
@@ -376,10 +383,12 @@ public sealed partial class DeskController : IAsyncDisposable
         if (continueUntilComplete && !task.IsReview)
         {
             task.ProcessEvidenceStart = Memory.Recent(MemoryScope(task), task.Id).Select(e => e.Id).DefaultIfEmpty().Max();
-            BeginProcess(task, prompt);
+            var process = BeginProcess(task, prompt, requirePlan);
+            if (requirePlan) process.Requirements[0].PendingImages.AddRange(attachments);
         }
         var startingProcess = ActiveProcess(task);
-        task.Writable = writable; task.Status = "시작 중"; task.Updated = DateTime.UtcNow; Save();
+        task.Writable = writable; task.Status = "시작 중"; task.Updated = DateTime.UtcNow;
+        if (startingProcess?.RequirePlan == true) SaveCheckpoint(startingProcess); else Save();
         task.Model = model; task.ProviderFingerprint = connectedFingerprint; company?.BeginTask(task.Id, model);
         try
         {
@@ -412,7 +421,7 @@ public sealed partial class DeskController : IAsyncDisposable
             var policy = new { type = "dangerFullAccess" };
             var input = new List<object> { new { type = "text", text = prompt } };
             if (selectedFiles.Count > 0) input.Add(new { type = "text", text = FileAttachments.ModelContext(root, selectedFiles) });
-            input.AddRange(attachments.Select(i => (object)new { type = "localImage", path = Safety.Resolve(root, i.RelativePath) }));
+            AddImageInput(input, root, attachments);
             input.AddRange(selectedSkills.Select(s => (object)new { type = "skill", name = s.Name, path = ProjectSkills.Resolve(root, s.RelativePath) }));
             var turn = await engine.RequestAsync("turn/start", new { threadId = task.ThreadId, cwd = root, model, effort = string.IsNullOrEmpty(effort) ? null : effort, summary = "auto", approvalPolicy = approval, approvalsReviewer = "user", sandboxPolicy = policy, input });
             if (startingProcess != null && ActiveProcess(task) != startingProcess)
@@ -420,8 +429,8 @@ public sealed partial class DeskController : IAsyncDisposable
             task.ThreadWritable = writable;
             task.FileAttachments.AddRange(selectedFiles.Select(f => new FileAttachmentRecord(f, DateTime.UtcNow)));
             if (selectedFiles.Count > 0) task.Transcript.Add(new("파일 첨부", string.Join("\n", selectedFiles.Select(f => f.ToString())), DateTime.UtcNow));
-            task.Attachments.AddRange(attachments.Select(i => new AttachmentRecord(i, DateTime.UtcNow)));
-            if (attachments.Count > 0) task.Transcript.Add(new("이미지 첨부", string.Join("\n", attachments.Select(i => i.ToString())), DateTime.UtcNow));
+            RecordImages(task, attachments);
+            if (startingProcess?.RequirePlan == true) startingProcess.Requirements[0].PendingImages.Clear();
             task.Skills.AddRange(selectedSkills.Select(s => new SkillRecord(s, DateTime.UtcNow)));
             if (selectedSkills.Count > 0) task.Transcript.Add(new("스킬 호출", string.Join("\n", selectedSkills.Select(s => s.Name + " · " + s.RelativePath)), DateTime.UtcNow));
             if (task.Status is "시작 중" or "실행 중") { task.TurnId = turn.GetProperty("turn").Text("id"); task.Status = "실행 중"; }
@@ -453,17 +462,33 @@ public sealed partial class DeskController : IAsyncDisposable
         company?.CancelTask(task.Id);
         // Keep status until official turn/completed confirms interruption.
     }
-    public async Task SteerAsync(WorkItem task, string text, RequirementChange change = RequirementChange.Append)
+    private static void AddImageInput(List<object> input, string root, IEnumerable<ProjectImage> images)
+    {
+        input.AddRange(images.Select(image => (object)new { type = "localImage", path = Safety.Resolve(root, image.RelativePath) }));
+    }
+
+    private static void RecordImages(WorkItem task, IReadOnlyList<ProjectImage> images)
+    {
+        if (images.Count == 0) return;
+        task.Attachments.AddRange(images.Select(image => new AttachmentRecord(image, DateTime.UtcNow)));
+        task.Transcript.Add(new("이미지 첨부", string.Join("\n", images), DateTime.UtcNow));
+    }
+
+    public async Task SteerAsync(WorkItem task, string text, RequirementChange change = RequirementChange.Append, IReadOnlyList<ProjectImage>? images = null)
     {
         CheckOAuthSession();
         if (Engine == null || !SubscriptionReady || task.ThreadId == null || task.Status is not ("실행 중" or "계속 실행 대기")) throw new HermesException("실행 중이거나 다음 실행을 기다리는 작업에 추가 지시를 보낼 수 있습니다.");
         if (connectedFingerprint != State.Provider.Fingerprint || task.ProviderFingerprint != connectedFingerprint) throw new HermesException("작업의 연결 설정이 바뀌었습니다.");
         if (string.IsNullOrWhiteSpace(text) || text.Length > 100_000) throw new HermesException("추가 지시 내용을 확인하세요.");
         ComputerLifecycleEvent?.Invoke(task, "new-command");
-        if (ActiveProcess(task) != null) QueueRequirement(task, text, change);
+        var attachments = images is { Count: > 0 } ? ImageAttachments.Validate(Project(task).Root, images) : [];
+        var process = ActiveProcess(task);
+        if (attachments.Count > 0 && (process == null || change == RequirementChange.CancelPending))
+            throw new HermesException("이미지는 진행 중인 작업에 요구를 추가하거나 대체할 때 전송할 수 있습니다.");
+        if (process != null) QueueRequirement(task, text, change, attachments);
         task.Transcript.Add(new("사용자", Safety.Redact(text), DateTime.UtcNow)); Save();
         if (change == RequirementChange.CancelPending) { await StopAsync(task); return; }
-        if (task.Status == "계속 실행 대기") return;
+        if (task.Status == "계속 실행 대기" || attachments.Count > 0) return;
         await Engine.RequestAsync("turn/steer", new { threadId = task.ThreadId, expectedTurnId = task.TurnId, input = new[] { new { type = "text", text } } });
     }
     internal void Handle(ServerEvent e)
@@ -507,7 +532,7 @@ public sealed partial class DeskController : IAsyncDisposable
                 if (stoppedProcess != null && ActiveProcess(task) == null) { stoppedProcess.CompletedTurnIds.Add(finishedId); task.Status = "중단됨"; break; }
                 ComputerStopRequested?.Invoke(task);
                 var turn = p.GetProperty("turn"); task.Status = turn.Text("status") switch { "completed" => "완료", "interrupted" => "중단됨", _ => "실패" };
-                if (turn.Property("error") is { ValueKind: JsonValueKind.Object } error)
+                if (turn.Property("error") is { ValueKind: JsonValueKind.Object } error && !HasUpstreamFailure(task, finishedId))
                 {
                     var message = ProviderErrors.ReadableMessage(error.Text("message"));
                     var proof = Memory.Record(MemoryScope(task), task.Id, "turn-error/" + turn.Text("id"), MemoryPurpose(task), "provider", task.Model, false, message);
@@ -531,7 +556,8 @@ public sealed partial class DeskController : IAsyncDisposable
                 if (item.Text("type") == "mcpToolCall") task.Transcript.Add(new TranscriptEntry("MCP 도구", Safety.Redact(item.GetRawText()), DateTime.UtcNow, item.Text("id")) { Origin = "도구: MCP/" + item.Text("server") + "/" + item.Text("tool"), Stage = "검증" });
                 if (item.Text("type") is "enteredReviewMode" or "exitedReviewMode") task.Transcript.Add(new("AI 검토", Safety.Redact(item.GetRawText()), DateTime.UtcNow));
                 if (item.Text("type") == "commandExecution") task.Transcript.Add(new TranscriptEntry("명령 결과", Safety.Redact($"{item.Text("command")}\n{item.Text("aggregatedOutput")}\nexit: {item.Property("exitCode")}"), DateTime.UtcNow, item.Text("id")) { Origin = "도구: commandExecution", Stage = item.Property("exitCode") is { ValueKind: JsonValueKind.Number } code && code.GetInt32() == 0 ? "완료" : "에러원인" });
-                if (item.Text("type") == "agentMessage") ChatMessages.Complete(task, item.Text("id"), item.Text("text"));
+                if (item.Text("type") == "agentMessage")
+                    ChatMessages.Complete(task, item.Text("id"), item.Text("text"), item.Text("phase") == "final_answer");
                 if (item.Text("type") == "fileChange" && item.Property("changes") is { ValueKind: JsonValueKind.Array } fileChanges)
                 {
                     foreach (var change in fileChanges.EnumerateArray())
@@ -545,7 +571,10 @@ public sealed partial class DeskController : IAsyncDisposable
                     }
                 }
                 break;
-            case "error": task.Transcript.Add(new("오류", ProviderErrors.ReadableMessage(p.GetProperty("error").Text("message")), DateTime.UtcNow)); break;
+            case "error":
+                if (!HasUpstreamFailure(task, task.TurnId))
+                    task.Transcript.Add(new("오류", ProviderErrors.ReadableMessage(p.GetProperty("error").Text("message")), DateTime.UtcNow));
+                break;
         }
         if (e.Method is "item/started" or "item/completed")
         {
@@ -555,9 +584,13 @@ public sealed partial class DeskController : IAsyncDisposable
                     if (task.Transcript[i].ItemId == eventItem.Text("id") && task.Transcript[i].Origin.Length == 0)
                         task.Transcript[i] = task.Transcript[i] with { Origin = tool.Length > 0 ? "도구: " + tool : "도구: " + type, Stage = e.Method == "item/completed" ? "검증" : "중간보고" };
         }
-        if (e.Method is "item/reasoning/summaryTextDelta" or "item/agentMessage/delta" or "item/commandExecution/outputDelta" or "thread/tokenUsage/updated") SaveStream();
+        if (e.Method is "item/started" or "item/completed" or "turn/diff/updated" or "turn/plan/updated" or "item/reasoning/summaryTextDelta" or "item/agentMessage/delta" or "item/commandExecution/outputDelta" or "thread/tokenUsage/updated") SaveStream();
         else Save();
     }
+    private bool HasUpstreamFailure(WorkItem task, string? turnId) =>
+        !string.IsNullOrEmpty(turnId) && State.Usage.Any(u => u.TaskId == task.Id && u.TurnId == turnId &&
+            u.FailureKind is "response_upstream_transport" or "response_upstream_unavailable");
+
     private static void Append(WorkItem task, string kind, string delta)
     {
         if (task.Transcript.LastOrDefault() is { } last && last.Kind == kind && last.Text.Length < 200_000) task.Transcript[^1] = last with { Text = Safety.Redact(last.Text + delta) };

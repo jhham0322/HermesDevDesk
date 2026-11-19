@@ -42,6 +42,22 @@ internal static class RecoveryTests
         using var persistentClient = new HttpClient(persistent);
         using var final = await TransientHttp.Send(persistentClient, () => new(HttpMethod.Post, "https://fixture.invalid"), () => { }, CancellationToken.None);
         check(persistent.Calls == 3 && await final.Content.ReadAsStringAsync() == "We're current experiencing high demand", "persistent overload preserves original error after three attempts");
+        foreach (var failure in new[] { HttpRequestError.NameResolutionError, HttpRequestError.ResponseEnded })
+        {
+            using var transport = new Handler(i => i == 1
+                ? throw new HttpRequestException(failure, "fixture transport failure")
+                : new HttpResponseMessage(HttpStatusCode.OK));
+            using var transportClient = new HttpClient(transport);
+            try
+            {
+                using var recovered = await TransientHttp.Send(transportClient, () => new(HttpMethod.Post, "https://fixture.invalid"), () => { }, CancellationToken.None);
+                check(failure == HttpRequestError.NameResolutionError && transport.Calls == 2, "DNS failure retries before admission");
+            }
+            catch (HttpRequestException)
+            {
+                check(failure == HttpRequestError.ResponseEnded && transport.Calls == 1, "premature response never replays an admitted request");
+            }
+        }
         using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
         try
         {

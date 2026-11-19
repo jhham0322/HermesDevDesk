@@ -31,7 +31,7 @@ public sealed partial class DeskController
         operation = operation.Trim();
         if (ExecutionMemory.Clean(operation, 120) != operation) throw new HermesException("operationId must not contain credentials or registered secret values.");
         var item = process.Items.FirstOrDefault(i => i.State == "running");
-        if (process.Items.Count > 0 && item == null) throw new HermesException("Select an unfinished queue item with start_item before executing a command.");
+        if ((process.Items.Count > 0 && item == null) || (process.RequirePlan && item == null)) throw new HermesException("Select an unfinished queue item with start_item before executing a command.");
         var context = new[] { "cwd", "inputFiles", "buildTool" }.Where(k => args.Property(k) != null).Select(k => k + ":" + args.GetProperty(k).GetRawText());
         var digest = ExecutionBudget.Digest(new[] { args.Text("command"), args.Text("purpose") }.Concat(context));
         // Older thread schemas permit omission. Derive a repeat-stable identity from the

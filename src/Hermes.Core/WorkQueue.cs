@@ -6,6 +6,7 @@ public sealed class WorkRequirement
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Text { get; set; } = "";
     public bool Planned { get; set; }
+    public List<ProjectImage> PendingImages { get; set; } = [];
 }
 public sealed class WorkArtifact
 {
@@ -26,6 +27,7 @@ public sealed class QueuedWork
     public string State { get; set; } = "pending";
     public long EvidenceStart { get; set; }
     public long EvidenceId { get; set; }
+    public DateTime? Started { get; set; }
     public int TranscriptStart { get; set; }
     public string Verification { get; set; } = "";
     public string ArtifactDigest { get; set; } = "";
@@ -87,17 +89,17 @@ public static class WorkQueue
 }
 public sealed partial class DeskController
 {
-    internal string QueueRequirement(WorkItem task, string text, RequirementChange change = RequirementChange.Append)
+    internal string QueueRequirement(WorkItem task, string text, RequirementChange change = RequirementChange.Append, IReadOnlyList<ProjectImage>? images = null)
     {
         var p = ActiveProcess(task) ?? State.Processes.LastOrDefault(x => x.TaskId == task.Id && x.ContinuationEnabled && x.State != "완료") ?? throw new HermesException("이어갈 작업이 없습니다.");
         if (!Enum.IsDefined(change)) throw new HermesException("요구 변경 모드를 확인하세요.");
         text = ExecutionMemory.Clean(text, 100000); if (text.Length == 0) throw new HermesException("요구 내용을 입력하세요.");
         if (change != RequirementChange.Append)
             foreach (var item in p.Items.Where(i => !i.Terminal)) item.State = change == RequirementChange.CancelPending ? "cancelled" : "superseded";
-        p.Decision = null; p.DecisionTurnId = "";
-        if (change != RequirementChange.Append) foreach (var r in p.Requirements) r.Planned = true;
-        if (change == RequirementChange.CancelPending) { p.NeedsPlan = false; p.Checkpoint = "사용자가 미완료 항목을 취소했습니다. 완료된 산출물은 보존합니다."; Save(); return "cancelled"; }
-        var requirement = new WorkRequirement { Text = text, Planned = task.ThreadLearningVersion == 1 }; p.Requirements.Add(requirement); p.NeedsPlan = task.ThreadLearningVersion != 1; p.Updated = DateTime.UtcNow; Save(); return requirement.Id;
+        p.Decision = null; p.DecisionTurnId = ""; p.StagnantRounds = 0;
+        if (change != RequirementChange.Append) foreach (var r in p.Requirements) { r.Planned = true; r.PendingImages.Clear(); }
+        if (change == RequirementChange.CancelPending) { p.NeedsPlan = false; p.Checkpoint = "사용자가 미완료 항목을 취소했습니다. 완료된 산출물은 보존합니다."; SaveCheckpoint(p); return "cancelled"; }
+        var requirement = new WorkRequirement { Text = text, Planned = task.ThreadLearningVersion == 1, PendingImages = images?.ToList() ?? [] }; p.Requirements.Add(requirement); p.NeedsPlan = task.ThreadLearningVersion != 1; p.Updated = DateTime.UtcNow; SaveCheckpoint(p); return requirement.Id;
     }
     private string ManageWorkQueue(WorkItem task, TaskProcess p, JsonElement args)
     {
@@ -115,12 +117,12 @@ public sealed partial class DeskController
                 foreach (var artifact in item.Artifacts) { artifact.Path = ExecutionMemory.Clean(artifact.Path, 1000); artifact.Contains = ExecutionMemory.Clean(artifact.Contains, 4000); }
                 if (!p.Requirements.Any(r => r.Id == item.RequestId)) throw new HermesException("원문 요구 ID를 확인하세요.");
                 var existing = candidate.SingleOrDefault(i => i.Id == item.Id);
-                if (existing != null) { if (existing.Title != item.Title || existing.Acceptance != item.Acceptance || existing.Kind != item.Kind || existing.ExpectedOutput != item.ExpectedOutput || JsonSerializer.Serialize(existing.Artifacts) != JsonSerializer.Serialize(item.Artifacts) || !existing.DependsOn.SequenceEqual(item.DependsOn)) throw new HermesException("기존 작업의 완료 조건을 덮어쓸 수 없습니다. 명시적 요구 변경은 새 ID로 추가하세요."); if (!existing.Terminal) existing.Priority = item.Priority; }
+                if (existing != null) { if (existing.RequestId != item.RequestId || existing.Title != item.Title || existing.Acceptance != item.Acceptance || existing.Kind != item.Kind || existing.ExpectedOutput != item.ExpectedOutput || JsonSerializer.Serialize(existing.Artifacts) != JsonSerializer.Serialize(item.Artifacts) || !existing.DependsOn.SequenceEqual(item.DependsOn)) throw new HermesException("기존 작업의 완료 조건을 덮어쓸 수 없습니다. 명시적 요구 변경은 새 ID로 추가하세요."); if (!existing.Terminal) existing.Priority = item.Priority; }
                 else { item.State = "pending"; item.EvidenceId = 0; item.Verification = item.ArtifactDigest = ""; candidate.Add(item); }
             }
             WorkQueue.Validate(candidate); p.Items = candidate;
             foreach (var request in p.Requirements.Where(r => candidate.Any(i => i.RequestId == r.Id && i.State != "superseded"))) request.Planned = true;
-            p.NeedsPlan = false; p.Decision = null; Save(); return WorkQueue.Summary(p);
+            p.NeedsPlan = p.Requirements.Any(r => !r.Planned); p.Decision = null; SaveCheckpoint(p); return WorkQueue.Summary(p);
         }
         var selected = p.Items.SingleOrDefault(i => i.Id == args.Text("itemId")) ?? throw new HermesException("작업 항목 ID를 확인하세요.");
         if (selected.State == "verified") return "이미 검증 완료된 항목입니다. 부작용을 다시 실행하지 마세요. " + selected.Verification;
@@ -128,16 +130,23 @@ public sealed partial class DeskController
         if (action == "start_item")
         {
             if (WorkQueue.Next(p)?.Id != selected.Id) throw new HermesException("현재 실행 가능한 우선 항목·의존관계를 확인하세요.");
-            if (selected.State != "running") { selected.State = "running"; selected.EvidenceStart = Memory.Recent(MemoryScope(task), task.Id).Select(e => e.Id).DefaultIfEmpty().Max(); selected.TranscriptStart = task.Transcript.Count; }
-            Save(); return "항목 실행 시작. 완료 조건: " + selected.Acceptance;
+            if (selected.State == "running") return "항목 실행 중. 완료 조건: " + selected.Acceptance;
+            selected.Started = DateTime.UtcNow; selected.State = "running"; selected.EvidenceStart = (selected.Kind == "evidence" || !p.RequirePlan ? Memory.Recent(MemoryScope(task), task.Id).Select(e => e.Id).DefaultIfEmpty().Max() : 0); selected.TranscriptStart = task.Transcript.Count;
+            SaveCheckpoint(p); return "항목 실행 시작. 완료 조건: " + selected.Acceptance;
         }
         if (action != "verify_item" || selected.State != "running") throw new HermesException("진행 중인 항목의 실제 검증만 완료 처리할 수 있습니다.");
         var verification = ExecutionMemory.Clean(args.Text("verification"), 4000); if (verification.Length < 10) throw new HermesException("관측한 검증 근거를 입력하세요.");
         if (selected.Kind == "answer")
         {
-            var delivered = task.Transcript.Skip(selected.TranscriptStart).LastOrDefault(e => e.Kind == "에이전트" && e.Text.Length >= 10)?.Text;
+            var delivered = selected.Started is { } started
+                ? task.Transcript.LastOrDefault(e => e.At >= started && e.Kind == "에이전트" && !string.IsNullOrWhiteSpace(e.Text))?.Text
+                : task.Transcript.Skip(selected.TranscriptStart).LastOrDefault(e => e.Kind == "에이전트" && e.Text.Length >= 10)?.Text;
             if (delivered == null) throw new HermesException("실제 전달된 답변이 없습니다.");
             selected.ArtifactDigest = ExecutionBudget.Digest([delivered]);
+        }
+        else if (p.RequirePlan && selected.Kind == "artifact")
+        {
+            selected.ArtifactDigest = WorkQueue.CheckArtifacts(Project(task).Root, selected);
         }
         else
         {
@@ -148,6 +157,16 @@ public sealed partial class DeskController
             if (selected.Kind == "artifact") selected.ArtifactDigest = WorkQueue.CheckArtifacts(Project(task).Root, selected);
             selected.EvidenceId = id;
         }
-        selected.State = "verified"; selected.Verification = verification; p.Decision = null; p.Checkpoint = "검증 완료: " + selected.Id + ". 다음: " + (WorkQueue.Next(p)?.Id ?? "남은 요구 확인"); Save(); return WorkQueue.Summary(p);
+        RecordItemCompletion(p, selected, verification);
+        SaveCheckpoint(p);
+        return "완료: " + selected.Id + ". 다음: " + (WorkQueue.Next(p)?.Id ?? "최종 결과 전달");
+    }
+
+    private static void RecordItemCompletion(TaskProcess process, QueuedWork item, string verification)
+    {
+        item.State = "verified";
+        item.Verification = verification;
+        process.Decision = null;
+        process.Checkpoint = "완료: " + item.Id;
     }
 }

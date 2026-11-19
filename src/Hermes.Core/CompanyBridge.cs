@@ -167,7 +167,14 @@ public sealed class CompanyBridge : IAsyncDisposable
                     memory.Write(buffer, 0, length);
                 }
                 var serverError = Safety.Redact(Encoding.UTF8.GetString(memory.ToArray()));
-                entry.Status = "failed"; entry.Note = serverError.Length == 0 ? $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}" : serverError; Emit(entry);
+                entry.Status = "failed";
+                entry.Note = serverError.Length == 0 ? $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}" : serverError;
+                if ((int)response.StatusCode is 503 or 529)
+                {
+                    entry.FailureKind = "response_upstream_unavailable";
+                    entry.Note = ResponseInterruption.Message(entry.FailureKind) + " " + ProviderErrors.ReadableMessage(entry.Note);
+                }
+                Emit(entry);
                 await LoopbackHttp.Reply(stream, (int)response.StatusCode, response.Content.Headers.ContentType?.ToString() ?? "text/plain", serverError, ct); return;
             }
             if (adaptation != null && response.Content.Headers.ContentType?.MediaType == "text/event-stream")
@@ -256,13 +263,20 @@ public sealed class CompanyBridge : IAsyncDisposable
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or TimeoutException or IOException or JsonException or InvalidOperationException or KeyNotFoundException or FormatException or NotSupportedException or ArgumentException)
         {
-            entry.Status = ex is IncompleteResponseStreamException ? "unknown" : ex is OperationCanceledException && (ct.IsCancellationRequested || (context?.Operation.Token ?? operation.Token).IsCancellationRequested) ? "cancelled" : "failed"; entry.Note = ConnectionErrors.Describe(ex, context?.Operation.Token ?? operation.Token); if (ex is IncompleteResponseStreamException) entry.FailureKind = "response_early_eof"; else if (ex is OperationCanceledException && entry.Status != "cancelled" || ex is TimeoutException) entry.FailureKind = "response_timeout"; if (entry.FailureKind.Length > 0) entry.Note = ResponseInterruption.Message(entry.FailureKind); AppLog.Write(ex, "company-bridge"); Emit(entry);
+            entry.Status = ex is IncompleteResponseStreamException ? "unknown" : ex is OperationCanceledException && (ct.IsCancellationRequested || (context?.Operation.Token ?? operation.Token).IsCancellationRequested) ? "cancelled" : "failed"; entry.Note = ConnectionErrors.Describe(ex, context?.Operation.Token ?? operation.Token); if (ex is IncompleteResponseStreamException) entry.FailureKind = "response_early_eof"; else if (ex is OperationCanceledException && entry.Status != "cancelled" || ex is TimeoutException) entry.FailureKind = "response_timeout"; if (ex is HttpRequestException transport)
+            {
+                entry.FailureKind = "response_upstream_transport";
+                var cause = transport.InnerException?.Message ?? transport.Message;
+                entry.Note = Safety.Redact($"{ResponseInterruption.Message(entry.FailureKind)} {settings.RequestUri(false, testLoopback).Host} · {transport.HttpRequestError} · {cause}");
+            }
+            else if (entry.FailureKind.Length > 0) entry.Note = ResponseInterruption.Message(entry.FailureKind);
+            AppLog.Write(ex, "company-bridge"); Emit(entry);
             if (streaming && !ct.IsCancellationRequested)
             {
                 var errorEvent = JsonSerializer.Serialize(new { type = "error", code = "server_error", message = entry.Note });
                 await downstream.WriteAsync(Encoding.UTF8.GetBytes("event: error\ndata: " + errorEvent + "\n\n"), ct); await downstream.FlushAsync(ct);
             }
-            if (!streaming && !ct.IsCancellationRequested) await LoopbackHttp.Reply(stream, ex is OperationCanceledException ? 499 : ex is HttpRequestException ? 503 : 500, "application/json", JsonSerializer.Serialize(new { error = new { message = entry.Note, type = ex is HttpRequestException ? "network_error" : ex is ModelServerException ? "model_error" : "hermes_error" } }), ct);
+            if (!streaming && !ct.IsCancellationRequested) await LoopbackHttp.Reply(stream, ex is OperationCanceledException ? 499 : ex is HttpRequestException ? 502 : 500, "application/json", JsonSerializer.Serialize(new { error = new { message = entry.Note, type = ex is HttpRequestException ? "network_error" : ex is ModelServerException ? "model_error" : "hermes_error" } }), ct);
         }
         finally { entry.TotalMs = clock.ElapsedMilliseconds; Emit(entry); }
     }

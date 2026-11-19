@@ -66,6 +66,7 @@ public sealed partial class DeskController
     {
         if (ActiveProcess(task) is not { } process) return;
         if (process.BlockKind is "permission_denied" or "provider_limit_or_denial") throw new HermesException("거절·외부 제한 조건이 해결되기 전에는 자동 재시도하지 않습니다.");
+        if (process.RequirePlan && process.Requirements.Any(r => r.Id == "initial" && !r.Planned)) throw new HermesException("도구 실행 전에 작업 계획을 저장하세요.");
         var reason = process.Budget.Reason(process, false, DateTime.UtcNow);
         if (reason.Length > 0 && TryAdvanceStage(task, process, reason)) reason = "";
         if (process.Items.Count > 0 && !process.Items.Any(i => i.State == "running")) throw new HermesException("먼저 다음 미완료 항목을 start_item으로 선택하세요. 완료 항목을 다시 실행하지 않습니다.");

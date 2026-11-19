@@ -26,7 +26,7 @@ public sealed class LoopbackHttp : IAsyncDisposable
         {
             var stream = client.GetStream(); using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop.Token); timeout.CancelAfter(TimeSpan.FromMinutes(5));
             try { var request = await Read(stream, timeout.Token); timeout.CancelAfter(Timeout.InfiniteTimeSpan); await handler(request, stream, timeout.Token); }
-            catch (Exception ex) when (ex is IOException or OperationCanceledException or JsonException or FormatException or InvalidOperationException or OverflowException)
+            catch (Exception ex) when (ex is IOException or OperationCanceledException or JsonException or FormatException or InvalidOperationException or KeyNotFoundException or OverflowException)
             {
                 if (!timeout.IsCancellationRequested)
                 {

@@ -208,7 +208,7 @@ public partial class MainWindow
         {
             var task = desk.State.Tasks.FirstOrDefault(t => t.Id == id); if (task == null || task.Archived) { openChats.Remove(id); continue; }
             var tab = new StackPanel { Orientation = Orientation.Horizontal };
-            var select = new Button { Content = (DeskController.IsRunning(task) ? "● " : "") + (task.Title.Length > 18 ? task.Title[..18] + "…" : task.Title), ToolTip = task.Title + " · " + task.Status, Background = task == CurrentTask ? Brush("Selected") : Brushes.Transparent };
+            var select = new Button { Content = (DeskController.IsRunning(task) ? "● " : "") + ShortTitle(task.Title), ToolTip = task.Title + " · " + task.Status, Background = task == CurrentTask ? Brush("Selected") : Brushes.Transparent };
             select.Click += (_, _) => SelectTask(task); tab.Children.Add(select);
             var close = new Button { Content = "×", ToolTip = "탭 닫기 · 작업은 계속 실행됩니다" };
             close.Click += (_, _) => { closedChats.Add(id); openChats.Remove(id); if (CurrentTask == task && openChats.LastOrDefault() is { } next) SelectTask(desk.State.Tasks.First(t => t.Id == next)); else if (CurrentTask == task) NewTask_Click(this, new RoutedEventArgs()); RenderChatTabs(); };
@@ -220,7 +220,7 @@ public partial class MainWindow
     {
         var row = new DockPanel();
         if (DeskController.IsRunning(task)) { var state = new TextBlock { Text = "진행", Foreground = Brush("Muted"), FontSize = 10, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) }; DockPanel.SetDock(state, Dock.Right); row.Children.Add(state); }
-        row.Children.Add(new TextBlock { Text = task.Title, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 18 });
+        row.Children.Add(new TextBlock { Text = ShortTitle(task.Title), TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 18 });
         var button = new Button { Content = row, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(28, 9, 10, 9), Margin = new Thickness(0), ToolTip = task.Title + " · " + task.Status, Background = task == CurrentTask ? Brush("Selected") : Brushes.Transparent };
         button.Click += (_, _) => SelectTask(task); button.ContextMenu = ChatMenu(task); return button;
     }

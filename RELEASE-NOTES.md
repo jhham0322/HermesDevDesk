@@ -1,3 +1,12 @@
+# Hermes DevDesk 0.8.49
+
+- 작업을 작은 항목으로 계획하고 완료한 항목을 체크합니다. 프로세스별 `작업계획.txt`와 `작업내역.txt`는 앱 데이터 폴더의 `work`에 저장됩니다.
+- 각 항목의 완료 조건을 한 번 확인합니다. 모든 항목이 끝나면 작업이 자동으로 완료되며 재시작하면 저장된 미완료 항목부터 이어갑니다.
+- 제목은 한 줄로 표시됩니다. 제목 펼치기와 제목 복사에서 전체 제목을 사용할 수 있습니다.
+- 모델 서버 응답 전 연결 오류와 실제 HTTP 503을 구분합니다. 안전하게 재시도할 수 있는 경우만 제한적으로 재시도하며, 이후에는 받은 결과와 재개 지점을 보존합니다.
+- 진행 중에 추가한 이미지는 저장한 뒤 다음 실행 단계의 요청과 함께 전달합니다.
+- 스트림과 개별 표시 이벤트의 화면 갱신 및 저장을 묶고, 진행 가능한 자동 단계의 대기 시간을 줄였습니다.
+
 # Hermes DevDesk 0.8.48
 
 - Queued commands without operationId receive stable item/method identities; saved success/failure receipts prevent replay. Unknown effects still require review. Timeout input accepts integer 1000..120000 ms and is distinct from an actual execution timeout.

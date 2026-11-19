@@ -54,6 +54,23 @@ internal static class ContinuationQueueTests
         Decide(task,new{action="complete",verification="All twenty seven requested artifacts satisfy the saved acceptance checks."}); End(task,"turn-AZ");
         check(process.State=="완료" && task.Status=="완료","whole objective completes only after all host checks pass");
         var count=task.Transcript.Count;End(task,"turn-AZ");check(task.Transcript.Count==count,"duplicate completed turn cannot repeat final side effects");
+        var planned = Task("required-plan");
+        var required = desk.BeginProcess(planned, "Save two small steps.", requirePlan: true);
+        check(required.NeedsPlan && Reject(() => Reserve(planned)), "ordinary tasks reject commands before a plan");
+        Decide(planned, new { action = "plan", items = new[] { Item("record-A"), Item("record-B", "initial", "record-A") } });
+        var records = desk.WorkRecordDirectory(required);
+        check(File.ReadAllText(Path.Combine(records, "작업계획.txt")).Contains("record-B"), "UTF-8 work plan contains the second step");
+        Decide(planned, new { action = "start_item", itemId = "record-A" });
+        File.WriteAllText(Path.Combine(root, "record-A.txt"), "VERIFIED_record-A");
+        Decide(planned, new { action = "verify_item", itemId = "record-A", verification = "The file meets its acceptance condition." });
+        var checkpoint = new StateStore(desk.DataDirectory).Load().Processes.Single(p => p.Id == required.Id);
+        check(WorkQueue.Next(checkpoint)?.Id == "record-B" && File.ReadAllText(Path.Combine(records, "작업내역.txt")).Contains("[x] record-A"), "verified step and next step survive reload");
+        Decide(planned, new { action = "start_item", itemId = "record-B" });
+        File.WriteAllText(Path.Combine(root, "record-B.txt"), "VERIFIED_record-B");
+        Decide(planned, new { action = "verify_item", itemId = "record-B", verification = "The second file meets its condition." });
+        End(planned, "turn-required-plan");
+        check(required.State == "완료" && File.ReadAllText(Path.Combine(records, "작업내역.txt")).Contains("상태: 완료"), "all checked items close the task without a second verification call");
+
         var cycle=Task("cycle");var cp=desk.BeginProcess(cycle,"Cycle test");
         check(Reject(()=>Decide(cycle,new{action="plan",items=new[]{Item("cycle-A","initial","cycle-B"),Item("cycle-B","initial","cycle-A")}}))&&cp.Items.Count==0,"cyclic plan is rejected atomically");
         var partial=Task("partial");var pp=desk.BeginProcess(partial,"Persist partial objective");Decide(partial,new{action="plan",items=new[]{Item("saved-A"),Item("saved-B","initial","saved-A")}});Decide(partial,new{action="start_item",itemId="saved-A"});File.WriteAllText(Path.Combine(root,"saved-A.txt"),"VERIFIED_saved-A");var saved=Proof(partial,"saved-A");Decide(partial,new{action="verify_item",itemId="saved-A",evidenceId=saved,verification="Actual saved artifact content was verified."});
