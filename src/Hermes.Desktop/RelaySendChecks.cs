@@ -10,7 +10,7 @@ public partial class MainWindow
 {
     internal async Task RunRelaySendChecks(string data)
     {
-        int probes = 0, generations = 0, models = 0, unexpectedRoutes = 0; bool imageSent = false, fileSent = false, drmSkillSent = false;
+        int probes = 0, generations = 0, models = 0, unexpectedRoutes = 0; bool imageSent = false, fileSent = false, drmSkillSent = false, followupFileSent = false;
         await using var server = new LoopbackHttp(async (request, stream, ct) =>
         {
             if (request.Path.EndsWith("/models")) models++;
@@ -18,7 +18,7 @@ public partial class MainWindow
             using var body = JsonDocument.Parse(request.Body);
             if (body.RootElement.Text("model") != "gpt-6-luna") throw new IOException("Wrong relay model");
             bool probe = body.RootElement.Property("max_output_tokens")?.GetInt32() == 1;
-            if (probe) probes++; else { generations++; imageSent |= body.RootElement.GetRawText().Contains("data:image/png;base64,"); fileSent |= body.RootElement.GetRawText().Contains("UI_SEND_FILE_087"); drmSkillSent |= body.RootElement.GetRawText().Contains("HERMES_TEST_AUTHORIZED_DRM"); }
+            if (probe) probes++; else { generations++; imageSent |= body.RootElement.GetRawText().Contains("data:image/png;base64,"); fileSent |= body.RootElement.GetRawText().Contains("UI_SEND_FILE_087"); followupFileSent |= generations == 2 && body.RootElement.GetRawText().Contains("UI_SEND_FILE_087"); drmSkillSent |= body.RootElement.GetRawText().Contains("HERMES_TEST_AUTHORIZED_DRM"); }
             JsonObject Message(string text) => new() { ["id"] = "msg_owned_" + (probes + generations), ["type"] = "message", ["role"] = "assistant", ["status"] = "completed", ["phase"] = "final_answer", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = text, ["annotations"] = new JsonArray() }) };
             var response = new JsonObject { ["id"] = "resp_owned_" + (probes + generations), ["object"] = "response", ["model"] = "gpt-6-luna", ["status"] = "completed", ["created_at"] = 1,
                 ["output"] = new JsonArray(probe ? Message("OK") : Message("OWNED_RELAY_SEND_OK")) };
@@ -56,6 +56,12 @@ public partial class MainWindow
         await ConnectSelectedEngineAsync();
         if (generations != 1 || probes != 0 || models != 0 || unexpectedRoutes != 0 || !desk.SubscriptionReady)
             throw new IOException("Engine connect triggered a provider request");
-        File.WriteAllText(Path.Combine(data, "relay-send-report.json"), JsonSerializer.Serialize(new { passed = true, exactModel = "gpt-6-luna", probes, generations, models, unexpectedRoutes, noExistingTask = true, missingUsageSupported = true, actualOfficialEngine = true, imageSent, fileSent, drmSkillSent, attachmentOnlySend = true, programmaticWpfButton = true, engineConnectSentNoRequests = true, realCompanyRequests = false }));
+        Prompt.Text = "첨부파일 내용을 설명해줘";
+        StartButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        until = DateTime.UtcNow.AddSeconds(30);
+        while (DateTime.UtcNow < until && (generations < 2 || !desk.State.Tasks.Any(t => t.Status == "완료")))
+            await Task.Delay(50);
+        if (!followupFileSent || generations != 2 || probes != 0) throw new IOException("Follow-up did not receive same-chat attachment content");
+        File.WriteAllText(Path.Combine(data, "relay-send-report.json"), JsonSerializer.Serialize(new { passed = true, exactModel = "gpt-6-luna", probes, generations, models, unexpectedRoutes, noExistingTask = true, missingUsageSupported = true, actualOfficialEngine = true, imageSent, fileSent, drmSkillSent, followupFileSent, attachmentOnlySend = true, programmaticWpfButton = true, engineConnectSentNoRequests = true, realCompanyRequests = false }));
     }
 }

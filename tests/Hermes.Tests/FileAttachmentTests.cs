@@ -22,8 +22,13 @@ internal static class FileAttachmentTests
         Reject(() => FileAttachments.Validate(root, [attached]), "changed attached file blocked before sending");
         var binary = Path.Combine(Path.GetDirectoryName(root)!, "document.pdf"); File.WriteAllBytes(binary, "%PDF-1.4\nfixture"u8.ToArray());
         var pdf = FileAttachments.Import(root, binary);
-        check(FileAttachments.ModelContext(root, [pdf]).Contains("document.pdf") && !FileAttachments.ModelContext(root, [pdf]).Contains("%PDF"), "binary document passed as tool-readable file rather than corrupted text");
+        check(FileAttachments.ModelContext(root, [pdf]).Contains("document.pdf") && FileAttachments.ModelContext(root, [pdf]).Contains("tool-read-required") && !FileAttachments.ModelContext(root, [pdf]).Contains("%PDF"), "binary document passed as tool-readable file rather than corrupted text");
         var state = new AppState { Tasks = [new() { FileAttachments = [new(pdf, DateTime.UtcNow)] }] };
+        var chat = state.Tasks.Single();
+        chat.Transcript.Add(new("파일 첨부", pdf.Name, DateTime.UtcNow));
+        check(FileAttachments.ReferencedInChat(chat, "첨부파일을 읽어줘").SequenceEqual([pdf]) &&
+            FileAttachments.ReferencedInChat(chat, "document.pdf를 읽어줘").SequenceEqual([pdf]) &&
+            !FileAttachments.ReferencedInChat(chat, "다른 질문입니다.").Any(), "only explicit same-chat references recover saved files");
         var store = new StateStore(Path.Combine(root, "file-history")); store.Save(state);
         check(store.Load().Tasks.Single().FileAttachments.Single().File == pdf, "file attachment metadata survives restart");
         check(ImageAttachments.MaxImageBytes >= 20 * 1024 * 1024 && ImageAttachments.MaxTotalBytes >= 40 * 1024 * 1024, "large capture byte limits increased");

@@ -1,0 +1,82 @@
+name: Publish 0.8.67 with attachment content in follow-up
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release-0.8.67.yml']
+permissions:
+  contents: read
+jobs:
+  release:
+    if: github.repository == 'jhham0322/HermesDevDesk' && github.event.repository.private == false
+    runs-on: windows-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_ADD_GLOBAL_TOOLS_TO_PATH: 'false'
+      MSBuildEnableWorkloadResolver: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.401'
+      - name: Fetch integrity-pinned official engine
+        shell: pwsh
+        run: ./scripts/fetch-engine.ps1
+      - name: Build tagged source and Windows packages
+        shell: pwsh
+        run: ./scripts/build.ps1 -DotnetPath (Get-Command dotnet).Source -OutputDirectory artifacts/release-0.8.67
+      - name: Run full synthetic regression
+        shell: pwsh
+        run: |
+          dotnet build tests/Hermes.Tests/Hermes.Tests.csproj -c Release --nologo -p:NuGetAudit=false
+          if ($LASTEXITCODE -ne 0) { throw 'Test build failed' }
+          $tests = Join-Path $PWD 'tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe'
+          Push-Location $env:RUNNER_TEMP
+          try { & $tests; if ($LASTEXITCODE -ne 0) { throw 'Regression failed' } } finally { Pop-Location }
+      - name: Verify quota rotation with the bundled engine
+        shell: pwsh
+        run: |
+          $engine = (Get-ChildItem artifacts/release-0.8.67/app/engine -Recurse -Filter codex.exe | Select-Object -First 1).FullName
+          $tests = Join-Path $PWD 'tests/Hermes.Tests/bin/Release/net10.0/Hermes.Tests.exe'
+          & $tests --model-connections-engine --quota-rotation --root (Join-Path $env:RUNNER_TEMP 'hermes-quota-067') --codex $engine
+          if ($LASTEXITCODE -ne 0) { throw 'Model quota rotation check failed' }
+      - name: Verify title UI, image relay and installer payload
+        shell: pwsh
+        run: |
+          $root = Join-Path $PWD 'artifacts/release-0.8.67'
+          $data = Join-Path $env:RUNNER_TEMP 'hermes-title-067'
+          $app = Join-Path $root 'app/HermesDevDesk.exe'
+          $ui = Start-Process $app -ArgumentList @('--conversation-title-smoke','--data-dir',('"' + $data + '"')) -WindowStyle Hidden -PassThru
+          if (!$ui.WaitForExit(60000) -or $ui.ExitCode -ne 0) { throw 'Title UI verification failed' }
+          Get-Content (Join-Path $data 'conversation-title-report.json')
+          $relayData = Join-Path $env:RUNNER_TEMP 'hermes-relay-067'
+          $relay = Start-Process $app -ArgumentList @('--relay-send-smoke','--data-dir',('"' + $relayData + '"')) -WindowStyle Hidden -PassThru
+          if (!$relay.WaitForExit(70000) -or $relay.ExitCode -ne 0) { throw 'Image relay verification failed' }
+          Get-Content (Join-Path $relayData 'relay-send-report.json')
+          $report = Join-Path $env:RUNNER_TEMP 'hermes-installer-067.json'
+          $setup = Join-Path $root 'HermesDevDesk-0.8.67-win-x64-Setup.exe'
+          $verify = Start-Process $setup -ArgumentList @('/verify',('"' + $report + '"')) -WindowStyle Hidden -PassThru
+          if (!$verify.WaitForExit(60000) -or $verify.ExitCode -ne 0) { throw 'Installer verification failed' }
+          Get-Content $report
+          $cleanupRoot = Join-Path $env:RUNNER_TEMP 'hermes-cleanup-067'
+          $cleanupReport = Join-Path $env:RUNNER_TEMP 'hermes-cleanup-067.txt'
+          $cleanup = Start-Process $setup -ArgumentList @('/cleanup-test',('"' + $cleanupRoot + '"'),('"' + $cleanupReport + '"')) -WindowStyle Hidden -PassThru
+          if (!$cleanup.WaitForExit(90000) -or $cleanup.ExitCode -ne 0) { throw 'Delete-first installation check failed' }
+          Get-Content $cleanupReport
+      - name: Publish verified installer and portable build
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'v0.8.67'
+          $root = 'artifacts/release-0.8.67'
+          gh release create $tag --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title 'Hermes DevDesk 0.8.67' --latest --notes-file RELEASE-NOTES.md "$root/HermesDevDesk-0.8.67-win-x64-Setup.exe" "$root/HermesDevDesk-0.8.67-win-x64-Portable.zip"
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
+          gh release view $tag --repo $env:GITHUB_REPOSITORY --json url,tagName,assets
+
