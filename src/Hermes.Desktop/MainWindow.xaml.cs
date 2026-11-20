@@ -100,9 +100,12 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             var path = AppLog.Write(ex, operation); var message = ConnectionErrors.Describe(ex);
-            Footer.Text = message + " · 오류 로그가 저장되었습니다.";
+            Footer.Text = "작업 중 오류가 발생했습니다.";
+            FooterError.IsExpanded = false;
+            FooterErrorText.Text = message + "\n\n로그: " + path;
+            FooterError.Visibility = Visibility.Visible;
             Logs.AppendText($"[{DateTime.Now:HH:mm:ss}] {operation}: {message}\n로그: {path}\n");
-            if (showDialog) MessageBox.Show(this, message + "\n\n오류 로그: " + path, "Hermes DevDesk", MessageBoxButton.OK, MessageBoxImage.Information);
+
         }
     }
     private void OpenLogs_Click(object sender, RoutedEventArgs e) => _ = Guard(() =>

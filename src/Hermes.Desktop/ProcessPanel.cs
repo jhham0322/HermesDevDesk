@@ -9,6 +9,9 @@ public partial class MainWindow
 {
     private readonly ListBox processList = new() { MinHeight = 100, MaxHeight = 300, Margin = new Thickness(4) };
     private readonly TextBox processDetails = new() { IsReadOnly = true, TextWrapping = TextWrapping.Wrap, AcceptsReturn = true, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(4) };
+    private readonly TextBox processErrorText = new() { IsReadOnly = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 180, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    private readonly Expander processError = new() { Header = "오류 및 중단 상세", Visibility = Visibility.Collapsed, Margin = new Thickness(4) };
+    private string? processErrorId;
     private TabItem? processTab;
     private void InitializeProcessPanel()
     {
@@ -17,7 +20,11 @@ public partial class MainWindow
         var actions = new WrapPanel(); var refresh = new Button { Content = "새로고침" }; var stop = new Button { Content = "선택 프로세스 종료" }; var resume = new Button { Content = "조건 확인 후 재개" }; actions.Children.Add(refresh); actions.Children.Add(stop); actions.Children.Add(resume);
         resume.Click += async (_, _) => await Guard(async () => { if (processList.SelectedItem is TaskProcess selected) { if (selected.PausedForBudget && selected.Items.Count == 0) await desk.ResumeBudgetAsync(selected.Id); else if (MessageBox.Show(this, "취소·승인·외부 제한 조건이 해결됐는지 확인하세요. 완료 항목은 보존하며 결과 미확인 실행은 자동 반복하지 않습니다. 재개할까요?", "체크포인트 재개", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await desk.ResumeSavedProcessAsync(selected.Id, true); } RefreshProcesses(); }); var inspect = new Button { Content = "실행 기록 확인" };
         inspect.Click += (_, _) => { if (processList.SelectedItem is TaskProcess selected) ShowOperationReview(selected.Id); };
-        actions.Children.Add(inspect); top.Children.Add(actions); top.Children.Add(processList); panel.Children.Add(processDetails);
+        actions.Children.Add(inspect); top.Children.Add(actions); top.Children.Add(processList);
+        processError.Content = processErrorText;
+        DockPanel.SetDock(processError, Dock.Bottom);
+        panel.Children.Add(processError);
+        panel.Children.Add(processDetails);
         processTab = new TabItem { Header = "프로세스", Content = panel }; InspectorTabs.Items.Add(processTab);
         refresh.Click += (_, _) => RefreshProcesses();
         stop.Click += async (_, _) => await Guard(async () => { if (processList.SelectedItem is TaskProcess selected) await desk.StopProcessAsync(selected.Id); RefreshProcesses(); });
@@ -34,11 +41,20 @@ public partial class MainWindow
     }
     private void ShowProcess()
     {
-        if (processList.SelectedItem is not TaskProcess process) { processDetails.Text = "프로세스 없음. 작업 요청을 보내세요."; return; }
+        if (processList.SelectedItem is not TaskProcess process) { processDetails.Text = "프로세스 없음. 작업 요청을 보내세요."; processError.Visibility = Visibility.Collapsed; return; }
         var task = desk.State.Tasks.FirstOrDefault(t => t.Id == process.TaskId);
         var project = desk.State.Projects.FirstOrDefault(p => p.Id == task?.ProjectId);
         var usage = desk.State.Usage.LastOrDefault(u => u.TaskId == task?.Id && u.Source == "company-api-response");
-        processDetails.Text = $"최근 요청 계측(ms): 헤더 {usage?.HeadersMs} / 첫 유효 출력 {usage?.FirstUsefulOutputMs} / 전체 {usage?.TotalMs} · 버퍼 응답 {usage?.Buffered}\n예산: {process.Budget.MaxRounds}라운드 / {process.Budget.MaxMinutes}분 · 도구 횟수 상한 없음 / 사용 {process.ToolCalls} · 무진전 {process.StagnantRounds}\n계측(ms): 도구 대기 {process.ToolQueueMs} / 실행 {process.ToolExecutionMs} / 자동 대기 {process.AutomaticWaitMs}\n작업 큐: {process.Items.Count(i => i.State == "verified")}개 검증 / {process.Items.Count(i => !i.Terminal)}개 미완료 · 내부 단계 {process.StageNumber}\n다음 항목: {WorkQueue.Next(process)?.Title}\n차단 구분: {process.BlockKind}\n재개 지점: {process.Checkpoint}\n프로세스: {process.Id}\n프로젝트: {project?.Name}\n채팅: {task?.Title}\n상태: {process.State} / {task?.Status}\n실행 회차: {process.Round}\n시작: {process.Started.ToLocalTime():g}\n최근 변경: {process.Updated.ToLocalTime():g}\n\n목표\n{process.Goal}\n\n최근 결과·완료 검증 보고\n{process.Detail}\n\n완료 근거는 모델의 검증 보고이며 호스트는 인용된 실행 근거의 출처를 확인합니다.";
+        var hasError = process.BlockKind.Length > 0 || process.State.Contains("실패", StringComparison.Ordinal) ||
+            process.State.Contains("복구 필요", StringComparison.Ordinal);
+        var errorText = hasError ? process.Detail + "\n\n재개 지점\n" + process.Checkpoint : "";
+        if (processErrorId != process.Id || processErrorText.Text != errorText) processError.IsExpanded = false;
+        processErrorId = process.Id;
+        processErrorText.Text = errorText;
+        processError.Visibility = hasError ? Visibility.Visible : Visibility.Collapsed;
+        var checkpoint = hasError ? "오류 및 중단 상세에서 보기" : process.Checkpoint;
+        var detail = hasError ? "오류 및 중단 상세에서 보기" : process.Detail;
+        processDetails.Text = $"최근 요청 계측(ms): 헤더 {usage?.HeadersMs} / 첫 유효 출력 {usage?.FirstUsefulOutputMs} / 전체 {usage?.TotalMs} · 버퍼 응답 {usage?.Buffered}\n예산: {process.Budget.MaxRounds}라운드 / {process.Budget.MaxMinutes}분 · 도구 횟수 상한 없음 / 사용 {process.ToolCalls} · 무진전 {process.StagnantRounds}\n계측(ms): 도구 대기 {process.ToolQueueMs} / 실행 {process.ToolExecutionMs} / 자동 대기 {process.AutomaticWaitMs}\n작업 큐: {process.Items.Count(i => i.State == "verified")}개 검증 / {process.Items.Count(i => !i.Terminal)}개 미완료 · 내부 단계 {process.StageNumber}\n다음 항목: {WorkQueue.Next(process)?.Title}\n차단 구분: {process.BlockKind}\n재개 지점: {checkpoint}\n프로세스: {process.Id}\n프로젝트: {project?.Name}\n채팅: {task?.Title}\n상태: {process.State} / {task?.Status}\n실행 회차: {process.Round}\n시작: {process.Started.ToLocalTime():g}\n최근 변경: {process.Updated.ToLocalTime():g}\n\n목표\n{process.Goal}\n\n최근 결과·완료 검증 보고\n{detail}\n\n완료 근거는 모델의 검증 보고이며 호스트는 인용된 실행 근거의 출처를 확인합니다.";
         if (usage?.RequestedOutputTokens is { } cap) processDetails.AppendText($"\n요청당 출력 상한 {cap:N0} · 서버가 보고한 출력 {usage.Tokens.Output?.ToString("N0") ?? "미제공"}");
         processDetails.Text += $"\n자동 재개 예약(KST): {process.DailyQuotaResumeAt?.ToOffset(TimeSpan.FromHours(9)).ToString("yyyy-MM-dd HH:mm") ?? "없음"} · 시도 {process.DailyQuotaResumeAttempts}/3 · 취소 {process.DailyQuotaCancelled}";
         if (process.RequirePlan) processDetails.AppendText("\n\n저장 위치: " + desk.WorkRecordDirectory(process));

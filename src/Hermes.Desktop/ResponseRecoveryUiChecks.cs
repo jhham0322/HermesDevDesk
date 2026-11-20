@@ -42,6 +42,14 @@ public partial class MainWindow
                     RenderTask();
                     Check(!Text(MessageStack).Contains("stream disconnected before completion"), "legacy engine error is hidden in the actual chat UI");
                 }
+                if (kind != "response_output_limit")
+                {
+                    var errorCard = MessageStack.Children.OfType<Expander>().Last(card =>
+                        Text(card.Header as DependencyObject ?? throw new IOException("Error header missing")).Contains("오류 상세 보기"));
+                    Check(!errorCard.IsExpanded && errorCard.Content == null, "error is collapsed and its content is not rendered before expansion");
+                    errorCard.IsExpanded = true;
+                    UpdateLayout();
+                }
                 var expectedNotice = kind == "response_output_limit" ? note : note.Split(']')[0] + "]";
                 Check(Text(MessageStack).Contains("PARTIAL_KEPT")&&Text(MessageStack).Contains(expectedNotice),kind+" actual WPF displays distinct reason and retained partial answer");
                 Check(processDetails.Text.Contains(kind)&&processDetails.Text.Contains("remaining")&&!p.Active,kind+" process panel shows interruption category and resume checkpoint");

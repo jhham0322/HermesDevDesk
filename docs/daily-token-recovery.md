@@ -1,6 +1,6 @@
 # Daily token recovery
 
-A failed provider turn with explicit daily token exhaustion schedules the same persistent completion-loop process for **the following calendar day at 09:30 Asia/Seoul (UTC+09:00)**. This is the owner-requested retry time, not proof that every provider resets then. A per-response `finish_reason=length`, context-window limit, generic HTTP 429, weekly limit, payment/billing failure, authentication/permission rejection, cancellation, pending approval or uncertain side effect is not eligible.
+A failed provider turn with explicit daily token exhaustion schedules the same persistent completion-loop process for **the next daily reset at 09:10 Asia/Seoul (UTC+09:00)**. This is the owner-requested retry time, not proof that every provider resets then. A per-response `finish_reason=length`, context-window limit, generic HTTP 429, weekly limit, payment/billing failure, authentication/permission rejection, cancellation, pending approval or uncertain side effect is not eligible.
 
 The original task ID, engine thread, requirements, completed items and operation receipts remain in the state store. The running application checks due work every 30 seconds. It requires the same connected provider fingerprint/session and a non-archived idle task. Expired OAuth sessions are not refreshed by this feature. If the application/computer is off or disconnected at the deadline, the reservation remains until the application and the original connection are available. This feature does not install a Windows startup service or wake the computer.
 

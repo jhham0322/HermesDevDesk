@@ -1,4 +1,4 @@
-# Hermes DevDesk 0.8.62
+# Hermes DevDesk 0.8.63
 
 **[AI 챗봇 v1.0.23 Java 소스 5개 다운로드](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.23-source.zip)** · 기존 Spring 앱의 `com.skhynix.hcp.srp.agent` 패키지용. 포털 컨텍스트의 메시지 전송 URI는 `POST /securityportal-apis/aiChat/chat2/send`입니다.
 
@@ -50,7 +50,7 @@
 
 **[이전 버전 AI 챗봇 v1.0.0 소스 ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.47/ai-chatbot-1.0.0-source.zip)**
 
-[Windows 64비트 설치 파일 (v0.8.62)](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.62/HermesDevDesk-0.8.62-win-x64-Setup.exe) · [포터블 ZIP (v0.8.62)](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.62/HermesDevDesk-0.8.62-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
+[Windows 64비트 설치 파일 (v0.8.63)](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.63/HermesDevDesk-0.8.63-win-x64-Setup.exe) · [포터블 ZIP (v0.8.63)](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.63/HermesDevDesk-0.8.63-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
 
 작업 결과 전체를 저장합니다. 응답 스트림이 불완전하게 종료되면 해당 결과를 완료로 기록하지 않습니다.
 
@@ -60,7 +60,7 @@
 [Windows 64비트 설치파일 다운로드 (0.8.44)](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.44/HermesDevDesk-0.8.44-win-x64-Setup.exe) · [포터블 ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.44/HermesDevDesk-0.8.44-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
 
 - Chat Completions `finish_reason=length` with no answer is now a valid incomplete response, not a generic server-format failure. It is not a daily-token quota or success. Truncated tool calls are not executable output; private reasoning stays private.
-- Explicit daily-token exhaustion schedules the existing checkpoint for the following calendar day at 09:30 Korea time. The app must be open and connected to the same model/provider; an overdue reservation is checked after reconnect. No machine wake or guaranteed provider reset is claimed.
+- Explicit daily-token exhaustion schedules the existing checkpoint for the next daily reset at 09:10 Korea time. The app must be open with an eligible saved model connection; an overdue reservation is checked after reconnect. No machine wake or guaranteed provider reset is claimed.
 - Stop cancels the reservation. Persisted exclusive claims prevent duplicate requests, uncertain admissions require review, and automatic quota retries stop after three attempts. Authentication, permission, payment, generic HTTP 429, content filtering, one-response length and uncertain side effects are not automatically retried.
 - This release preserves existing settings, checkpoints and prior verification limitations. See `docs/daily-token-recovery.md` and `VALIDATION-0.8.44.md` for tested scope.
 

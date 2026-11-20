@@ -9,8 +9,13 @@ public static class DailyQuotaRecovery
     public static DateTimeOffset NextReset(DateTimeOffset observed)
     {
         var local = observed.ToOffset(TimeSpan.FromHours(9));
-        return new DateTimeOffset(local.Date.AddDays(1).AddHours(9).AddMinutes(30), TimeSpan.FromHours(9)).ToUniversalTime();
+        var reset = new DateTimeOffset(local.Date.AddHours(9).AddMinutes(10), local.Offset);
+        return (reset > local ? reset : reset.AddDays(1)).ToUniversalTime();
     }
+    internal static DateTimeOffset? MigrateResetTime(DateTimeOffset? time) =>
+        time is { } due && due.ToOffset(TimeSpan.FromHours(9)).TimeOfDay == new TimeSpan(9, 30, 0)
+            ? due.AddMinutes(-20) : time;
+
     // Only a provider turn error qualifies. A generic 429, billing quota, a model's
     // prose, and a single-response output limit never grant automatic resumption.
     public static bool IsDailyTokenExhaustion(JsonElement turn)
@@ -145,7 +150,7 @@ public sealed partial class DeskController
                             if (previous != target.Id) task.ReasoningEffort = "";
                             task.Transcript.Add(TranscriptPresentation.Host("자동 재개 시작", $"{ModelChoice(target.Id, task.Model)} 연결에서 저장된 작업을 이어갑니다."));
                         }
-                        else task.Transcript.Add(TranscriptPresentation.Host("자동 재개 시작", "한국시간 09:30 이후 일일 토큰 재개를 시도합니다. 기존 작업·완료 항목·실행 증거를 보존합니다."));
+                        else task.Transcript.Add(TranscriptPresentation.Host("자동 재개 시작", "한국시간 09:10 이후 일일 토큰 재개를 시도합니다. 기존 작업·완료 항목·실행 증거를 보존합니다."));
                         p.BlockKind = "";
                         await ResumeSavedProcessAsync(p.Id);
                     }

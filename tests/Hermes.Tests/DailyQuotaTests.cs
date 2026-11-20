@@ -15,8 +15,9 @@ internal static class DailyQuotaTests
             check(!Classify(message),"not daily quota: "+message);
         check(!Classify("daily token limit exceeded","completed"),"model successful answer does not schedule quota recovery");
         var now=DateTimeOffset.Parse("2026-11-18T00:10:00Z");
-        check(DailyQuotaRecovery.NextReset(now)==DateTimeOffset.Parse("2026-11-19T00:30:00Z"),"next calendar day 09:30 KST even before today's 09:30");
-        check(DailyQuotaRecovery.NextReset(DateTimeOffset.Parse("2026-11-18T23:50:00Z"))==DateTimeOffset.Parse("2026-11-20T00:30:00Z"),"KST calendar rather than machine UTC date");
+        check(DailyQuotaRecovery.NextReset(now)==DateTimeOffset.Parse("2026-11-19T00:10:00Z"),"after a reset timestamp, the next attempt is tomorrow at 09:10 KST");
+        check(DailyQuotaRecovery.NextReset(now.AddMinutes(-1))==now,"before 09:10, the next reset is today");
+        check(DailyQuotaRecovery.NextReset(DateTimeOffset.Parse("2026-11-18T23:50:00Z"))==DateTimeOffset.Parse("2026-11-19T00:10:00Z"),"KST calendar rather than machine UTC date");
         await using var desk=new DeskController(Path.Combine(root,"data"));var project=desk.Register(root);var task=desk.NewTask(project,"daily quota owned fixture");
         task.ThreadId="quota-thread";task.TurnId="first";task.Status="실행 중";
         var p=desk.BeginProcess(task,"Preserve the original requirement and finish it after daily reset");

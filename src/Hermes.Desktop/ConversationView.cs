@@ -84,7 +84,8 @@ public partial class MainWindow
             if (entry.Kind == "에이전트 스트림" && previous?.Kind == "에이전트 스트림" && position < MessageStack.Children.Count && MessageStack.Children[position] is Border { Child: StackPanel livePanel } && livePanel.Children[^1] is TextBox live)
             { live.Text = entry.Text; ((TextBlock)livePanel.Children[0]).Text = TranscriptPresentation.Label(entry); renderedEntries[position] = entry; continue; }
             UIElement view;
-            if (entry.Kind is "사용자" or "에이전트" or "에이전트 스트림")
+            var isError = ProgressMessages.IsErrorDetail(entry);
+            if (!isError && entry.Kind is "사용자" or "에이전트" or "에이전트 스트림")
             {
                 UIElement content = entry.Kind == "에이전트 스트림" ? new TextBox { Text = entry.Text, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, FontSize = 18, BorderThickness = new Thickness(0), Padding = new Thickness(0), Background = Brushes.Transparent } : Markdown(entry.Text);
                 var labeled = new StackPanel(); if (entry.Kind != "사용자") labeled.Children.Add(new TextBlock { Text = TranscriptPresentation.Label(entry), Foreground = Brush("Muted"), FontSize = 12, Margin = new Thickness(0, 0, 0, 6) }); labeled.Children.Add(content);
@@ -93,14 +94,17 @@ public partial class MainWindow
             }
             else
             {
-                var shortText = entry.Text.Split('\n')[0]; if (shortText.Length > 95) shortText = shortText[..95] + "…";
+                var firstLine = entry.Text.IndexOf('\n');
+                var shortText = isError ? "오류 상세 보기" : entry.Text[..Math.Min(95, firstLine < 0 ? entry.Text.Length : firstLine)];
+                if (!isError && (firstLine < 0 ? entry.Text.Length : firstLine) > 95) shortText += "…";
                 var header = new DockPanel(); header.Children.Add(MakeIcon(entry.Kind.Contains("명령") ? "code" : entry.Kind.Contains("파일") ? "document" : "chat", 16));
                 header.Children.Add(new TextBlock { Text = TranscriptPresentation.Label(entry) + " " + entry.Kind + "  " + shortText, Foreground = Brush("Muted"), FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis });
-                var isCommand = IsCommandDetail(entry); var expansionKey = isCommand ? CommandExpansionKey(entry) : "";
-                var expander = new Expander { Header = header, Margin = new Thickness(0, 2, 0, 12), IsExpanded = isCommand ? commandExpansion.GetValueOrDefault(expansionKey) : entry.Kind is "호스트 보고" or "오류" or "진행 요약" or "작업 진행" or "계획" or "명령 출력" or "브라우저 소스" };
+                var trackExpansion = isError || IsCommandDetail(entry);
+                var expansionKey = trackExpansion ? (isError ? "error|" : "") + CommandExpansionKey(entry) : "";
+                var expander = new Expander { Header = header, Margin = new Thickness(0, 2, 0, 12), IsExpanded = trackExpansion ? commandExpansion.GetValueOrDefault(expansionKey) : entry.Kind is "호스트 보고" or "오류" or "진행 요약" or "작업 진행" or "계획" or "명령 출력" or "브라우저 소스" };
                 if (expander.IsExpanded) expander.Content = Markdown(entry.Text);
-                expander.Expanded += (_, _) => { if (isCommand) commandExpansion[expansionKey] = true; expander.Content ??= Markdown(entry.Text); };
-                expander.Collapsed += (_, _) => { if (isCommand) commandExpansion[expansionKey] = false; };
+                expander.Expanded += (_, _) => { if (trackExpansion) commandExpansion[expansionKey] = true; expander.Content ??= Markdown(entry.Text); };
+                expander.Collapsed += (_, _) => { if (trackExpansion) commandExpansion[expansionKey] = false; };
                 view = expander;
             }
             if (position < MessageStack.Children.Count) { MessageStack.Children.RemoveAt(position); MessageStack.Children.Insert(position, view); }

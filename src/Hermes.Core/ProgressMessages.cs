@@ -4,11 +4,14 @@ namespace Hermes.Core;
 public static class ProgressMessages
 {
     public static bool IsSummary(TranscriptEntry entry) => entry.Kind is "진행 요약" or "호스트 보고" || entry.ItemId?.StartsWith("progress:", StringComparison.Ordinal) == true;
+    public static bool IsErrorDetail(TranscriptEntry entry) =>
+        entry.Stage == "에러원인" || entry.Kind.Contains("오류", StringComparison.Ordinal) || HasLegacyToolFailure(entry);
+
     // Attention and answer entries stay visible regardless of tool-card preference.
     public static bool IsHiddenWhenProgressOff(TranscriptEntry entry)
     {
-        if (entry.Kind is "사용자" or "에이전트" or "에이전트 스트림" || entry.Kind.Contains("오류", StringComparison.Ordinal)
-            || entry.Kind.StartsWith("승인", StringComparison.Ordinal) || entry.Stage is "에러원인" or "입력 필요" || HasLegacyToolFailure(entry)) return false;
+        if (entry.Kind is "사용자" or "에이전트" or "에이전트 스트림" || IsErrorDetail(entry)
+            || entry.Kind.StartsWith("승인", StringComparison.Ordinal) || entry.Stage == "입력 필요") return false;
         return IsSummary(entry) || entry.Origin.StartsWith("도구:", StringComparison.Ordinal)
             || entry.ItemId?.StartsWith("tool-progress:", StringComparison.Ordinal) == true
             || entry.Kind is "작업 진행" or "명령 결과" or "명령 출력" or "MCP 도구" or "도구 결과";

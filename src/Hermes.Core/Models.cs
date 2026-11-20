@@ -129,6 +129,10 @@ public sealed class StateStore
             using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
             state = JsonSerializer.Deserialize<AppState>(input) ?? throw new HermesException("이력 파일 손상: 원본을 보존했습니다.");
         }
+        foreach (var model in state.ModelConnections)
+            model.QuotaExhaustedUntil = DailyQuotaRecovery.MigrateResetTime(model.QuotaExhaustedUntil);
+        foreach (var process in state.Processes.Where(p => p.BlockKind == "daily_token_quota" && p.DailyQuotaClaimedAt == null))
+            process.DailyQuotaResumeAt = DailyQuotaRecovery.MigrateResetTime(process.DailyQuotaResumeAt);
         foreach (var entry in state.Usage.Where(e => e.Status == "started")) { entry.Status = "unknown-after-restart"; entry.Requests = null; entry.Note = "연결 종료 전 최종 usage를 받지 못함"; }
         foreach (var task in state.Tasks.Where(t => t.Status is "실행 중" or "승인 대기" or "시작 중" or "중단 중" or "계속 실행 대기")) { task.Status = "연결 끊김 · 재개 가능"; task.TurnId = null; }
         foreach (var process in state.Processes.Where(p => p.Active)) { process.State = "앱 종료로 중단됨"; process.Detail = "앱이 다시 시작되었습니다. 작업을 확인한 뒤 다시 실행하세요."; }
