@@ -25,7 +25,8 @@ public partial class MainWindow
             foreach(var kind in new[]{"response_output_limit","response_early_eof","response_timeout"})
             {
                 var task=desk.NewTask(project,kind);task.ThreadId=kind=="response_output_limit"?"STAGE3_RESUME_FIXTURE":"UI-"+kind;task.TurnId="turn-"+kind;task.Status="실행 중";task.ThreadLearningVersion=2;
-                var p=(TaskProcess)typeof(DeskController).GetMethod("BeginProcess",flags)!.Invoke(desk,[task,"Preserve completed artifact and verify remaining work"] )!;
+                var p=(TaskProcess)typeof(DeskController).GetMethod("BeginProcess",flags)!.Invoke(desk,[task,"Preserve completed artifact and verify remaining work", false] )!;
+                if (kind == "response_output_limit") p.OutputLimitContinuations = 2;
                 p.Items.Add(new(){Id="written",Title="Completed file",State="verified"});p.Items.Add(new(){Id="remaining",Title="Verify remaining",State="running"});
                 File.WriteAllText(Path.Combine(root,kind+".txt"),"WRITE_ONCE");
                 p.Operations.Add(new(){Key="write-once",ItemId="written",State="completed",Result="WRITE_ONCE",ResultReceived=true,ExitCode=0,MethodDigest=ExecutionBudget.Digest(["Write-Output WRITE_ONCE","already written"])});

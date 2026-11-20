@@ -547,7 +547,19 @@ public sealed partial class DeskController : IAsyncDisposable
                 if (stoppedProcess != null && ActiveProcess(task) == null) { stoppedProcess.CompletedTurnIds.Add(finishedId); task.Status = "중단됨"; break; }
                 ComputerStopRequested?.Invoke(task);
                 var turn = p.GetProperty("turn"); task.Status = turn.Text("status") switch { "completed" => "완료", "interrupted" => "중단됨", _ => "실패" };
-                if (turn.Property("error") is { ValueKind: JsonValueKind.Object } error && !HasUpstreamFailure(task, finishedId))
+                if (turn.Property("error") is { ValueKind: JsonValueKind.Object } outputError &&
+                    ResponseInterruption.IsOutputLimit(outputError))
+                {
+                    if (ActiveProcess(task) != null) MarkOutputLimit(task);
+                    else if (task.Status != "중단됨")
+                    {
+                        task.Status = "응답 미완료 · 재개 필요";
+                        task.Transcript.Add(TranscriptPresentation.Host("중간보고",
+                            ResponseInterruption.Message("response_output_limit"), finishedId));
+                    }
+                }
+                if (turn.Property("error") is { ValueKind: JsonValueKind.Object } error &&
+                    !ResponseInterruption.IsOutputLimit(error) && !HasUpstreamFailure(task, finishedId))
                 {
                     var message = ProviderErrors.ReadableMessage(error.Text("message"));
                     var proof = Memory.Record(MemoryScope(task), task.Id, "turn-error/" + turn.Text("id"), MemoryPurpose(task), "provider", task.Model, false, message);
@@ -588,8 +600,16 @@ public sealed partial class DeskController : IAsyncDisposable
                 }
                 break;
             case "error":
-                if (!HasUpstreamFailure(task, task.TurnId))
-                    task.Transcript.Add(new("오류", ProviderErrors.ReadableMessage(p.GetProperty("error").Text("message")), DateTime.UtcNow));
+                var notification = p.GetProperty("error");
+                var notificationTurn = p.Text("turnId");
+                if (ResponseInterruption.IsOutputLimit(notification))
+                {
+                    if (p.Property("willRetry") is not { ValueKind: JsonValueKind.True } && task.TurnId != null &&
+                        (notificationTurn.Length == 0 || notificationTurn == task.TurnId))
+                        MarkOutputLimit(task);
+                }
+                else if (!HasUpstreamFailure(task, task.TurnId))
+                    task.Transcript.Add(new("오류", ProviderErrors.ReadableMessage(notification.Text("message")), DateTime.UtcNow));
                 break;
         }
         if (e.Method is "item/started" or "item/completed")

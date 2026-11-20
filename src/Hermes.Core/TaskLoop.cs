@@ -94,8 +94,28 @@ public sealed partial class DeskController
 
         if (process.State == "종료 중") { EndProcess(task, "종료됨", "사용자가 프로세스를 종료했습니다."); task.Status = "중단됨"; return; }
         if (status == "interrupted") { EndProcess(task, "종료됨", "사용자 또는 엔진이 실행을 중단했습니다."); return; }
+        if (process.BlockKind == "response_output_limit")
+        {
+            process.Decision = null;
+            var partial = task.Transcript.LastOrDefault(e => e.TurnId == turn.Text("id") &&
+                e.Kind is "에이전트" or "에이전트 스트림" && !string.IsNullOrWhiteSpace(e.Text))?.Text;
+            if (partial != null) process.OutputContinuationTail = partial[^Math.Min(partial.Length, 2000)..];
+            if (process.OutputLimitContinuations < 2)
+            {
+                process.OutputLimitContinuations++;
+                process.ConsecutiveFailures = 0;
+                process.BlockKind = "";
+                task.Transcript.Add(TranscriptPresentation.Host("중간보고",
+                    "모델 출력 한도에 도달했습니다. 받은 내용과 완료 기록을 저장했고 남은 부분을 이어서 실행합니다.", turn.Text("id")));
+                ScheduleContinuation(task, process);
+                return;
+            }
+            process.Detail = "모델 출력 한도가 반복되어 받은 답변과 완료 기록을 저장했습니다. 프로세스에서 재개할 수 있습니다.";
+        }
         if (process.BlockKind.StartsWith("response_", StringComparison.Ordinal))
         { process.Decision = null; process.Checkpoint = WorkQueue.Summary(process); EndProcess(task, "응답 미완료 · 재개 필요", process.Detail); task.Status = "응답 미완료 · 재개 필요"; Save(); return; }
+        process.OutputLimitContinuations = 0;
+        process.OutputContinuationTail = "";
         if (status == "completed" && process.RequirePlan &&
             process.Items.FirstOrDefault(i => i.State == "running") is { Kind: "answer" } answer &&
             task.Transcript.LastOrDefault(e => e.Kind == "에이전트" && e.Stage == "완료" &&
@@ -137,6 +157,11 @@ public sealed partial class DeskController
         {
             EndProcess(task, "연결 복구 필요", "엔진 요청이 3회 연속 실패했습니다. 인증·서버·모델 연결을 확인한 후 다시 실행하세요."); task.Status = "연결 복구 필요"; return;
         }
+        ScheduleContinuation(task, process);
+    }
+
+    private void ScheduleContinuation(WorkItem task, TaskProcess process)
+    {
         process.State = "다음 실행 대기"; process.Updated = DateTime.UtcNow;
         task.Status = "계속 실행 대기";
         var cancellation = new CancellationTokenSource(); loopWaits[task.Id] = cancellation;
@@ -170,7 +195,9 @@ public sealed partial class DeskController
             var root = Safety.ProjectRoot(Project(task).Root);
             var automatic = !task.IsReview;
             var policy = new { type = "dangerFullAccess" };
-            var prompt = "Continue the original authorized objective. Do the remaining work and verify its outcome; do not merely repeat a status message. " + (task.ThreadLearningVersion == 1 ? LegacyLoopInstructions : LoopInstructions) + "\nOriginal objective and saved checkpoint:\n" + (task.ThreadLearningVersion == 1 ? string.Join("\n\nAdditional authorized request:\n", process.Requirements.Select(r => r.Text)) : WorkQueue.Summary(process)) + "\n" + Memory.Context(MemoryScope(task), WorkQueue.Next(process)?.Title ?? process.Goal);
+            var prompt = "Continue the original authorized objective. Do the remaining work and verify its outcome; do not merely repeat a status message. " + (task.ThreadLearningVersion == 1 ? LegacyLoopInstructions : LoopInstructions) + "\nOriginal objective and saved checkpoint:\n" + (task.ThreadLearningVersion == 1 ? string.Join("\n\nAdditional authorized request:\n", process.Requirements.Select(r => r.Text)) : WorkQueue.Summary(process)) + (process.OutputLimitContinuations > 0 || process.OutputContinuationTail.Length > 0
+                ? "\nThe previous output reached its token limit. Continue only from the saved point in a short section. Do not restate delivered text or repeat completed operations. Last delivered excerpt: " + JsonSerializer.Serialize(process.OutputContinuationTail)
+                : "\n" + Memory.Context(MemoryScope(task), WorkQueue.Next(process)?.Title ?? process.Goal));
             task.Transcript.Add(new("자동 계속", $"{process.Round}회차 · 미완료 작업을 이어서 수행합니다.", DateTime.UtcNow)); Save();
             var input = new List<object> { new { type = "text", text = prompt } };
             var drmSkill = DocumentSkill.Find(root, []);

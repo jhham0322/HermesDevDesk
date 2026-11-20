@@ -93,7 +93,7 @@ public sealed partial class DeskController
         CheckOAuthSession();
         p.UserStopped = false; p.BlockKind = ""; p.PausedForBudget = false; p.BudgetReason = ""; p.Decision = null; p.DecisionTurnId = ""; p.LastCompletedTurnId = "";
         p.Budget = State.Desktop.ExecutionBudget.Copy();
-        p.StageStarted = DateTime.UtcNow; p.StageRoundOffset = p.Round; p.StagnantRounds = 0; p.ConsecutiveFailures = 0;
+        p.StageStarted = DateTime.UtcNow; p.StageRoundOffset = p.Round; p.StagnantRounds = 0; p.ConsecutiveFailures = 0; p.OutputLimitContinuations = 0;
         p.State = "다음 실행 대기"; task.Status = "계속 실행 대기"; task.TurnId = null; Save();
         await ContinueLoopAsync(task, p, Engine);
     }

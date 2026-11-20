@@ -53,6 +53,18 @@ internal static class ResponseRecoveryTests
             using(var empty=JsonDocument.Parse(JsonSerializer.Serialize(new{threadId=task.ThreadId,item=new{id="partial",type="agentMessage",text=""}})))desk.Handle(new("item/completed",empty.RootElement));
             check(task.Transcript.Any(e=>e.ItemId=="partial"&&e.Text=="PARTIAL_KEPT"),mode+" empty final message cannot erase received partial text");
             check(task.Transcript.Count(e=>e.ItemId=="response-interruption-"+response.usage.Id)==1&&task.Transcript.Any(e=>e.Origin=="Hermes"&&e.Text.Contains(response.usage.Note)),mode+" exposes one host UI message with source and reason");
+            if (mode == "output_limit")
+            {
+                var ended = task.TurnId;
+                var failed = JsonSerializer.SerializeToElement(new { threadId = task.ThreadId, turn = new { id = ended, status = "failed", error = new { message = "stream disconnected before completion: Incomplete response returned, reason: max_output_tokens" } } });
+                desk.Handle(new("turn/completed", failed));
+                check(process.Active && process.OutputLimitContinuations == 1 && process.BlockKind == "" && task.Status == "계속 실행 대기" &&
+                    process.OutputContinuationTail == "PARTIAL_KEPT" && process.Items[0].State == "verified" &&
+                    !task.Transcript.Any(e => e.Kind == "오류" && e.Text.Contains("stream disconnected")), "token cap preserves partial output and schedules a bounded continuation");
+                process.OutputLimitContinuations = 2;
+                process.BlockKind = expected;
+                task.TurnId = "repeated-output-limit";
+            }
             using(var terminal=JsonDocument.Parse(JsonSerializer.Serialize(new{threadId=task.ThreadId,turn=new{id=task.TurnId,status="completed"}})))desk.Handle(new("turn/completed",terminal.RootElement));
             check(!process.Active&&process.BlockKind==expected&&process.Decision!="complete"&&process.Items[0].State=="verified",mode+" pauses completion loop without losing verified item");
             check(task.Transcript.Any(e=>e.Text=="PARTIAL_KEPT")&&process.Operations.Single().Result=="WRITE_ONCE",mode+" keeps received text and completed execution evidence");
@@ -69,7 +81,7 @@ internal static class ResponseRecoveryTests
             ((HashSet<string>)typeof(DeskController).GetField("loadedThreads",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(desk)!).Add(task.ThreadId!);
             await desk.ResumeSavedProcessAsync(process.Id,true);
             var stats=await rpc.RequestAsync("fixture/stats",new{});
-            check(process.Active&&WorkQueue.Next(process)?.Id=="remaining"&&stats.Text("input").Contains("remaining"),"actual explicit resume RPC uses original checkpoint and selects remaining item");
+            check(process.Active&&WorkQueue.Next(process)?.Id=="remaining"&&stats.Text("input").Contains("remaining")&&stats.Text("input").Contains("PARTIAL_KEPT"),"actual explicit resume RPC uses original checkpoint and selects remaining item");
             var run=typeof(DeskController).GetMethod("RunLearnedCommand",BindingFlags.NonPublic|BindingFlags.Instance)!;
             var reportsBeforeCache=task.Transcript.Count;
             var cached=await (Task<string>)run.Invoke(desk,[task,rpc,commandArgs,"duplicate-after-resume",task.TurnId])!;

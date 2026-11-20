@@ -9,9 +9,17 @@ internal static class ResponseInterruption
         entry.FailureKind=entry.IncompleteReason=="max_output_tokens"?"response_output_limit":"response_incomplete";
         entry.Note=Message(entry.FailureKind);
     }
+    internal static bool IsOutputLimit(JsonElement error)
+    {
+        var reason = error.Property("incomplete_details")?.Text("reason") ?? error.Text("reason");
+        if (reason == "max_output_tokens") return true;
+        var message = error.Text("message");
+        return message.Contains("Incomplete response returned", StringComparison.OrdinalIgnoreCase) &&
+            message.Contains("reason: max_output_tokens", StringComparison.OrdinalIgnoreCase);
+    }
     internal static string Message(string kind)=>kind switch
     {
-        "response_output_limit"=>"[MODEL_OUTPUT_LIMIT] 모델 출력 한도(max_output_tokens)로 응답이 미완료입니다. 받은 텍스트와 실행 근거를 보존했습니다. 한도·문맥을 확인한 뒤 명시적으로 남은 작업만 재개하세요.",
+        "response_output_limit"=>"[MODEL_OUTPUT_LIMIT] 모델 출력 한도(max_output_tokens)로 응답이 미완료입니다. 실행 근거를 보존했습니다. 받은 지점부터 짧게 이어갈 수 있습니다.",
         "response_upstream_transport"=>"[MODEL_CONNECTION] 모델 서버와의 연결이 끊겼습니다. 저장된 작업 지점에서 재개할 수 있습니다.",
         "response_upstream_unavailable"=>"[MODEL_UNAVAILABLE] 모델 서버가 재시도 후에도 일시적으로 요청을 처리하지 못했습니다. 저장된 작업 지점에서 재개할 수 있습니다.",
         "response_early_eof"=>"[RESPONSE_EARLY_EOF] 종료 이벤트 전에 응답 스트림이 끊겼습니다. 받은 텍스트와 실행 근거를 보존했으며 완료로 처리하거나 자동 재실행하지 않습니다.",
@@ -21,6 +29,14 @@ internal static class ResponseInterruption
 }
 public sealed partial class DeskController
 {
+    private void MarkOutputLimit(WorkItem task)
+    {
+        if (ActiveProcess(task) is not { } process) return;
+        if (process.UserStopped || process.BlockKind.Length > 0 && process.BlockKind != "response_output_limit") return;
+        process.BlockKind = "response_output_limit";
+        process.Detail = ResponseInterruption.Message(process.BlockKind);
+    }
+
     private void ObserveResponseInterruption(WorkItem task,UsageEntry usage)
     {
         if(!usage.FailureKind.StartsWith("response_",StringComparison.Ordinal))return;

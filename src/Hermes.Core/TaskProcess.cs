@@ -36,6 +36,8 @@ public sealed class TaskProcess
     public long ToolExecutionMs { get; set; }
     public long AutomaticWaitMs { get; set; }
     public bool PausedForBudget { get; set; }
+    public int OutputLimitContinuations { get; set; }
+    public string OutputContinuationTail { get; set; } = "";
     public int ConsecutiveFailures { get; set; }
     public string Detail { get; set; } = "완료 근거를 확인할 때까지 자동으로 이어갑니다.";
     public string? Decision { get; set; }
