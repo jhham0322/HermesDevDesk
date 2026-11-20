@@ -1,6 +1,8 @@
 # Hermes DevDesk 0.8.61
 
-**[AI 챗봇 v1.0.19 Java 소스 ZIP 다운로드](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.19-source.zip)** · **[AiChatController 및 UI 연동 가이드](docs/ai-chatbot-ui-integration.md)** · **[회사 AI 작업 지시문 열기 (TXT)](COMPANY-AI-WORK-GUIDE.txt)**
+**[AI 챗봇 v1.0.21 Java 소스 5개 다운로드](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.21-source.zip)** · 기존 Spring 앱의 `com.skhynix.hcp.srp.agent` 패키지용. 포털 컨텍스트의 메시지 전송 URI는 `POST /securityportal-apis/aiChat/chat2/send`입니다.
+
+[이전 버전 AI 챗봇 v1.0.19 소스 ZIP](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.19-source.zip)
 
 [이전 버전 AI 챗봇 v1.0.18 소스 ZIP](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.18-source.zip)
 
