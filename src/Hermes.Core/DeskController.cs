@@ -25,7 +25,7 @@ public sealed partial class DeskController : IAsyncDisposable
     private string connectedFingerprint = "";
     private readonly bool allowTestLoopback;
     public string AccountStatus { get; private set; } = "연결 안 됨";
-    public string ProviderCheckStatus { get; private set; } = "연결 검사 전";
+    public string ProviderCheckStatus { get; private set; } = "";
     public bool SubscriptionReady { get; private set; }
     public List<string> Models { get; } = [];
     public Dictionary<string, List<string>> ModelEfforts { get; } = [];
@@ -125,7 +125,7 @@ public sealed partial class DeskController : IAsyncDisposable
         State.Provider = settings;
         if (previousScope == ModelScope && !string.IsNullOrWhiteSpace(previousModel)) AddModel(previousModel);
         if (settings.Mode == ConnectionMode.CompanyApi) AddModel(settings.Deployment);
-        State.PendingModel = ""; ProviderCheckStatus = "연결 검사 전"; Models.Clear(); ModelEfforts.Clear(); SubscriptionReady = false; AccountStatus = "설정 변경됨 · 명시적으로 다시 연결하세요"; Save();
+        State.PendingModel = ""; ProviderCheckStatus = ""; Models.Clear(); ModelEfforts.Clear(); SubscriptionReady = false; AccountStatus = "설정 저장됨 · 전송 시 연결"; Save();
     }
     public async Task<string> CheckProviderAsync(CancellationToken ct = default)
     {

@@ -18,7 +18,6 @@ public sealed partial class SettingsWindow : Window
     private readonly TextBlock transportNotice = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 4, 4, 8), FontSize = 12 };
     private readonly CheckBox manual = new() { Content = "프로토콜과 인증 방식을 직접 지정" };
     private readonly CheckBox networkConsent = new(); // Retained only for isolated legacy UI checks; no extra consent step.
-    private readonly CancellationTokenSource cancellation = new();
     private readonly DispatcherTimer draftTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
     public SettingsWindow(DeskController desk)
     {
@@ -83,11 +82,11 @@ public sealed partial class SettingsWindow : Window
         void Transport() { try { transportNotice.Text = ProviderSettings.TransportNotice(ProviderSettings.ResolveEndpointInput(endpoint.Text, (EndpointSchemeChoice)endpointScheme.SelectedIndex)); } catch (IOException) { transportNotice.Text = "URL에 http:// 또는 https://를 포함해 입력하세요."; } }
         endpoint.TextChanged += (_, _) => Transport(); endpointScheme.SelectionChanged += (_, _) => Transport(); Transport();
         var buttons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) }; content.Children.Add(buttons);
-        var save = new Button { Content = "모델 저장 / 수정" }; var check = new Button { Content = "저장하고 연결 확인" }; var close = new Button { Content = "닫기" };
-        buttons.Children.Add(save); buttons.Children.Add(check); buttons.Children.Add(close);
+        var save = new Button { Content = "모델 저장 / 수정" }; var close = new Button { Content = "닫기" };
+        buttons.Children.Add(save); buttons.Children.Add(close);
         content.Children.Add(status);
         content.Children.Add(new TextBlock { Text = "실행 파일: " + Environment.ProcessPath, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4), ToolTip = Environment.ProcessPath });
-        content.Children.Add(new TextBlock { Text = "연결 확인은 최대 출력 1토큰의 짧은 요청을 보냅니다. 지원하지 않는 경로만 같은 서버 안에서 확인하며 사용량이 발생할 수 있습니다.", TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(4, 0, 4, 12) });
+        content.Children.Add(new TextBlock { Text = "저장한 모델을 선택하면 첫 작업 요청에 바로 사용합니다.", TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(4, 0, 4, 12) });
         var details = new StackPanel { Margin = new Thickness(4) }; var advanced = new Expander { Header = "고급 설정 · 일반 연결에는 필요 없음", Content = details, IsExpanded = manual.IsChecked == true }; content.Children.Add(advanced);
         details.Children.Add(manual); var controls = new StackPanel(); details.Children.Add(controls);
         Row(controls, "연결 방식", mode); Row(controls, "프로토콜", protocol); Row(controls, "인증 헤더", authentication); Row(controls, "최대 출력 토큰", maxTokens); Row(controls, "스킴을 생략한 URL", endpointScheme);
@@ -96,12 +95,6 @@ public sealed partial class SettingsWindow : Window
         protocol.SelectionChanged += (_, _) => { if (protocol.SelectedItem is ProviderProtocol.AnthropicMessages) authentication.SelectedItem = ProviderAuth.BearerKey; };
         var delete = new Button { Content = "저장한 API 키 삭제" }; details.Children.Add(delete);
         save.Click += (_, _) => Try(() => { Save(); status.Text = "설정 저장됨 · 모델: " + desk.State.Provider.Deployment; });
-        check.Click += async (_, _) =>
-        {
-            try { Save(); check.IsEnabled = save.IsEnabled = false; status.Text = "모델 연결 확인 중…"; status.Text = await desk.CheckProviderAsync(cancellation.Token); }
-            catch (Exception ex) { status.Text = ConnectionErrors.Describe(ex, cancellation.Token); }
-            finally { check.IsEnabled = save.IsEnabled = true; }
-        };
         delete.Click += (_, _) => Try(() => { if (MessageBox.Show(this, "이 앱에 저장한 API 키를 삭제할까요?", "키 삭제", MessageBoxButton.YesNo) == MessageBoxResult.Yes) { desk.DeleteModelToken(editingId); key.Clear(); status.Text = "저장한 키 삭제됨"; } });
         close.Click += (_, _) => Close();
         // Keep model management visible before the editable connection fields.
@@ -109,7 +102,7 @@ public sealed partial class SettingsWindow : Window
         foreach (var element in management) content.Children.Remove(element);
         for (int i = 0; i < management.Length; i++) content.Children.Insert(2 + i, management[i]);
         savedModels.SelectedItem = desk.State.ModelConnections.FirstOrDefault(c => c.Id == editingId);
-        Closed += (_, _) => { draftTimer.Stop(); cancellation.Cancel(); desk.Save(); key.Clear(); };
+        Closed += (_, _) => { draftTimer.Stop(); desk.Save(); key.Clear(); };
     }
     private ProviderSettings Current()
     {

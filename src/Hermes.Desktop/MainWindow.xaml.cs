@@ -62,7 +62,7 @@ public partial class MainWindow : Window
             Model.SelectedItem = visibleModels.Contains(selected!) ? selected : activeConnection != null
                 ? desk.ModelChoice(activeConnection.Id, activeConnection.Settings.Deployment) : visibleModels.FirstOrDefault();
             Model.ToolTip = desk.HasPendingModel ? "입력한 모델 · URL/키를 저장하고 연결하세요" : "설정한 모델 · " + desk.AccountStatus;
-            ProviderHint.Text = desk.State.Provider.IsChatGptPlanOAuth ? "ChatGPT plan OAuth · " + desk.AccountStatus : desk.State.Provider.Mode == ConnectionMode.CompanyApi ? desk.State.Provider.IsAnthropic ? "Anthropic Messages · " + desk.ProviderCheckStatus : desk.State.Provider.Protocol + " · " + desk.ProviderCheckStatus : "ChatGPT CLI · 구독 사용량 사용";
+            ProviderHint.Text = desk.State.Provider.IsChatGptPlanOAuth ? "ChatGPT plan OAuth · " + desk.AccountStatus : desk.State.Provider.Mode == ConnectionMode.CompanyApi ? "회사 API · 선택한 모델로 전송" : "ChatGPT CLI · 구독 사용량 사용";
             StartButton.IsEnabled = CanSubmit();
             RenderTask();
             RenderSidebar(); UpdateShellState();
@@ -256,14 +256,16 @@ public partial class MainWindow : Window
     private void Task_Selected(object sender, SelectionChangedEventArgs e) { if (!refreshing && desk != null) { if (CurrentTask != null && CurrentTask.ProjectId != CurrentProject?.Id) Projects.SelectedItem = desk.State.Projects.First(p => p.Id == CurrentTask.ProjectId); RenderTask(); ChangedFiles.ItemsSource = null; Diff.Clear(); ReviewStatus.Text = "작업이 바뀌었습니다. 변경 목록을 조회하세요."; StartButton.IsEnabled = CanSubmit(); } }
     private void ChooseCli_Click(object sender, RoutedEventArgs e)
     { var dialog = new OpenFileDialog { Filter = "Codex executable|codex.exe", Title = "공식 codex.exe 선택" }; if (dialog.ShowDialog(this) == true) { desk.State.CodexPath = dialog.FileName; desk.Save(); Footer.Text = "CLI 경로 저장됨. 엔진 연결을 누르세요."; } }
-    private async void Connect_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
+    private async void Connect_Click(object sender, RoutedEventArgs e) => await Guard(ConnectSelectedEngineAsync);
+    private async Task ConnectSelectedEngineAsync()
     {
         if (desk.State.Tasks.Any(DeskController.IsRunning)) throw new Hermes.Core.HermesException("실행 중인 작업을 먼저 중단하세요.");
+        if (desk.State.Provider.Mode == ConnectionMode.CompanyApi && Model.SelectedItem is string choice)
+            desk.SelectModelForNewRequest(choice);
         var exe = (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null) ?? AppServerClient.FindInstalledCodex() ?? throw new Hermes.Core.HermesException("공식 Codex CLI를 설치하고 codex.exe를 선택하세요. 자동 설치/로그인은 수행하지 않습니다.");
         await desk.ConnectAsync(exe, CurrentProject?.Root ?? throw new Hermes.Core.HermesException("엔진 연결 전에 프로젝트를 등록/선택하세요."));
-        if (desk.State.Provider.Mode == ConnectionMode.CompanyApi) await desk.CheckProviderAsync();
         Refresh();
-    });
+    }
     private string? displayedConnectionId;
 
     private async void Start_Click(object sender, RoutedEventArgs e) => await Guard(async () =>

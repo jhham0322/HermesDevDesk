@@ -29,6 +29,7 @@ public partial class MainWindow
         desk.Configure(new() { Endpoint = server.BaseUri.AbsoluteUri.TrimEnd('/') + "/v1/responses", Deployment = "gpt-6-luna", Protocol = ProviderProtocol.GatewayAuto }, "SYNTHETIC_RELAY_SEND_ONLY");
         desk.RememberModel("gpt-6-luna"); Refresh();
         if (CurrentTask != null || desk.HasPendingModel || !StartButton.IsEnabled) throw new IOException("New conversation send remains disabled");
+        if (ProviderHint.Text != "회사 API · 선택한 모델로 전송") throw new IOException("Unexpected company connection hint");
         UpdateShellState(); if (!StartButton.IsEnabled) throw new IOException("Shell overwrote send readiness");
         var drmDirectory = Path.Combine(root, ".agents", "skills", "drm");
         Directory.CreateDirectory(drmDirectory);
@@ -52,6 +53,9 @@ public partial class MainWindow
             await Task.Delay(100);
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
         if (!imageSent || !fileSent || !drmSkillSent || pendingImages.Count != 0 || pendingFiles.Count != 0 || generations != 1 || probes != 0 || models != 0 || unexpectedRoutes != 0 || !desk.State.Tasks.Any(t => t.Status == "완료") || !desk.Processes.Any(p => p.Items is [{ Id: "quick-answer", State: "verified" }])) throw new IOException("Relay send did not complete: " + desk.AccountStatus);
-        File.WriteAllText(Path.Combine(data, "relay-send-report.json"), JsonSerializer.Serialize(new { passed = true, exactModel = "gpt-6-luna", probes, generations, models, unexpectedRoutes, noExistingTask = true, missingUsageSupported = true, actualOfficialEngine = true, imageSent, fileSent, drmSkillSent, attachmentOnlySend = true, programmaticWpfButton = true, realCompanyRequests = false }));
+        await ConnectSelectedEngineAsync();
+        if (generations != 1 || probes != 0 || models != 0 || unexpectedRoutes != 0 || !desk.SubscriptionReady)
+            throw new IOException("Engine connect triggered a provider request");
+        File.WriteAllText(Path.Combine(data, "relay-send-report.json"), JsonSerializer.Serialize(new { passed = true, exactModel = "gpt-6-luna", probes, generations, models, unexpectedRoutes, noExistingTask = true, missingUsageSupported = true, actualOfficialEngine = true, imageSent, fileSent, drmSkillSent, attachmentOnlySend = true, programmaticWpfButton = true, engineConnectSentNoRequests = true, realCompanyRequests = false }));
     }
 }
