@@ -185,7 +185,7 @@ public sealed partial class DeskController : IAsyncDisposable
         using var cancelConnect = cancellation.Register(() => { _ = client.DisposeAsync(); });
         client.Notification += e => dispatch(() => Handle(e));
         client.Approval += r => dispatch(() => Receive(r));
-        client.Diagnostic += s => dispatch(() => Diagnostic?.Invoke(s));
+        client.Diagnostic += s => { if (!ProviderErrors.IsOutputLimitMessage(s)) dispatch(() => Diagnostic?.Invoke(s)); };
         client.Disconnected += () => dispatch(() =>
         {
             ComputerStopRequested?.Invoke(null); SubscriptionReady = false; AccountStatus = "연결 끊김"; Approvals.Clear();
@@ -211,7 +211,7 @@ public sealed partial class DeskController : IAsyncDisposable
                 if (State.Provider.Authentication != ProviderAuth.None && !KeyStore.HasKey) throw new HermesException("회사 키를 앱 설정에서 직접 입력하세요. 기존 키를 추출하지 않습니다.");
                 if (State.Provider.Protocol == ProviderProtocol.GatewayAuto || !State.Provider.UseAdvancedSettings) await ResolveGateway(CancellationToken.None);
                 var savedModels = Models.ToList();
-                company = new(State.Provider, KeyStore, allowTestLoopback); company.Usage += e => dispatch(() => { ObserveCompanyUsage(e); if (e.Status == "failed" && (e.FailureKind.Length == 0 || e.TurnId.Length == 0) && State.Tasks.FirstOrDefault(t => t.Id == e.TaskId) is { } failedTask && !failedTask.Transcript.Any(t => t.ItemId == "gateway-error-" + e.Id)) failedTask.Transcript.Add(new TranscriptEntry("오류", ProviderErrors.ReadableMessage(e.Note), DateTime.UtcNow, "gateway-error-" + e.Id) { Origin = "회사 API", Stage = "에러원인" }); if (e.Status == "failed" || e.FailureKind.Length > 0) Save(); else SaveStream(); });
+                company = new(State.Provider, KeyStore, allowTestLoopback); company.Usage += e => dispatch(() => { ObserveCompanyUsage(e); if (e.Status == "failed" && !ProviderErrors.IsOutputLimitMessage(e.Note) && (e.FailureKind.Length == 0 || e.TurnId.Length == 0) && State.Tasks.FirstOrDefault(t => t.Id == e.TaskId) is { } failedTask && !failedTask.Transcript.Any(t => t.ItemId == "gateway-error-" + e.Id)) failedTask.Transcript.Add(new TranscriptEntry("오류", ProviderErrors.ReadableMessage(e.Note), DateTime.UtcNow, "gateway-error-" + e.Id) { Origin = "회사 API", Stage = "에러원인" }); if (e.Status == "failed" || e.FailureKind.Length > 0) Save(); else SaveStream(); });
                 await client.ConnectAsync(exe, cwd, Path.Combine(DataDirectory, "engine-home"), company.BaseUri, company.Capability, EngineModel(State.Provider.Deployment));
                 var providerAccount = await client.RequestAsync("account/read", new { refreshToken = false });
                 if (providerAccount.Property("requiresOpenaiAuth") is { ValueKind: JsonValueKind.True }) throw new HermesException("회사 provider가 외부 OpenAI 인증을 요구해 차단했습니다.");

@@ -30,6 +30,11 @@ internal static class ResponseRecoveryTests
     internal static async Task Run(string root,Action<bool,string> check)
     {
         Directory.CreateDirectory(root);var measurements=new List<object>();
+        const string oldMessage = "stream disconnected before compltion: Incomplete reasponse returned, reason: max_output_tokens";
+        check(ProviderErrors.ReadableMessage(oldMessage) == ProviderErrors.OutputLimitStatus &&
+              ConnectionErrors.Describe(new IOException(oldMessage)) == ProviderErrors.OutputLimitStatus &&
+              ProviderErrors.ReadableMessage("stream disconnected before completion") == "stream disconnected before completion",
+            "legacy output-limit text is suppressed without hiding actual stream disconnects");
         var untrustedReason=new UsageEntry();using(var doc=JsonDocument.Parse("""{"status":"incomplete","incomplete_details":{"reason":"password=SYNTHETIC_REASON_SECRET"}}"""))ResponseInterruption.Terminal(untrustedReason,doc.RootElement);
         check(!untrustedReason.IncompleteReason.Contains("SYNTHETIC_REASON_SECRET")&&untrustedReason.FailureKind=="response_incomplete","stored unknown provider reason is bounded and credential-redacted without inventing an output-limit cause");
         foreach(var mode in new[]{"output_limit","early_eof","server_timeout"})
@@ -52,7 +57,8 @@ internal static class ResponseRecoveryTests
             desk.ObserveCompanyUsage(response.usage);desk.ObserveCompanyUsage(response.usage);
             using(var empty=JsonDocument.Parse(JsonSerializer.Serialize(new{threadId=task.ThreadId,item=new{id="partial",type="agentMessage",text=""}})))desk.Handle(new("item/completed",empty.RootElement));
             check(task.Transcript.Any(e=>e.ItemId=="partial"&&e.Text=="PARTIAL_KEPT"),mode+" empty final message cannot erase received partial text");
-            check(task.Transcript.Count(e=>e.ItemId=="response-interruption-"+response.usage.Id)==1&&task.Transcript.Any(e=>e.Origin=="Hermes"&&e.Text.Contains(response.usage.Note)),mode+" exposes one host UI message with source and reason");
+            var notices = task.Transcript.Count(e => e.ItemId == "response-interruption-" + response.usage.Id);
+            check(notices == (mode == "output_limit" ? 0 : 1), mode + " shows a transport notice only when appropriate");
             if (mode == "output_limit")
             {
                 var ended = task.TurnId;

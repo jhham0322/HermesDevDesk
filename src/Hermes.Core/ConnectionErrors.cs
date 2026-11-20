@@ -7,6 +7,7 @@ public static class ConnectionErrors
     public static string Local(string message) => Safety.Redact(message.StartsWith("[HERMES_ERROR]", StringComparison.Ordinal) ? message : "[HERMES_ERROR] " + message);
     public static string Describe(Exception exception, CancellationToken cancellation = default)
     {
+        if (ProviderErrors.IsOutputLimitMessage(exception.Message)) return ProviderErrors.OutputLimitStatus;
         if ((exception is IOException && exception is not HermesException) || exception is HttpRequestException or System.Net.Sockets.SocketException or System.Security.Authentication.AuthenticationException)
             return Safety.Redact(exception.Message);
         if (exception is OperationCanceledException && !cancellation.IsCancellationRequested) return Safety.Redact(exception.Message);

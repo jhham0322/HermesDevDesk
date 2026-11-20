@@ -22,16 +22,21 @@ public partial class MainWindow
     private int renderedOffset;
     private int? historyEnd;
     private const int ConversationPageSize = 40;
+    private static bool IsLegacyOutputLimitNotice(TranscriptEntry entry) =>
+        entry.Kind is "오류" or "호스트 보고" &&
+        entry.Text != ProviderErrors.OutputLimitStatus &&
+        ProviderErrors.IsOutputLimitMessage(entry.Text);
+
     private void ConversationOlder_Click(object sender, RoutedEventArgs e)
     {
-        historyEnd = Math.Max(ConversationPageSize, (historyEnd ?? (CurrentTask?.Transcript ?? []).Count(entry => desk.State.Desktop.ShowProgressSummaries || !ProgressMessages.IsHiddenWhenProgressOff(entry))) - ConversationPageSize);
+        historyEnd = Math.Max(ConversationPageSize, (historyEnd ?? (CurrentTask?.Transcript ?? []).Count(entry => !IsLegacyOutputLimitNotice(entry) && (desk.State.Desktop.ShowProgressSummaries || !ProgressMessages.IsHiddenWhenProgressOff(entry)))) - ConversationPageSize);
         conversationStamp = ""; RenderConversation(); ConversationScroll.ScrollToTop();
     }
     private void ConversationLatest_Click(object sender, RoutedEventArgs e)
     { historyEnd = null; conversationStamp = ""; RenderConversation(); ConversationScroll.ScrollToEnd(); }
     private void ConversationNewer_Click(object sender, RoutedEventArgs e)
     {
-        var count = (CurrentTask?.Transcript ?? []).Count(entry => desk.State.Desktop.ShowProgressSummaries || !ProgressMessages.IsHiddenWhenProgressOff(entry));
+        var count = (CurrentTask?.Transcript ?? []).Count(entry => !IsLegacyOutputLimitNotice(entry) && (desk.State.Desktop.ShowProgressSummaries || !ProgressMessages.IsHiddenWhenProgressOff(entry)));
         var next = (historyEnd ?? count) + ConversationPageSize;
         historyEnd = next >= count ? null : next;
         conversationStamp = ""; RenderConversation(); ConversationScroll.ScrollToTop();
@@ -46,7 +51,9 @@ public partial class MainWindow
     private void RenderConversation()
     {
         var entries = CurrentTask?.Transcript ?? [];
-        if (!desk.State.Desktop.ShowProgressSummaries) entries = entries.Where(entry => !ProgressMessages.IsHiddenWhenProgressOff(entry)).ToList();
+        if (!desk.State.Desktop.ShowProgressSummaries || entries.Any(IsLegacyOutputLimitNotice))
+            entries = entries.Where(entry => !IsLegacyOutputLimitNotice(entry) &&
+                (desk.State.Desktop.ShowProgressSummaries || !ProgressMessages.IsHiddenWhenProgressOff(entry))).ToList();
         if (renderedConversation != CurrentTask?.Id) historyEnd = null;
         var end = Math.Min(historyEnd ?? entries.Count, entries.Count);
         var offset = Math.Max(0, end - ConversationPageSize);

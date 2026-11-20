@@ -105,12 +105,11 @@ public sealed partial class DeskController
                 process.OutputLimitContinuations++;
                 process.ConsecutiveFailures = 0;
                 process.BlockKind = "";
-                task.Transcript.Add(TranscriptPresentation.Host("중간보고",
-                    "모델 출력 한도에 도달했습니다. 받은 내용과 완료 기록을 저장했고 남은 부분을 이어서 실행합니다.", turn.Text("id")));
                 ScheduleContinuation(task, process);
                 return;
             }
-            process.Detail = "모델 출력 한도가 반복되어 받은 답변과 완료 기록을 저장했습니다. 프로세스에서 재개할 수 있습니다.";
+            process.Detail = ProviderErrors.OutputLimitStatus;
+            task.Transcript.Add(TranscriptPresentation.Host("입력 필요", process.Detail, turn.Text("id")));
         }
         if (process.BlockKind.StartsWith("response_", StringComparison.Ordinal))
         { process.Decision = null; process.Checkpoint = WorkQueue.Summary(process); EndProcess(task, "응답 미완료 · 재개 필요", process.Detail); task.Status = "응답 미완료 · 재개 필요"; Save(); return; }

@@ -3,8 +3,19 @@ using System.Text.RegularExpressions;
 namespace Hermes.Core;
 public static class ProviderErrors
 {
+    public const string OutputLimitStatus = "답변을 여기까지 저장했습니다. 프로세스에서 이어서 실행할 수 있습니다.";
+
+    public static bool IsOutputLimitMessage(string value) =>
+        value.Contains("[MODEL_OUTPUT_LIMIT]", StringComparison.OrdinalIgnoreCase) ||
+        value.Contains(OutputLimitStatus, StringComparison.Ordinal) ||
+        (value.Contains("max_output_tokens", StringComparison.OrdinalIgnoreCase) &&
+            (value.Contains("stream disconnected before", StringComparison.OrdinalIgnoreCase) ||
+             value.Contains("Incomplete response returned", StringComparison.OrdinalIgnoreCase) ||
+             value.Contains("Incomplete reasponse returned", StringComparison.OrdinalIgnoreCase)));
+
     public static string ReadableMessage(string value)
     {
+        if (IsOutputLimitMessage(value)) return OutputLimitStatus;
         for (var depth = 0; depth < 4; depth++)
         {
             var start = value.IndexOf('{'); var end = value.LastIndexOf('}');
