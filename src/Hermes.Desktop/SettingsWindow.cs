@@ -112,8 +112,9 @@ public sealed partial class SettingsWindow : Window
     private ProviderSettings Current()
     {
         var advanced = manual.IsChecked == true;
-        var savedProtocol = desk.State.ModelConnections.FirstOrDefault(c => c.Id == editingId)?.Settings.Protocol ?? ProviderProtocol.GatewayAuto;
-        return new() { UseAdvancedSettings = advanced, Mode = advanced ? (ConnectionMode)mode.SelectedItem : ConnectionMode.CompanyApi, Protocol = advanced ? (ProviderProtocol)protocol.SelectedItem : savedProtocol, Authentication = advanced ? (ProviderAuth)authentication.SelectedItem : ProviderAuth.BearerKey, MaxOutputTokens = advanced ? int.TryParse(maxTokens.Text, out var max) ? max : throw new Hermes.Core.HermesException("최대 출력 토큰은 정수로 입력하세요.") : 8192, Endpoint = advanced && mode.SelectedItem is ConnectionMode.ExistingChatGptCli ? endpoint.Text.Trim() : ProviderSettings.ResolveEndpointInput(endpoint.Text, (EndpointSchemeChoice)endpointScheme.SelectedIndex), Deployment = deployment.Text.Trim() };
+        var saved = desk.State.ModelConnections.FirstOrDefault(c => c.Id == editingId)?.Settings;
+        var savedProtocol = saved?.Protocol ?? ProviderProtocol.GatewayAuto;
+        return new() { UseAdvancedSettings = advanced, Mode = advanced ? (ConnectionMode)mode.SelectedItem : ConnectionMode.CompanyApi, Protocol = advanced ? (ProviderProtocol)protocol.SelectedItem : savedProtocol, Authentication = advanced ? (ProviderAuth)authentication.SelectedItem : ProviderAuth.BearerKey, MaxOutputTokens = advanced ? int.TryParse(maxTokens.Text, out var max) ? max : throw new Hermes.Core.HermesException("최대 출력 토큰은 정수로 입력하세요.") : (saved?.MaxOutputTokens ?? new ProviderSettings().MaxOutputTokens), Endpoint = advanced && mode.SelectedItem is ConnectionMode.ExistingChatGptCli ? endpoint.Text.Trim() : ProviderSettings.ResolveEndpointInput(endpoint.Text, (EndpointSchemeChoice)endpointScheme.SelectedIndex), Deployment = deployment.Text.Trim() };
     }
     private void Save()
     {

@@ -29,6 +29,7 @@ public sealed class UsageEntry
     public string Status { get; set; } = "started";
     public int? HttpStatus { get; set; }
     public int? Requests { get; set; }
+    public int? RequestedOutputTokens { get; set; }
     public TokenCounts Tokens { get; set; } = TokenCounts.Missing;
     public string Note { get; set; } = "";
     public string FailureKind { get; set; } = "";

@@ -140,12 +140,15 @@ public sealed class CompanyBridge : IAsyncDisposable
             var body = JsonNode.Parse(incoming.Body)?.AsObject() ?? throw new HermesException("Invalid request JSON"); body["model"] = context?.Model ?? activeModel; body["store"] = false;
             body = ToolHistoryRecovery.Prepare(body);
             var wantsStream = body["stream"]?.GetValue<bool>() == true;
-            ChatAdaptation? adaptation = settings.IsChat ? ChatAdapter.Request(body) : null;
-            if (adaptation != null)
+            // The model connection owns the generation budget; the local engine's
+            // hint may be for a different model profile than the one routed upstream.
+            // Keep the provider default for Responses when no budget was requested.
+            if (settings.IsChat || settings.IsAnthropic || body["max_output_tokens"] != null)
             {
-                var requested = adaptation.Body["max_tokens"]?.GetValue<int>() ?? settings.MaxOutputTokens;
-                adaptation.Body["max_tokens"] = Math.Clamp(requested, 1, settings.MaxOutputTokens);
+                body["max_output_tokens"] = settings.MaxOutputTokens;
+                entry.RequestedOutputTokens = settings.MaxOutputTokens;
             }
+            ChatAdaptation? adaptation = settings.IsChat ? ChatAdapter.Request(body) : null;
             AnthropicAdaptation? anthropic = settings.IsAnthropic ? AnthropicAdapter.Request(body, settings.MaxOutputTokens) : null;
             var payload = (anthropic?.Body ?? adaptation?.Body ?? body).ToJsonString();
             using var response = await TransientHttp.Send(http, () =>

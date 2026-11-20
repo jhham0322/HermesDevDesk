@@ -34,6 +34,32 @@ internal static class ResponseWaitingTests
         using var response = await client.PostAsync(bridge.BaseUri.AbsoluteUri + "/responses", new StringContent("{\"input\":\"test\"}"));
         check(response.StatusCode == HttpStatusCode.BadGateway && await response.Content.ReadAsStringAsync() == raw, "upstream HTTP 502 status and complete original error body pass through unchanged");
         check(ProviderErrors.ReadableMessage(raw) == "UPSTREAM_ORIGINAL", "display does not append Hermes advice or code labels to upstream message");
+        await using var capServer = new LoopbackHttp(async (request, stream, ct) =>
+        {
+            using var sent = JsonDocument.Parse(request.Body);
+            var cap = sent.RootElement.Property("max_tokens") ?? sent.RootElement.Property("max_output_tokens");
+            await LoopbackHttp.Reply(stream, 400, "text/plain", cap?.ToString() ?? "provider-default", ct);
+        });
+        foreach (var protocol in new[] { ProviderProtocol.GatewayResponses, ProviderProtocol.GatewayChatCompletions, ProviderProtocol.AnthropicMessages })
+        {
+            var capSettings = new ProviderSettings { Endpoint = capServer.BaseUri.AbsoluteUri, Deployment = "cap-fixture",
+                Authentication = ProviderAuth.None, Protocol = protocol, MaxOutputTokens = 4096 };
+            await using var capBridge = new CompanyBridge(capSettings, new ProtectedKeyStore(Path.Combine(root, "cap-keys")), true);
+            UsageEntry? observedCap = null;
+            capBridge.Usage += entry => observedCap = entry;
+            async Task<string> Forward(string body)
+            {
+                using var post = new HttpRequestMessage(HttpMethod.Post, capBridge.BaseUri.AbsoluteUri + "/responses") { Content = new StringContent(body) };
+                post.Headers.Authorization = new AuthenticationHeaderValue("Bearer", capBridge.Capability);
+                using var reply = await client.SendAsync(post);
+                return await reply.Content.ReadAsStringAsync();
+            }
+            check(await Forward("{\"input\":\"fixture\",\"max_output_tokens\":16}") == "4096" &&
+                  observedCap?.RequestedOutputTokens == 4096, protocol + " uses the selected model connection budget, not a low engine hint");
+            if (protocol == ProviderProtocol.GatewayResponses)
+                check(await Forward("{\"input\":\"fixture\"}") == "provider-default" &&
+                      observedCap?.RequestedOutputTokens == null, "Responses preserves provider default when the engine sends no output cap");
+        }
         using var embedded = JsonDocument.Parse(raw);
         try { ChatAdapter.Response(embedded.RootElement, adaptation); throw new Exception("model error was lost"); }
         catch (ModelServerException ex) { check(ex.Message == "UPSTREAM_ORIGINAL", "HTTP 200 model error is preserved before Chat response conversion"); }
