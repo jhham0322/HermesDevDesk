@@ -1,4 +1,4 @@
-# AI 챗봇 v1.0.16 UI 연동 가이드
+# AI 챗봇 v1.0.17 UI 연동 가이드
 
 기존 채팅 연동은 `review_type`을 생략합니다. 보안성 검토 탭은 `review_type: "security"`를 명시합니다. 현재 서버에서 두 호출은 같은 보안성 검토 채팅으로 연결되며, 같은 사용자라면 대화 목록과 진행 중인 방을 공유합니다. 별도 검토 유형인 **보안증적 검토 (가상)**는 `"evidence"`이며 통합 테스트에서 검증합니다.
 
@@ -8,15 +8,10 @@
 회사 앱에서는 기존 시작 클래스와 포트 설정을 사용하세요.
 기존 9200 서버에서는 `POST http://<서버>:9200/securityportal-apis/chat2/send`로 요청합니다.
 
-회사 앱의 시작 클래스 또는 기존 설정 클래스에 아래 import를 추가하세요.
-
-```java
-import com.skhynix.hcp.srp.agent.AiChatServletConfiguration;
-import org.springframework.context.annotation.Import;
-
-// 기존 Spring Boot 시작 클래스 또는 설정 클래스에 붙입니다.
-@Import(AiChatServletConfiguration.class)
-```
+채팅 Java 소스를 기존 회사 앱의 `src/main/java/com/skhynix/hcp/srp/agent`에 포함하세요.
+Spring이 `com.skhynix.hcp.srp.agent` 또는 상위 패키지를 스캔하면
+`AiChatServletConfiguration`의 `@Configuration`을 발견해 URI를 등록합니다.
+기존 스캔 범위가 이 패키지를 포함하는지 확인하세요.
 
 회사 앱의 Spring 환경에 AI_BASE_URL, AI_OPEN_PATH, AI_CLOSE_PATH,
 AI_VISIBILITY, CHAT_DB_URL, CHAT_DB_USER를 설정하세요.
