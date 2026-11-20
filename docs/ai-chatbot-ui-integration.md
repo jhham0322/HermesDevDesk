@@ -1,4 +1,4 @@
-# AI 챗봇 v1.0.12 UI 연동 가이드
+# AI 챗봇 v1.0.13 UI 연동 가이드
 
 기존 채팅 연동은 `review_type`을 생략합니다. 보안성 검토 탭은 `review_type: "security"`를 명시합니다. 현재 서버에서 두 호출은 같은 보안성 검토 채팅으로 연결되며, 같은 사용자라면 대화 목록과 진행 중인 방을 공유합니다. 별도 검토 유형인 **보안증적 검토 (가상)**는 `"evidence"`이며 통합 테스트에서 검증합니다.
 
@@ -6,7 +6,7 @@
 
 회사 앱에서 채팅 설정을 가져오면 기존 서버 포트에서 요청을 받습니다.
 회사 앱에서는 기존 시작 클래스와 포트 설정을 사용하세요.
-예를 들어 기존 서버가 9200이면 `POST http://<서버>:9200/api/ai-agent/chat2/send`로 요청합니다.
+기존 9200 서버에서는 `POST http://<서버>:9200/sccurityporal-apis/chat2/send`로 요청합니다.
 
 회사 앱의 시작 클래스 또는 기존 설정 클래스에 아래 import를 추가하세요.
 
@@ -27,8 +27,10 @@ JSP 화면을 쓰려면 호스트 WAR에 src/main/webapp/WEB-INF/jsp 리소스�
 
 ## 채팅도우미 메시지 전송
 
-`/chat2`와 `/chat2.jsp`는 메시지를 `POST /api/ai-agent/chat2/send`로 보냅니다.
-회사 앱의 context path가 `/portal`이면 `POST /portal/api/ai-agent/chat2/send`입니다.
+`/chat2`와 `/chat2.jsp`는 루트 또는 `/sccurityporal-apis` 컨텍스트에서 메시지를
+`POST /sccurityporal-apis/chat2/send`로 보냅니다. 포털 컨텍스트에서는 시작 요청을
+`POST /sccurityporal-apis/chat/start`로 보냅니다.
+다른 context path가 `/portal`이면 `POST /portal/api/ai-agent/chat2/send`입니다.
 Bearer 토큰, `Content-Type: application/json`과 아래 필드를 사용하세요.
 
 ```json
