@@ -22,7 +22,7 @@ public partial class MainWindow
     private string selectedBrowserSourceTask = "";
     private void InitializeBrowserExperience(Panel toolbar)
     {
-        if (desk.State.Browser.LastUrl.Length > 0) browserAddress.Text = desk.State.Browser.LastUrl;
+        if (desk.State.Browser.LastUrl.Length > 0) ShowBrowserAddress(desk.State.Browser.LastUrl);
         browserSaveTimer.Tick += (_, _) => { browserSaveTimer.Stop(); desk.Save(); };
         var actions = new WrapPanel();
         var bookmarks = new Button { Content = "북마크 목록" }; var history = new Button { Content = "방문 기록" }; var inspect = new Button { Content = "요소 소스 선택" };
@@ -65,7 +65,7 @@ public partial class MainWindow
         var id = browserTabOwners.GetValueOrDefault(view) ?? (activeBrowserView == view ? CurrentTask?.Id : null);
         if (id != null && desk.State.Tasks.FirstOrDefault(t => t.Id == id) is { } task) task.BrowserLastUrl = url;
         if (activeBrowserView != view) desk.State.Browser.LastUrl = last;
-        else { browserAddress.Text = url; UpdateBrowserBookmark(view); }
+        else { ShowBrowserAddress(url); UpdateBrowserBookmark(view); }
         browserSaveTimer.Stop(); browserSaveTimer.Start();
     }
     private void UpdateBrowserBookmark(WebView2 view)

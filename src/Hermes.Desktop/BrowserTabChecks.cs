@@ -17,6 +17,22 @@ public partial class MainWindow
         var selectFirst = ((StackPanel)browserTabStrip.Children[0]).Children.OfType<Button>().First(); selectFirst.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Check(activeBrowserView == first && BrowserVisible(first) && !BrowserVisible(second) && !second.IsHitTestVisible && browserAddress.Text == first.Source.AbsoluteUri, "tab button restores correct visible page and address");
         Check(chatBrowsers[CurrentTask!.Id] == first, "agent browser follows selected tab of its own chat");
+        const string typedAddress = "localhost:8123/editing";
+        browserAddress.Text = typedAddress;
+        browserAddress.CaretIndex = 9;
+        ShowChatBrowser();
+        Check(browserAddress.Text == typedAddress && browserAddress.CaretIndex == 9, "chat refresh preserves address and caret");
+        first.CoreWebView2.Navigate(url + "draft-refresh");
+        await Wait(() => first.CoreWebView2.DocumentTitle.Contains("draft-refresh"));
+        Check(browserAddress.Text == typedAddress, "WebView navigation and title events preserve address being edited");
+        SetBrowserView(second);
+        Check(browserAddress.Text == second.Source.AbsoluteUri, "other tab displays its own URL");
+        SetBrowserView(first);
+        Check(browserAddress.Text == typedAddress, "tab switch restores the unfinished address");
+        browserAddress.Text = url + "draft-submitted";
+        await SubmitBrowserAddress();
+        await Wait(() => first.CoreWebView2.DocumentTitle.Contains("draft-submitted"));
+        Check(browserAddress.Text == first.Source.AbsoluteUri && !browserAddressDrafts.ContainsKey(BrowserAddressContext), "successful address submission returns to the live page URL");
         for (var i = browserTabOwners.Count; i < BrowserTabLimit; i++) await AddBrowserTab();
         Check(browserTabOwners.Count == 10 && !browserNewTab.IsEnabled, "ten browser tabs allowed and add button disabled at limit");
         try { await AddBrowserTab(); throw new IOException("eleventh browser tab was allowed"); }

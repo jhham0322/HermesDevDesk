@@ -58,6 +58,7 @@ public partial class MainWindow
         var affected = chatBrowsers.Where(p => p.Value == view).Select(p => p.Key).Concat(owner == null ? [] : new[] { owner }).Distinct().ToArray();
         var active = activeBrowserView == view;
         browserTabOwners.Remove(view);
+        foreach (var key in browserAddressDrafts.Keys.Where(key => key.View == view).ToArray()) browserAddressDrafts.Remove(key);
         foreach (var id in affected) CancelBrowserRequestsById(id);
         if (browserContainers.Remove(view, out var container)) { browserSurface.Children.Remove(container); container.Child = null; }
         if (browserTabReady.Remove(view, out var ready)) ready.TrySetCanceled();
@@ -72,7 +73,7 @@ public partial class MainWindow
         {
             activeBrowserView = null;
             if (replacement != null) SetBrowserView(replacement);
-            else { browserAddress.Clear(); browserBack.IsEnabled = browserForward.IsEnabled = false; browserBookmark.Content = "☆ 북마크"; browserAttachSource.IsEnabled = false; browserStatus.Text = "열린 탭이 없습니다. + 새 탭으로 브라우저를 여세요."; }
+            else { ShowBrowserAddress(""); browserBack.IsEnabled = browserForward.IsEnabled = false; browserBookmark.Content = "☆ 북마크"; browserAttachSource.IsEnabled = false; browserStatus.Text = "열린 탭이 없습니다. + 새 탭으로 브라우저를 여세요."; }
         }
         RefreshBrowserTabs();
     }

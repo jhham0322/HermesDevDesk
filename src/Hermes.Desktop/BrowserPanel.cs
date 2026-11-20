@@ -31,6 +31,20 @@ public partial class MainWindow
     private readonly ContentControl browserHost = new();
     private readonly Grid browserSurface = new();
     private WebView2? activeBrowserView;
+    private readonly Dictionary<(WebView2? View, string? TaskId), string> browserAddressDrafts = [];
+    private bool settingBrowserAddress;
+
+    private (WebView2? View, string? TaskId) BrowserAddressContext => (activeBrowserView, CurrentTask?.Id);
+
+    private void ShowBrowserAddress(string address)
+    {
+        var text = browserAddressDrafts.GetValueOrDefault(BrowserAddressContext, address);
+        if (text == browserAddress.Text) return;
+        settingBrowserAddress = true;
+        try { browserAddress.Text = text; }
+        finally { settingBrowserAddress = false; }
+    }
+
     private static string BrowserDisplayAddress(WebView2 view) => view.Source?.Scheme is "http" or "https" ? view.Source.AbsoluteUri : "";
     private void SetBrowserView(WebView2 view)
     {
@@ -46,19 +60,20 @@ public partial class MainWindow
         foreach (var child in browserTabOwners.Keys) SetBrowserVisible(child, child == view);
         var changed = activeBrowserView != view;
         activeBrowserView = view;
-        browserAddress.Text = BrowserDisplayAddress(view);
+        var pageAddress = BrowserDisplayAddress(view);
+        ShowBrowserAddress(pageAddress);
         if (changed) browserStatus.Text = view.CoreWebView2?.DocumentTitle is { Length: > 0 } title ? title : "공통 브라우저 · 주소를 입력하세요.";
-        if (browserAddress.Text.Length > 0)
+        if (pageAddress.Length > 0)
         {
-            desk.State.Browser.LastUrl = browserAddress.Text;
-            if (CurrentTask is { } selectedTask) selectedTask.BrowserLastUrl = browserAddress.Text;
+            desk.State.Browser.LastUrl = pageAddress;
+            if (CurrentTask is { } selectedTask) selectedTask.BrowserLastUrl = pageAddress;
             browserSaveTimer.Stop(); browserSaveTimer.Start();
         }
         if (CurrentTask == null) browserView = view;
         RefreshBrowserTabs();
         UpdateBrowserNavigation(view);
         browserAttachSource.IsEnabled = selectedBrowserSourceTask == CurrentTask?.Id && selectedBrowserSource.Length > 0;
-        if (view.CoreWebView2 != null) { browserAddress.Text = BrowserDisplayAddress(view); UpdateBrowserBookmark(view); }
+        if (view.CoreWebView2 != null) UpdateBrowserBookmark(view);
     }
     private Task? browserInitialization;
     private readonly Dictionary<string, WebView2> chatBrowsers = [];
@@ -99,7 +114,7 @@ public partial class MainWindow
             catch (IOException) { args.Cancel = true; }
         };
         view.CoreWebView2.NavigationStarting += (_, args) => { try { BrowserTools.ValidateUrl(args.Uri); } catch (IOException) { args.Cancel = true; } };
-        view.CoreWebView2.NavigationCompleted += (_, args) => { if (activeBrowserView == view) { browserAddress.Text = BrowserDisplayAddress(view); browserStatus.Text = args.IsSuccess ? view.CoreWebView2.DocumentTitle : "페이지 로드 실패: " + args.WebErrorStatus; } if (args.IsSuccess) RememberBrowserPage(view); };
+        view.CoreWebView2.NavigationCompleted += (_, args) => { if (activeBrowserView == view) { ShowBrowserAddress(BrowserDisplayAddress(view)); browserStatus.Text = args.IsSuccess ? view.CoreWebView2.DocumentTitle : "페이지 로드 실패: " + args.WebErrorStatus; } if (args.IsSuccess) RememberBrowserPage(view); };
     }
     private void ShowChatBrowser()
     {
@@ -110,7 +125,7 @@ public partial class MainWindow
         else
         {
             activeBrowserView = null; foreach (var child in browserTabOwners.Keys) SetBrowserVisible(child, false);
-            browserAddress.Clear(); browserBack.IsEnabled = browserForward.IsEnabled = false; browserAttachSource.IsEnabled = false;
+            ShowBrowserAddress(""); browserBack.IsEnabled = browserForward.IsEnabled = false; browserAttachSource.IsEnabled = false;
             browserStatus.Text = browserTabOwners.Count > 0 ? "다른 채팅에서 브라우저를 사용 중입니다. 공통 탭이 반환될 때까지 기다리거나 새 탭을 여세요." : "공통 브라우저 · 새 탭을 열어 여러 채팅에서 재사용하세요.";
             RefreshBrowserTabs();
         }
@@ -139,8 +154,21 @@ public partial class MainWindow
         toolbar.Children.Add(new Expander { Header = "브라우저 추가 기능 · 북마크 / 캡처 / 도구 설정", Content = new ScrollViewer { Content = extras, MaxHeight = 320, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, IsExpanded = false });
         toolbar.Children.Add(browserStatus); panel.Children.Add(browserHost);
         InspectorTabs.Items.Add(new TabItem { Header = "브라우저", Content = panel });
-        go.Click += async (_, _) => await Guard(() => NavigateBrowser(browserAddress.Text));
-        browserAddress.KeyDown += async (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; await Guard(() => NavigateBrowser(browserAddress.Text)); } };
+        browserAddress.TextChanged += (_, _) =>
+        {
+            if (!settingBrowserAddress) browserAddressDrafts[BrowserAddressContext] = browserAddress.Text;
+        };
+        go.Click += async (_, _) => await Guard(SubmitBrowserAddress, "browser-address");
+        browserAddress.KeyDown += async (_, e) =>
+        {
+            if (e.Key == Key.Enter) { e.Handled = true; await Guard(SubmitBrowserAddress, "browser-address"); }
+            else if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+                browserAddressDrafts.Remove(BrowserAddressContext);
+                ShowBrowserAddress(activeBrowserView == null ? "" : BrowserDisplayAddress(activeBrowserView));
+            }
+        };
         browserEnable.Click += (_, _) =>
         {
             var project = CurrentProject;
@@ -195,14 +223,36 @@ public partial class MainWindow
         catch { RemoveBrowserTab(view); throw; }
         finally { ShowChatBrowser(); }
     }
-    private async Task NavigateBrowser(string address)
+    private async Task SubmitBrowserAddress()
+    {
+        var context = BrowserAddressContext;
+        var submitted = browserAddress.Text;
+        var target = await NavigateBrowser(submitted);
+        if (browserAddressDrafts.TryGetValue(context, out var draft) && draft == submitted)
+            browserAddressDrafts.Remove(context);
+        if (context.TaskId == CurrentTask?.Id && activeBrowserView == target)
+            ShowBrowserAddress(BrowserTools.ValidateUrl(submitted).AbsoluteUri);
+    }
+
+    private async Task<WebView2> NavigateBrowser(string address)
     {
         var uri = BrowserTools.ValidateUrl(address);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var context = BrowserAddressContext;
         WebView2 view;
-        if (CurrentTask is { } task) view = await EnsureChatBrowser(task, timeout.Token);
+        if (context.View is { } active && CanUseBrowser(active, context.TaskId))
+        {
+            view = active;
+            await browserTabReady[view].Task.WaitAsync(timeout.Token);
+        }
+        else if (CurrentTask is { } task) view = await EnsureChatBrowser(task, timeout.Token);
         else { await EnsureBrowser().WaitAsync(timeout.Token); view = browserView!; }
-        SetBrowserView(view); ResetLocalBrowserAttempts(view); view.CoreWebView2.Navigate(uri.AbsoluteUri);
+        if (context.TaskId != CurrentTask?.Id || !CanUseBrowser(view, context.TaskId) || !browserTabOwners.ContainsKey(view))
+            throw new Hermes.Core.HermesException("브라우저 탭이 바뀌었습니다. 주소를 확인한 뒤 다시 열어 주세요.");
+        if (BrowserAddressContext == context || activeBrowserView == view) SetBrowserView(view);
+        ResetLocalBrowserAttempts(view);
+        view.CoreWebView2.Navigate(uri.AbsoluteUri);
+        return view;
     }
     private async Task<string> CaptureBrowserScreen(WebView2 view, CancellationToken ct)
     {
