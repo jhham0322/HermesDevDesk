@@ -8,12 +8,12 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-[assembly: AssemblyVersion("0.8.59.0")]
-[assembly: AssemblyFileVersion("0.8.59.0")]
+[assembly: AssemblyVersion("0.8.60.0")]
+[assembly: AssemblyFileVersion("0.8.60.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
 internal static class Setup
 {
-    internal const string Version="0.8.59";
+    internal const string Version="0.8.60";
     internal static string Target=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","HermesDevDesk","App");
     [STAThread] static int Main(string[] args)
     {
@@ -317,12 +317,12 @@ using(var z=Payload()){var m=Manifest(z);var marker=FilePath(r,".hermes-owned");
     static void Wait(SetupForm f){while(f.Last!=null&&!f.Last.IsCompleted){Application.DoEvents();Thread.Sleep(10);}Application.DoEvents();}
     static void Tests(string root,string report){
         Root(root);if(Directory.Exists(root)&&Directory.GetFileSystemEntries(root).Length!=0)throw new IOException("Test root must be empty");Directory.CreateDirectory(root);var lines=new List<string>();var path=Path.Combine(root,"install");
-        using(var f=new SetupForm(path,true)){f.Show();f.InstallButton.PerformClick();var first=f.Last;f.InstallButton.PerformClick();if(first!=f.Last)throw new IOException("Duplicate click");Wait(f);if(f.Error!=null||!File.Exists(Path.Combine(path,"HermesDevDesk.exe")))throw new IOException("Install failed "+f.Error);lines.Add("PASS programmatic install/repeated-click guard");
+        using(var f=new SetupForm(path,true)){f.Show();f.InstallButton.PerformClick();var first=f.Last;f.InstallButton.PerformClick();if(first!=f.Last)throw new IOException("Duplicate click");Wait(f);if(f.Error!=null||!File.Exists(Path.Combine(path,"HermesDevDesk.exe")))throw new IOException("Install failed "+f.Error);if(f.AutomaticLaunches!=1)throw new IOException("Successful install must trigger exactly one launch");lines.Add("PASS programmatic install/repeated-click and automatic launch guard");
         f.LaunchButton.PerformClick();Wait(f);if(f.Error!=null)throw new IOException("Installed app launch failed: "+f.Error);lines.Add("PASS launch button runs installed WPF app with isolated smoke data");
         f.InstallButton.PerformClick();Wait(f);if(f.Error!=null)throw new IOException("Repeat install failed");lines.Add("PASS repeat same-version installation");
         File.WriteAllText(Path.Combine(path,"README.md"),"MODIFIED");File.WriteAllText(Path.Combine(path,"user.txt"),"KEEP");f.InstallButton.PerformClick();Wait(f);if(f.Error!=null||File.Exists(Path.Combine(path,"user.txt"))||File.ReadAllText(Path.Combine(path,"README.md"))=="MODIFIED")throw new IOException("Same-folder clean replacement failed");lines.Add("PASS same installation folder fully refreshed");File.WriteAllText(Path.Combine(path,"README.md"),"MODIFIED");File.WriteAllText(Path.Combine(path,"user.txt"),"KEEP");
         f.RemoveButton.PerformClick();Wait(f);if(f.Error!=null||File.Exists(Path.Combine(path,"HermesDevDesk.exe"))||File.ReadAllText(Path.Combine(path,"README.md"))!="MODIFIED"||File.ReadAllText(Path.Combine(path,"user.txt"))!="KEEP")throw new IOException("Removal preservation failed");lines.Add("PASS remove handler preserves modified/user files");f.Close();}
-        path=Path.Combine(root,"cancel");using(var f=new SetupForm(path,true)){f.Show();f.CancelAfterProgress=true;f.InstallButton.PerformClick();Wait(f);if(!f.Cancelled||(Directory.Exists(path)&&Directory.GetFiles(path,"*.partial",SearchOption.AllDirectories).Length>0))throw new IOException("Cancel failed");lines.Add("PASS cancel handler and private partial cleanup");
+        path=Path.Combine(root,"cancel");using(var f=new SetupForm(path,true)){f.Show();f.CancelAfterProgress=true;f.InstallButton.PerformClick();Wait(f);if(f.AutomaticLaunches!=0||!f.Cancelled||(Directory.Exists(path)&&Directory.GetFiles(path,"*.partial",SearchOption.AllDirectories).Length>0))throw new IOException("Cancel failed");lines.Add("PASS cancellation skips launch and cleans private partial files");
         f.CancelAfterProgress=false;f.InstallButton.PerformClick();Wait(f);if(f.Error!=null)throw new IOException("Cancel resume failed");lines.Add("PASS recover cancelled installation");
         f.RemoveButton.PerformClick();Wait(f);f.InstallButton.PerformClick();Wait(f);if(f.Error!=null)throw new IOException("Reinstall failed");lines.Add("PASS reinstall after removal");f.Close();}
         path=Path.Combine(root,"unowned");Directory.CreateDirectory(path);File.WriteAllText(Path.Combine(path,"keep.txt"),"KEEP");try{Install(path,CancellationToken.None,null);throw new Exception("Unowned accepted");}catch(IOException){if(File.ReadAllText(Path.Combine(path,"keep.txt"))!="KEEP")throw;lines.Add("PASS unowned destination preserved");}
@@ -332,22 +332,32 @@ using(var z=Payload()){var m=Manifest(z);var marker=FilePath(r,".hermes-owned");
 internal sealed class SetupForm:Form{
     internal Button InstallButton=new Button{Text="새로 설치 / 재설치"},RemoveButton=new Button{Text="이 버전 제거"},CancelControl=new Button{Text="작업 취소",Enabled=false};
     internal Button LaunchButton=new Button{Text="설치한 "+Setup.Version+" 실행"};
-    internal Task Last;internal string Error;internal bool Cancelled,CancelAfterProgress;bool test;CancellationTokenSource cancellation;TextBox path=new TextBox();Label status=new Label();ProgressBar progress=new ProgressBar();
-    internal SetupForm(string target,bool testing){test=testing;Text="Hermes DevDesk 0.8.59 설치";Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);Width=700;Height=440;StartPosition=FormStartPosition.CenterScreen;MaximizeBox=false;
+    internal Task Last;internal string Error;internal bool Cancelled,CancelAfterProgress;internal int AutomaticLaunches;bool test;CancellationTokenSource cancellation;TextBox path=new TextBox();Label status=new Label();ProgressBar progress=new ProgressBar();
+    internal SetupForm(string target,bool testing){test=testing;Text="Hermes DevDesk 0.8.60 설치";Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);Width=700;Height=440;StartPosition=FormStartPosition.CenterScreen;MaximizeBox=false;
         Controls.Add(new Label{Left=24,Top=20,Width=640,Height=100,Text="독립 Windows 개발 에이전트 앱 · 사내 중계서버 연결\n.NET 런타임과 공식 CLI 포함. 실행 중인 이전 앱과 설치 파일 점유 프로세스를 강제 종료하고 App 폴더를 먼저 삭제한 뒤 새 파일을 설치합니다. 확인된 이전 설치 잔여 폴더도 정리합니다. 이력·설정은 별도 보존합니다.\n관리자 권한·방화벽·전역 설정 변경 없이 선택한 폴더에 설치합니다.\n회사 URL/모델명/API 키는 설치 후 앱에 직접 입력하세요."});
         path.SetBounds(24,130,530,28);path.Text=target;path.ReadOnly=true;var browse=new Button{Text="폴더 선택"};browse.SetBounds(565,128,100,30);browse.Enabled=false;browse.Click+=delegate{using(var d=new FolderBrowserDialog())if(d.ShowDialog(this)==DialogResult.OK)path.Text=d.SelectedPath;};
         progress.SetBounds(24,177,640,22);status.SetBounds(24,210,640,65);InstallButton.SetBounds(24,290,190,38);RemoveButton.SetBounds(237,290,190,38);CancelControl.SetBounds(450,290,215,38);var close=new Button{Text="닫기"};close.SetBounds(550,340,115,32);close.Click+=delegate{Close();};LaunchButton.SetBounds(24,340,190,32);
         Controls.AddRange(new Control[]{path,browse,progress,status,InstallButton,RemoveButton,CancelControl,LaunchButton,close});
         LaunchButton.Click+=delegate{if(Last==null||Last.IsCompleted)Last=Launch();};
         InstallButton.Click+=delegate{if(Last==null||Last.IsCompleted)Last=Run(false);};RemoveButton.Click+=delegate{if(Last==null||Last.IsCompleted){if(!test&&MessageBox.Show(this,"해시가 일치하는 앱 파일만 제거합니다. 이력·키·수정한 파일은 보존합니다. 계속할까요?","제거",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;Last=Run(true);}};
-        CancelControl.Click+=delegate{if(cancellation!=null)cancellation.Cancel();};FormClosing+=delegate(object s,FormClosingEventArgs e){if(Last!=null&&!Last.IsCompleted){e.Cancel=true;CancelControl.PerformClick();}};status.Text="비어 있거나 이 설치파일이 소유하는 폴더에 설치하세요. 앱은 자동 실행하지 않습니다.";
+        CancelControl.Click+=delegate{if(cancellation!=null)cancellation.Cancel();};FormClosing+=delegate(object s,FormClosingEventArgs e){if(Last!=null&&!Last.IsCompleted){e.Cancel=true;CancelControl.PerformClick();}};status.Text="비어 있거나 이 설치파일이 소유하는 폴더에 설치하세요. 설치가 완료되면 앱이 자동으로 열립니다.";
     }
-    async Task Run(bool remove){Error=null;Cancelled=false;cancellation=new CancellationTokenSource();var target=path.Text;InstallButton.Enabled=RemoveButton.Enabled=path.Enabled=false;CancelControl.Enabled=true;progress.Value=0;status.Text="무결성 검사 중…";
+    async Task Run(bool remove){Error=null;Cancelled=false;cancellation=new CancellationTokenSource();var target=path.Text;InstallButton.Enabled=RemoveButton.Enabled=LaunchButton.Enabled=path.Enabled=false;CancelControl.Enabled=true;progress.Value=0;status.Text="무결성 검사 중…";
         try{Action<int,string> update=(n,file)=>{BeginInvoke((Action)(()=>{progress.Value=n;status.Text=file;if(test&&CancelAfterProgress)CancelControl.PerformClick();}));if(test&&CancelAfterProgress)Thread.Sleep(40);};
         int removedVersions=0;
-        await Task.Run(()=>{if(remove){if(!test)Setup.UnregisterOfficeLoader(target);Setup.Remove(target,cancellation.Token,update);}else {Setup.Install(target,cancellation.Token,update);Setup.ValidateInstalled(target);if(!test){removedVersions=Setup.CleanupPreviousVersions(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","HermesDevDesk"),target);Setup.UpdateShortcut(target);Setup.RegisterOfficeLoader(target);}}});status.Text=remove?"제거 완료. 사용자 데이터는 보존했습니다.":"설치 완료 · 이전 버전 "+removedVersions+"개 정리 · 이력/설정 보존: "+Path.Combine(target,"HermesDevDesk.exe");}
+        await Task.Run(()=>{if(remove){if(!test)Setup.UnregisterOfficeLoader(target);Setup.Remove(target,cancellation.Token,update);}else {Setup.Install(target,cancellation.Token,update);if(!test){removedVersions=Setup.CleanupPreviousVersions(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","HermesDevDesk"),target);Setup.UpdateShortcut(target);Setup.RegisterOfficeLoader(target);}}});status.Text=remove?"제거 완료. 사용자 데이터는 보존했습니다.":"설치 완료 · 이전 버전 "+removedVersions+"개 정리 · 이력/설정 보존: "+Path.Combine(target,"HermesDevDesk.exe");
+        if(!remove&&!cancellation.IsCancellationRequested){
+            try{
+                if(test)AutomaticLaunches++;
+                else await StartInstalledApp(target);
+                status.Text="설치 완료 · Hermes DevDesk를 시작했습니다.";
+            }catch(Exception e){
+                status.Text="설치 완료 · 자동 실행 실패: "+e.Message;
+                if(!test)MessageBox.Show(this,status.Text+"\n아래 실행 버튼으로 다시 시도할 수 있습니다.","Hermes DevDesk");
+            }
+        }}
         catch(OperationCanceledException){Cancelled=true;status.Text="취소됨. 기존 파일 정리 후 취소했다면 다시 설치해야 앱을 실행할 수 있습니다.";}catch(Exception e){Error=e.Message;status.Text="실패: "+e.Message;if(!test)MessageBox.Show(this,e.Message,"복구 가능한 오류");}
-        finally{cancellation.Dispose();cancellation=null;InstallButton.Enabled=RemoveButton.Enabled=path.Enabled=true;CancelControl.Enabled=false;}
+        finally{cancellation.Dispose();cancellation=null;InstallButton.Enabled=RemoveButton.Enabled=LaunchButton.Enabled=path.Enabled=true;CancelControl.Enabled=false;}
     }
     async Task Launch()
     {
@@ -356,19 +366,24 @@ internal sealed class SetupForm:Form{
         {
             var target=Path.GetFullPath(path.Text);
             await Task.Run(()=>Setup.ValidateInstalled(target));
-            var exe=Path.Combine(target,"HermesDevDesk.exe");
-            var info=new System.Diagnostics.ProcessStartInfo(exe){WorkingDirectory=target,UseShellExecute=false};
-            var data=Path.Combine(Path.GetDirectoryName(target),"launch-data-"+Guid.NewGuid().ToString("N"));
-            if(test){info.Arguments="--ui-smoke --data-dir \""+data+"\"";info.WindowStyle=System.Diagnostics.ProcessWindowStyle.Hidden;}
-            using(var p=System.Diagnostics.Process.Start(info))
-            {
-                if(p==null)throw new IOException("App process failed to start");
-                if(test){await Task.Run(()=>{if(!p.WaitForExit(30000))throw new IOException("Installed app smoke timeout");if(p.ExitCode!=0||!File.Exists(Path.Combine(data,"ui-smoke.txt")))throw new IOException("Installed app smoke failed");});}
-            }
+            await StartInstalledApp(target);
             status.Text="앱 실행 요청 완료";
         }
         catch(Exception e){Error=e.Message;status.Text="실행 실패: "+e.Message;if(!test)MessageBox.Show(this,e.Message);}
         finally{InstallButton.Enabled=RemoveButton.Enabled=LaunchButton.Enabled=path.Enabled=true;}
     }
+    async Task StartInstalledApp(string target)
+    {
+        var exe=Path.Combine(target,"HermesDevDesk.exe");
+        var info=new System.Diagnostics.ProcessStartInfo(exe){WorkingDirectory=target,UseShellExecute=false};
+        var data=Path.Combine(Path.GetDirectoryName(target),"launch-data-"+Guid.NewGuid().ToString("N"));
+        if(test){info.Arguments="--ui-smoke --data-dir \""+data+"\"";info.WindowStyle=System.Diagnostics.ProcessWindowStyle.Hidden;}
+        using(var p=System.Diagnostics.Process.Start(info))
+        {
+            if(p==null)throw new IOException("App process failed to start");
+            if(test){await Task.Run(()=>{if(!p.WaitForExit(30000))throw new IOException("Installed app smoke timeout");if(p.ExitCode!=0||!File.Exists(Path.Combine(data,"ui-smoke.txt")))throw new IOException("Installed app smoke failed");});}
+        }
+    }
+
 }
 
