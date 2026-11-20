@@ -144,6 +144,11 @@ if (args.Contains("--chat-gateway-engine"))
 }
 if (args.Contains("--model-connections-engine"))
 {
+    if (args.Contains("--quota-rotation"))
+    {
+        await ModelConnectionEngineTests.RunQuotaRotation(args[Array.IndexOf(args, "--root") + 1], args[Array.IndexOf(args, "--codex") + 1]);
+        return;
+    }
     await ModelConnectionEngineTests.Run(args[Array.IndexOf(args, "--root") + 1], args[Array.IndexOf(args, "--codex") + 1]); return;
 }
 if (args.Contains("--multi-chat-only"))

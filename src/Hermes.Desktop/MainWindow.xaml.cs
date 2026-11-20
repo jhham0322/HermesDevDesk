@@ -53,7 +53,14 @@ public partial class MainWindow : Window
             ApprovalList.SelectedItem = ApprovalList.Items.Cast<ApprovalDisplay>().FirstOrDefault(d => d.Request == approval) ?? ApprovalList.Items.Cast<ApprovalDisplay>().FirstOrDefault();
             Connection.Text = desk.AccountStatus;
             var visibleModels = desk.DisplayModels.Count > 0 ? desk.DisplayModels.ToList() : new List<string> { "모델명을 입력하세요" };
-            if (!Model.Items.Cast<string>().SequenceEqual(visibleModels)) { var selected = desk.HasPendingModel ? desk.State.PendingModel : Model.SelectedItem as string; Model.ItemsSource = visibleModels; Model.SelectedItem = visibleModels.Contains(selected!) ? selected : visibleModels.FirstOrDefault(); }
+            var activeConnection = desk.ActiveModelConnection;
+            var activeChanged = displayedConnectionId != activeConnection?.Id;
+            displayedConnectionId = activeConnection?.Id;
+            var selected = desk.HasPendingModel ? desk.State.PendingModel : activeChanged && activeConnection != null
+                ? desk.ModelChoice(activeConnection.Id, activeConnection.Settings.Deployment) : Model.SelectedItem as string;
+            if (!Model.Items.Cast<string>().SequenceEqual(visibleModels)) Model.ItemsSource = visibleModels;
+            Model.SelectedItem = visibleModels.Contains(selected!) ? selected : activeConnection != null
+                ? desk.ModelChoice(activeConnection.Id, activeConnection.Settings.Deployment) : visibleModels.FirstOrDefault();
             Model.ToolTip = desk.HasPendingModel ? "입력한 모델 · URL/키를 저장하고 연결하세요" : "설정한 모델 · " + desk.AccountStatus;
             ProviderHint.Text = desk.State.Provider.IsChatGptPlanOAuth ? "ChatGPT plan OAuth · " + desk.AccountStatus : desk.State.Provider.Mode == ConnectionMode.CompanyApi ? desk.State.Provider.IsAnthropic ? "Anthropic Messages · " + desk.ProviderCheckStatus : desk.State.Provider.Protocol + " · " + desk.ProviderCheckStatus : "ChatGPT CLI · 구독 사용량 사용";
             StartButton.IsEnabled = CanSubmit();
@@ -146,7 +153,7 @@ public partial class MainWindow : Window
     {
         var project = CurrentProject ?? throw new Hermes.Core.HermesException("Git 프로젝트를 선택하세요.");
         if (MessageBox.Show(this, "현재 Git 프로젝트의 커밋하지 않은 변경을 선택한 provider로 검토합니다. 모델 사용량이 발생할 수 있습니다. 읽기 전용 새 검토 작업을 시작할까요?", "AI 변경 검토", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
-        var task = await desk.StartReviewAsync(project, Model.SelectedItem as string ?? ""); Search.Clear(); Tasks.SelectedItem = task; RenderTask();
+        var task = await desk.StartReviewAsync(project, desk.DeploymentForChoice(Model.SelectedItem as string ?? "")); Search.Clear(); Tasks.SelectedItem = task; RenderTask();
     });
     private void ImageAdd_Click(object sender, RoutedEventArgs e) => ChooseAttachments(true);
     private void FileAdd_Click(object sender, RoutedEventArgs e) => ChooseAttachments(false);
@@ -254,20 +261,24 @@ public partial class MainWindow : Window
         if (desk.State.Provider.Mode == ConnectionMode.CompanyApi) await desk.CheckProviderAsync();
         Refresh();
     });
+    private string? displayedConnectionId;
+
     private async void Start_Click(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
         if (connectingCompany) return;
         if (string.IsNullOrWhiteSpace(Prompt.Text)) { if (pendingImages.Count + pendingFiles.Count == 0) { Footer.Text = "질문을 입력하세요."; Prompt.Focus(); return; } Prompt.Text = "첨부한 이미지와 파일을 확인하고 내용을 설명해 주세요."; }
         if (CurrentProject == null) { Footer.Text = "질문을 실행할 프로젝트 폴더를 선택하세요."; Register_Click(this, new RoutedEventArgs()); if (CurrentProject == null) return; }
-        var chosenModel = Model.SelectedItem as string ?? "";
-        if (CurrentTask?.Status == "실행 중" && chosenModel != CurrentTask.Model) throw new Hermes.Core.HermesException("모델을 바꾸려면 실행을 중단한 뒤 다시 전송하세요.");
-        if (!desk.State.Provider.IsChatGptPlanOAuth && CurrentTask?.Status != "실행 중") desk.SelectModelConnection(chosenModel);
+        var choice = Model.SelectedItem as string ?? "";
+        var chosenModel = desk.DeploymentForChoice(choice);
+        var steering = CurrentTask?.Status is "실행 중" or "계속 실행 대기";
+        if (!desk.State.Provider.IsChatGptPlanOAuth && !steering && desk.SelectModelForNewRequest(choice))
+            chosenModel = desk.State.Provider.Deployment;
         if (desk.HasPendingModel || (!desk.SubscriptionReady && !desk.CanConnectCompany && desk.State.Provider.Mode == ConnectionMode.CompanyApi))
         {
             Footer.Text = "서버 URL, API 키, 모델명을 저장하세요.";
             Settings_Click(this, new RoutedEventArgs());
-            chosenModel = Model.SelectedItem as string ?? desk.State.Provider.Deployment;
-            desk.SelectModelConnection(chosenModel);
+            choice = Model.SelectedItem as string ?? desk.State.Provider.Deployment;
+            chosenModel = desk.SelectModelForNewRequest(choice) ? desk.State.Provider.Deployment : desk.DeploymentForChoice(choice);
             if (desk.HasPendingModel || (!desk.SubscriptionReady && !desk.CanConnectCompany)) return;
         }
         var prompt = Prompt.Text; var task = CurrentTask;

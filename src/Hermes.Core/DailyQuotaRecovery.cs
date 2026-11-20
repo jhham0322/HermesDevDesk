@@ -64,12 +64,25 @@ public sealed partial class DeskController
             task.Status = process.State; Save(); return true;
         }
         process.Checkpoint = WorkQueue.Summary(process);
-        process.DailyQuotaResumeAt = DailyQuotaRecovery.NextReset(now); process.DailyQuotaClaimedAt = null;
+        var reset = DailyQuotaRecovery.NextReset(now);
+        var connection = State.ModelConnections.FirstOrDefault(c => c.Id == task.ModelConnectionId);
+        if (connection != null) connection.QuotaExhaustedUntil = reset;
+        var alternate = connection != null && FirstAvailableConnection(now) != null;
+        process.DailyQuotaResumeAt = alternate ? now : reset; process.DailyQuotaClaimedAt = null;
         process.BlockKind = "daily_token_quota";
-        var detail = $"일일 토큰 소진으로 중단했습니다. {process.DailyQuotaResumeAt.Value.ToOffset(TimeSpan.FromHours(9)):yyyy-MM-dd HH:mm} 한국시간에 기존 작업을 한 번 재개합니다. 실제 공급자 초기화 성공은 아직 확인되지 않았습니다. 앱과 같은 모델 연결이 필요하며 꺼져 있으면 다음 연결 후 확인합니다. 프로세스 종료 버튼으로 예약을 취소할 수 있습니다.";
-        EndProcess(task, "일일 토큰 초기화 대기", detail); task.Status = process.State;
-        task.Transcript.Add(TranscriptPresentation.Host("자동 재개 예약", detail)); Save(); return true;
+        var detail = alternate ? "일일 토큰을 모두 사용했습니다. 저장 순서에 따라 사용 가능한 모델로 이어서 실행합니다." : $"일일 토큰 소진으로 중단했습니다. {process.DailyQuotaResumeAt.Value.ToOffset(TimeSpan.FromHours(9)):yyyy-MM-dd HH:mm} 한국시간에 기존 작업을 한 번 재개합니다. 실제 공급자 초기화 성공은 아직 확인되지 않았습니다. 앱과 같은 모델 연결이 필요하며 꺼져 있으면 다음 연결 후 확인합니다. 프로세스 종료 버튼으로 예약을 취소할 수 있습니다.";
+        EndProcess(task, alternate ? "다음 모델 연결 대기" : "일일 토큰 초기화 대기", detail); task.Status = process.State;
+        task.Transcript.Add(TranscriptPresentation.Host("자동 재개 예약", detail));
+        Save();
+        if (alternate) _ = PollQuotaAfterTurnAsync();
+        return true;
     }
+    private async Task PollQuotaAfterTurnAsync()
+    {
+        await Task.Yield();
+        dispatch(() => { if (!disposed) _ = RunDueDailyQuotaResumesAsync(DateTimeOffset.UtcNow); });
+    }
+
     public void CancelDailyQuotaResume(string processId)
     {
         var p = State.Processes.Single(p => p.Id == processId);
@@ -91,7 +104,14 @@ public sealed partial class DeskController
             {
                 var task = State.Tasks.SingleOrDefault(t => t.Id == p.TaskId);
                 if (task == null || task.Archived || IsRunning(task) || Approvals.Any(a => a.Params.Text("threadId") == task.ThreadId)) continue;
-                if (Engine == null || !SubscriptionReady || connectedFingerprint != State.Provider.Fingerprint || task.ProviderFingerprint != connectedFingerprint) continue;
+                var rotates = task.ModelConnectionId != null && State.ModelConnections.Any(c => c.Id == task.ModelConnectionId);
+                var target = rotates ? FirstAvailableConnection(now) : null;
+                if (rotates)
+                {
+                    if (target == null || connecting || State.Tasks.Any(IsRunning) ||
+                        State.Provider.Mode != ConnectionMode.CompanyApi || string.IsNullOrWhiteSpace(State.CodexPath)) continue;
+                }
+                else if (Engine == null || !SubscriptionReady || connectedFingerprint != State.Provider.Fingerprint || task.ProviderFingerprint != connectedFingerprint) continue;
                 if (task.ThreadId == null || task.ThreadId != p.ThreadId || p.ThreadId.Length == 0) continue;
                 if (State.Provider.IsChatGptPlanOAuth && oauthEngineExpires <= now.AddMinutes(1)) continue;
                 FileStream claim;
@@ -103,7 +123,7 @@ public sealed partial class DeskController
                 }
                 await using (claim)
                 {
-                    p.DailyQuotaClaimedAt = now; p.DailyQuotaResumeAt = null; p.DailyQuotaResumeAttempts++;
+                    p.DailyQuotaClaimedAt = now; p.DailyQuotaResumeAt = null; if (!rotates || target?.Id == task.ModelConnectionId) p.DailyQuotaResumeAttempts++;
                     p.BlockKind = "daily_quota_admission_review";
                     await claim.WriteAsync(System.Text.Encoding.UTF8.GetBytes(p.Id + "\n" + now.ToString("O"))); claim.Flush(true);
                     // Persist the claim before any provider request. Never reset this
@@ -112,19 +132,46 @@ public sealed partial class DeskController
                     if (p.UserStopped || p.DailyQuotaCancelled || task.Archived || p.Operations.Any(o => o.NeedsReview) || Approvals.Any(a => a.Params.Text("threadId") == task.ThreadId)) continue;
                     try
                     {
-                        task.Transcript.Add(TranscriptPresentation.Host("자동 재개 시작", "한국시간 09:30 이후 일일 토큰 재개를 시도합니다. 기존 작업·완료 항목·실행 증거를 보존합니다."));
+                        if (target != null)
+                        {
+                            var previous = task.ModelConnectionId;
+                            SelectConnection(target, true);
+                            if (Engine == null || !SubscriptionReady || connectedFingerprint != State.Provider.Fingerprint)
+                                await ConnectAsync(State.CodexPath!, Project(task).Root);
+                            if (p.UserStopped || p.DailyQuotaCancelled || task.Archived || task.ThreadId != p.ThreadId) continue;
+                            task.Model = target.Settings.Deployment;
+                            task.ModelConnectionId = target.Id;
+                            task.ProviderFingerprint = connectedFingerprint;
+                            if (previous != target.Id) task.ReasoningEffort = "";
+                            task.Transcript.Add(TranscriptPresentation.Host("자동 재개 시작", $"{ModelChoice(target.Id, task.Model)} 연결에서 저장된 작업을 이어갑니다."));
+                        }
+                        else task.Transcript.Add(TranscriptPresentation.Host("자동 재개 시작", "한국시간 09:30 이후 일일 토큰 재개를 시도합니다. 기존 작업·완료 항목·실행 증거를 보존합니다."));
                         p.BlockKind = "";
                         await ResumeSavedProcessAsync(p.Id);
                     }
                     catch (Exception ex)
                     {
                         if (p.UserStopped || p.DailyQuotaCancelled) { Save(); continue; }
+                        if (target != null && DailyQuotaRecovery.IsDailyTokenExhaustion(JsonSerializer.SerializeToElement(
+                            new { status = "failed", error = new { message = ex.Message } })))
+                        {
+                            target.QuotaExhaustedUntil = DailyQuotaRecovery.NextReset(DateTimeOffset.UtcNow);
+                            p.DailyQuotaClaimedAt = null;
+                            p.DailyQuotaResumeAt = FirstAvailableConnection(DateTimeOffset.UtcNow) != null
+                                ? DateTimeOffset.UtcNow : target.QuotaExhaustedUntil;
+                            p.BlockKind = "daily_token_quota";
+                            p.State = "다음 모델 연결 대기"; task.Status = p.State; Save(); continue;
+                        }
                         p.BlockKind = "daily_quota_admission_review"; p.State = "자동 재개 확인 필요";
                         p.Detail = ConnectionErrors.Describe(ex); if (task.ThreadId == p.ThreadId) task.Status = p.State;
                         task.Transcript.Add(TranscriptPresentation.Host("자동 재개 보류", p.Detail)); Save();
                     }
                 }
             }
+            if (State.ModelSelectedByQuota && State.Provider.Mode == ConnectionMode.CompanyApi && !connecting &&
+                !State.Tasks.Any(IsRunning) && FirstAvailableConnection(now) is { } first &&
+                ActiveModelConnection?.Id != first.Id)
+                SelectConnection(first, true);
         }
         catch (Exception ex) { AppLog.Write(ex, "daily-quota-scheduler"); }
         finally { Volatile.Write(ref dailyQuotaPollRunning, 0); }

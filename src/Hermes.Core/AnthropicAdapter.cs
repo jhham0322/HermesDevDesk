@@ -126,9 +126,9 @@ public static class AnthropicAdapter
         }
         var output = new JsonArray();
         // Consolidate text so the official Responses wire emits every text block, exactly once.
-        if (content.Count > 0) output.Add(new JsonObject { ["id"] = "msg_" + message.Text("id"), ["type"] = "message", ["role"] = "assistant", ["status"] = "completed", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = string.Concat(content.Select(c => c!["text"]!.GetValue<string>())), ["annotations"] = new JsonArray() }) });
-        foreach (var call in calls) output.Add(call!.DeepClone());
         var reason = message.Text("stop_reason");
+        if (content.Count > 0) output.Add(new JsonObject { ["id"] = "msg_" + message.Text("id"), ["type"] = "message", ["role"] = "assistant", ["status"] = "completed", ["phase"] = reason is "end_turn" or "stop_sequence" ? "final_answer" : "commentary", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = string.Concat(content.Select(c => c!["text"]!.GetValue<string>())), ["annotations"] = new JsonArray() }) });
+        foreach (var call in calls) output.Add(call!.DeepClone());
         var status = reason == "max_tokens" ? "incomplete" : reason is "end_turn" or "tool_use" or "stop_sequence" or "refusal" ? "completed" : throw new HermesException("Missing or unsupported Anthropic stop reason");
         var response = new JsonObject { ["id"] = "resp_" + message.Text("id"), ["object"] = "response", ["created_at"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ["status"] = status, ["model"] = message.Text("model"), ["output"] = output, ["usage"] = Usage(message) };
         if (status == "incomplete") response["incomplete_details"] = new JsonObject { ["reason"] = "max_output_tokens" };

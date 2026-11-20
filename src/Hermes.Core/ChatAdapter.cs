@@ -92,7 +92,7 @@ public static class ChatAdapter
         var text = message.Text("content");
         if (message.Property("content") is { ValueKind: JsonValueKind.Array } parts)
             text = string.Join("", parts.EnumerateArray().Where(p => p.ValueKind == JsonValueKind.Object).Select(p => p.Text("text")));
-        if (text.Length > 0) output.Add(new JsonObject { ["id"] = "msg_" + Guid.NewGuid().ToString("N"), ["type"] = "message", ["role"] = "assistant", ["status"] = incomplete ? "incomplete" : "completed", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = text, ["annotations"] = new JsonArray() }) });
+        if (text.Length > 0) output.Add(new JsonObject { ["id"] = "msg_" + Guid.NewGuid().ToString("N"), ["type"] = "message", ["role"] = "assistant", ["status"] = incomplete ? "incomplete" : "completed", ["phase"] = choice.Text("finish_reason") == "stop" ? "final_answer" : "commentary", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = text, ["annotations"] = new JsonArray() }) });
         // A truncated turn must never emit executable tool calls, even if its partial JSON parses.
         if (!incomplete && message.Property("tool_calls") is { ValueKind: JsonValueKind.Array } calls) foreach (var call in calls.EnumerateArray())
         {

@@ -11,7 +11,7 @@ public sealed partial class SettingsWindow : Window
     private string? editingId;
     private readonly ListBox savedModels = new() { MaxHeight = 110 };
     private readonly ComboBox endpointScheme = new(), mode = new(), protocol = new(), authentication = new();
-    private readonly TextBox endpoint = new(), deployment = new(), maxTokens = new();
+    private readonly TextBox endpoint = new(), deployment = new(), modelAlias = new(), maxTokens = new();
     private readonly PasswordBox key = new() { Background = System.Windows.Media.Brushes.White, Foreground = System.Windows.Media.Brushes.Black, Padding = new Thickness(10) };
     private readonly TextBlock keyHint = new() { FontSize = 12, Margin = new Thickness(4), TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 12, 4, 8) };
@@ -33,10 +33,12 @@ public sealed partial class SettingsWindow : Window
         Row(content, "토큰", key);
         UpdateKeyHint(); content.Children.Add(keyHint);
         deployment.Text = desk.HasPendingModel ? desk.State.PendingModel : desk.State.Provider.Deployment; Row(content, "모델명", deployment);
+        Row(content, "별칭 (선택)", modelAlias);
+        modelAlias.ToolTip = "비워 두면 모델명을 표시합니다.";
         deployment.ToolTip = "회사에서 받은 모델명을 그대로 입력하세요. 연결 실패와 별개로 표시·보존합니다.";
          draftTimer.Tick += (_, _) => { draftTimer.Stop(); desk.Save(); };
         savedModels.ItemsSource = desk.State.ModelConnections.ToList();
-        editingId = desk.State.ModelConnections.FirstOrDefault(c => c.Settings.Deployment == desk.State.Provider.Deployment)?.Id;
+        editingId = desk.ActiveModelConnection?.Id;
         var modelHeading = new TextBlock { Text = "모델별 연결 · 모델명 / URL / 토큰", Margin = new Thickness(4, 10, 4, 4) }; content.Children.Add(modelHeading);
         content.Children.Add(savedModels);
         var modelButtons = new WrapPanel(); content.Children.Add(modelButtons);
@@ -46,7 +48,7 @@ public sealed partial class SettingsWindow : Window
         var exportModels = new Button { Content = "JSON 내보내기" };
         var importModels = new Button { Content = "JSON 가져오기" };
         foreach (var button in new[] { addModel, editModel, removeModel, exportModels, importModels }) modelButtons.Children.Add(button);
-        var exportHint = new TextBlock { Text = "내보낸 JSON에는 토큰이 포함됩니다. 가져오기는 같은 모델명을 갱신하고 다른 모델을 추가합니다.", TextWrapping = TextWrapping.Wrap, FontSize = 12 }; content.Children.Add(exportHint);
+        var exportHint = new TextBlock { Text = "내보낸 JSON에는 토큰이 포함됩니다. 별칭과 연결 정보를 함께 저장합니다.", TextWrapping = TextWrapping.Wrap, FontSize = 12 }; content.Children.Add(exportHint);
         addModel.Click += (_, _) => { BeginNewModel(); status.Text = "새 모델의 모델명, URL, 토큰을 입력한 뒤 저장하세요."; deployment.Focus(); };
         editModel.Click += (_, _) => {
             var selected = savedModels.SelectedItem as ModelConnection ?? desk.State.ModelConnections.FirstOrDefault(c => c.Id == editingId);
@@ -55,7 +57,7 @@ public sealed partial class SettingsWindow : Window
         };
         savedModels.SelectionChanged += (_, _) => {
             if (savedModels.SelectedItem is not ModelConnection selected) return;
-            editingId = selected.Id; endpoint.Text = selected.Settings.Endpoint; deployment.Text = selected.Settings.Deployment;
+            editingId = selected.Id; endpoint.Text = selected.Settings.Endpoint; deployment.Text = selected.Settings.Deployment; modelAlias.Text = selected.Alias;
             protocol.SelectedItem = selected.Settings.Protocol; authentication.SelectedItem = selected.Settings.Authentication;
             maxTokens.Text = selected.Settings.MaxOutputTokens.ToString(); manual.IsChecked = selected.Settings.UseAdvancedSettings;
             key.Clear(); status.Text = "선택 모델 수정 · 토큰을 비워두면 기존 토큰을 유지합니다.";
@@ -69,7 +71,7 @@ public sealed partial class SettingsWindow : Window
             status.Text = "모델 삭제됨 · " + selected.Settings.Deployment;
         });
         exportModels.Click += (_, _) => Try(() => { var dialog = new Microsoft.Win32.SaveFileDialog { Filter = "JSON|*.json", FileName = "hermes-models.json" }; if (dialog.ShowDialog(this) == true) { File.WriteAllText(dialog.FileName, desk.ExportModelConnections()); status.Text = "JSON 내보내기 완료 · 토큰 포함"; } });
-        importModels.Click += (_, _) => Try(() => { var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "JSON|*.json" }; if (dialog.ShowDialog(this) == true) { if (new FileInfo(dialog.FileName).Length > 2_000_000) throw new Hermes.Core.HermesException("파일 크기 제한은 2MB입니다."); desk.ImportModelConnections(File.ReadAllText(dialog.FileName)); savedModels.ItemsSource = desk.State.ModelConnections.ToList(); savedModels.SelectedItem = desk.State.ModelConnections.FirstOrDefault(c => c.Settings.Deployment == desk.State.Provider.Deployment); status.Text = "JSON 가져오기 완료"; } });
+        importModels.Click += (_, _) => Try(() => { var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "JSON|*.json" }; if (dialog.ShowDialog(this) == true) { if (new FileInfo(dialog.FileName).Length > 2_000_000) throw new Hermes.Core.HermesException("파일 크기 제한은 2MB입니다."); desk.ImportModelConnections(File.ReadAllText(dialog.FileName)); savedModels.ItemsSource = desk.State.ModelConnections.ToList(); savedModels.SelectedItem = desk.ActiveModelConnection; status.Text = "JSON 가져오기 완료"; } });
         mode.ItemsSource = Enum.GetValues<ConnectionMode>(); mode.SelectedItem = desk.State.Provider.Mode;
         protocol.ItemsSource = Enum.GetValues<ProviderProtocol>(); protocol.SelectedItem = desk.State.Provider.Protocol;
         authentication.ItemsSource = Enum.GetValues<ProviderAuth>(); authentication.SelectedItem = desk.State.Provider.Authentication;
@@ -120,8 +122,7 @@ public sealed partial class SettingsWindow : Window
     {
         var settings = Current();
         if (settings.Mode == ConnectionMode.ExistingChatGptCli) { desk.Configure(settings); return; }
-        desk.SaveModelConnection(settings, key.Password, editingId);
-        editingId = desk.State.ModelConnections.First(c => c.Settings.Deployment == settings.Deployment).Id;
+        editingId = desk.SaveModelConnection(settings, key.Password, editingId, modelAlias.Text).Id;
         key.Clear(); endpoint.Text = settings.Endpoint; UpdateKeyHint();
         savedModels.ItemsSource = desk.State.ModelConnections.ToList();
         savedModels.SelectedItem = desk.State.ModelConnections.First(c => c.Id == editingId);
@@ -130,7 +131,7 @@ public sealed partial class SettingsWindow : Window
     private void BeginNewModel()
     {
         editingId = null; savedModels.SelectedItem = null;
-        deployment.Clear(); endpoint.Clear(); key.Clear(); manual.IsChecked = false;
+        deployment.Clear(); modelAlias.Clear(); endpoint.Clear(); key.Clear(); manual.IsChecked = false;
         endpointScheme.SelectedIndex = 0;
         keyHint.Text = "새 모델의 토큰을 입력하세요. 모델마다 별도로 저장합니다.";
     }

@@ -80,11 +80,12 @@ public sealed partial class DeskController : IAsyncDisposable
             if (State.Provider.IsChatGptPlanOAuth) return Models.ToArray();
             var names = new List<string>();
             if (HasPendingModel) names.Add(State.PendingModel);
-            if (State.Provider.Mode == ConnectionMode.CompanyApi && !string.IsNullOrWhiteSpace(State.Provider.Deployment) && !names.Contains(State.Provider.Deployment)) names.Add(State.Provider.Deployment);
-            names.AddRange(State.ModelConnections.Select(c => c.Settings.Deployment).Where(m => !names.Contains(m)));
-            names.AddRange(SavedModels.Where(m => !names.Contains(m)));
-            names.AddRange(Models.Where(m => !names.Contains(m)));
-            return names;
+            names.AddRange(State.ModelConnections.Select(c => ModelChoice(c.Id, c.Settings.Deployment)));
+            var registered = State.ModelConnections.Select(c => c.Settings.Deployment).ToHashSet(StringComparer.Ordinal);
+            if (!string.IsNullOrWhiteSpace(State.Provider.Deployment) && !registered.Contains(State.Provider.Deployment)) names.Add(State.Provider.Deployment);
+            names.AddRange(SavedModels.Where(m => !registered.Contains(m)));
+            names.AddRange(Models.Where(m => !registered.Contains(m)));
+            return names.Distinct().ToArray();
         }
     }
     public void RememberModel(string value, string? excludedSecret = null)
@@ -101,8 +102,8 @@ public sealed partial class DeskController : IAsyncDisposable
         var result = await GatewayConnector.Connect(original, KeyStore, ct);
         if (!ReferenceEquals(original, State.Provider)) throw new HermesException("설정이 바뀌어 이전 연결 확인 결과를 적용하지 않았습니다.");
         var rememberedModels = SavedModels.ToList();
+        var connection = ActiveModelConnection;
         State.Provider = result.Settings;
-        var connection = State.ModelConnections.FirstOrDefault(c => c.Settings.Deployment == State.Provider.Deployment);
         if (connection != null) connection.Settings = CopySettings(State.Provider);
         foreach (var rememberedModel in rememberedModels) AddModel(rememberedModel);
         ProviderCheckStatus = result.Note; Models.Clear(); Models.Add(State.Provider.Deployment); Models.AddRange(SavedModels.Where(m => !Models.Contains(m)));
@@ -177,17 +178,19 @@ public sealed partial class DeskController : IAsyncDisposable
     private async Task ConnectCoreAsync(string exe, string cwd, CancellationToken cancellation)
     {
         ComputerStopRequested?.Invoke(null);
-        if (Engine != null) await Engine.DisposeAsync();
+        var previousEngine = Engine; Engine = null;
+        if (previousEngine != null) await previousEngine.DisposeAsync();
         if (company != null) { await company.DisposeAsync(); company = null; }
         loadedThreads.Clear(); disabledMcp.Clear(); SubscriptionReady = false;
         cancellation.ThrowIfCancellationRequested();
         var client = new AppServerClient(); Engine = client;
         using var cancelConnect = cancellation.Register(() => { _ = client.DisposeAsync(); });
-        client.Notification += e => dispatch(() => Handle(e));
-        client.Approval += r => dispatch(() => Receive(r));
+        client.Notification += e => dispatch(() => { if (ReferenceEquals(Engine, client)) Handle(e); });
+        client.Approval += r => dispatch(() => { if (ReferenceEquals(Engine, client)) Receive(r); });
         client.Diagnostic += s => { if (!ProviderErrors.IsOutputLimitMessage(s)) dispatch(() => Diagnostic?.Invoke(s)); };
         client.Disconnected += () => dispatch(() =>
         {
+            if (!ReferenceEquals(Engine, client)) return;
             ComputerStopRequested?.Invoke(null); SubscriptionReady = false; AccountStatus = "연결 끊김"; Approvals.Clear();
             foreach (var t in State.Tasks.Where(IsRunning)) { EndProcess(t, "연결 끊김", "엔진 연결이 종료되었습니다."); t.Status = "연결 끊김 · 재개 가능"; t.TurnId = null; }
             Save();
@@ -308,7 +311,7 @@ public sealed partial class DeskController : IAsyncDisposable
         var response = await engine.RequestAsync("thread/fork", new { threadId = source.ThreadId, cwd = root, model = source.Model, modelProvider = ActiveModelProvider, sandbox = "danger-full-access", approvalPolicy = "on-request", approvalsReviewer = "user", excludeTurns = true, config = forkConfig });
         if (!string.Equals(Path.GetFullPath(response.Text("cwd")), root, StringComparison.OrdinalIgnoreCase) || response.Text("modelProvider") != (ActiveModelProvider) || response.GetProperty("sandbox").Text("type") != "dangerFullAccess") throw new HermesException("분기 경로/provider/추가 샌드박스 해제 불일치");
         var id = response.GetProperty("thread").Text("id"); if (id.Length == 0 || id == source.ThreadId) throw new HermesException("새 대화 ID 확인 실패");
-        var task = new WorkItem { Id = forkTaskId, ProjectId = source.ProjectId, Title = source.Title + " / 분기", ThreadId = id, ThreadLearningVersion = source.ThreadLearningVersion, Model = source.Model, ProviderFingerprint = source.ProviderFingerprint, Writable = source.Writable, ThreadWritable = source.ThreadWritable, ThreadMcpEnabled = source.ThreadMcpEnabled, ThreadBrowserEnabled = source.ThreadBrowserEnabled, ThreadComputerEnabled = source.ThreadComputerEnabled, ReasoningEffort = source.ReasoningEffort, UsageBaselineKnown = false, IsReview = source.IsReview, Transcript = source.Transcript.ToList(), Attachments = source.Attachments.ToList(), FileAttachments = source.FileAttachments.ToList(), Skills = source.Skills.ToList() };
+        var task = new WorkItem { Id = forkTaskId, ProjectId = source.ProjectId, Title = source.Title + " / 분기", ThreadId = id, ThreadLearningVersion = source.ThreadLearningVersion, Model = source.Model, ModelConnectionId = source.ModelConnectionId, ProviderFingerprint = source.ProviderFingerprint, Writable = source.Writable, ThreadWritable = source.ThreadWritable, ThreadMcpEnabled = source.ThreadMcpEnabled, ThreadBrowserEnabled = source.ThreadBrowserEnabled, ThreadComputerEnabled = source.ThreadComputerEnabled, ReasoningEffort = source.ReasoningEffort, UsageBaselineKnown = false, IsReview = source.IsReview, Transcript = source.Transcript.ToList(), Attachments = source.Attachments.ToList(), FileAttachments = source.FileAttachments.ToList(), Skills = source.Skills.ToList() };
         task.Transcript.Add(new("대화 분기", "원본 작업 " + source.Id + "에서 공식 thread/fork로 분기. 원본 대화/파일은 보존.", DateTime.UtcNow));
         State.Tasks.Insert(0, task); loadedThreads.Add(id); Save(); return task;
     }
@@ -408,7 +411,7 @@ public sealed partial class DeskController : IAsyncDisposable
         var startingProcess = ActiveProcess(task);
         task.Writable = writable; task.Status = "시작 중"; task.Updated = DateTime.UtcNow;
         if (startingProcess?.RequirePlan == true) SaveCheckpoint(startingProcess); else Save();
-        task.Model = model; task.ProviderFingerprint = connectedFingerprint; company?.BeginTask(task.Id, model);
+        task.Model = model; task.ModelConnectionId = ActiveModelConnection?.Id; task.ProviderFingerprint = connectedFingerprint; company?.BeginTask(task.Id, model);
         try
         {
             if (task.ThreadId == null || !loadedThreads.Contains(task.ThreadId))

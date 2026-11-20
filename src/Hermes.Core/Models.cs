@@ -17,6 +17,7 @@ public sealed class ProjectEntry
 }
 public sealed class WorkItem
 {
+    public string? ModelConnectionId { get; set; }
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string ProjectId { get; set; } = "";
     public string Title { get; set; } = "새 작업";
@@ -64,6 +65,8 @@ public sealed record TranscriptEntry(string Kind, string Text, DateTime At, stri
 public sealed class AppState
 {
     public BrowserPreferences Browser { get; set; } = new();
+    public string? ActiveModelConnectionId { get; set; }
+    public bool ModelSelectedByQuota { get; set; }
     public List<ModelConnection> ModelConnections { get; set; } = [];
     public string PendingModel { get; set; } = "";
     public Dictionary<string, List<string>> SavedModels { get; set; } = [];

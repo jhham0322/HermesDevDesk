@@ -116,7 +116,7 @@ public partial class MainWindow
     private void Model_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (desk == null || Effort == null) return;
-        var model = Model.SelectedItem as string ?? "";
+        var model = desk.DeploymentForChoice(Model.SelectedItem as string ?? "");
         var options = new List<string> { "기본" }; if (desk.ModelEfforts.TryGetValue(model, out var supported)) options.AddRange(supported);
         Effort.ItemsSource = options; Effort.SelectedIndex = 0;
     }
@@ -145,7 +145,7 @@ public partial class MainWindow
         if (id != null && fileDrafts.TryGetValue(id, out var files)) pendingFiles.AddRange(files);
         if (id != null && skillDrafts.TryGetValue(id, out var skills)) pendingSkills.AddRange(skills);
         RefreshAttachments(); SkillHint.Text = string.Join(", ", pendingSkills.Select(s => s.Name));
-        var selectedModel = id != null && modelDrafts.TryGetValue(id, out var savedModel) ? savedModel : CurrentTask?.Model;
+        var selectedModel = id != null && modelDrafts.TryGetValue(id, out var savedModel) ? savedModel : CurrentTask is { } task ? desk.ModelChoice(task.ModelConnectionId, task.Model) : null;
         if (selectedModel != null && Model.Items.Contains(selectedModel)) Model.SelectedItem = selectedModel;
         draftTaskId = id; switchingDraft = true;
         Prompt.Text = id != null && desk.State.Desktop.Drafts.TryGetValue(id, out var text) ? text : "";
