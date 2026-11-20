@@ -1,4 +1,4 @@
-# AI 챗봇 v1.0.14 UI 연동 가이드
+# AI 챗봇 v1.0.15 UI 연동 가이드
 
 기존 채팅 연동은 `review_type`을 생략합니다. 보안성 검토 탭은 `review_type: "security"`를 명시합니다. 현재 서버에서 두 호출은 같은 보안성 검토 채팅으로 연결되며, 같은 사용자라면 대화 목록과 진행 중인 방을 공유합니다. 별도 검토 유형인 **보안증적 검토 (가상)**는 `"evidence"`이며 통합 테스트에서 검증합니다.
 
@@ -19,7 +19,8 @@ import org.springframework.context.annotation.Import;
 ```
 
 회사 앱의 Spring 환경에 AI_BASE_URL, AI_OPEN_PATH, AI_CLOSE_PATH,
-AI_VISIBILITY, CHAT_DB_URL, CHAT_DB_USER, CHAT_USER_TOKENS_JSON을 설정하세요.
+AI_VISIBILITY, CHAT_DB_URL, CHAT_DB_USER를 설정하세요.
+CHAT_USER_TOKENS_JSON은 별도 Bearer 토큰을 사용하는 환경에서만 설정합니다.
 인증에 필요하면 AI_TOKEN과 CHAT_DB_PASSWORD도 환경에서 주입합니다.
 JSP 화면을 쓰려면 호스트 WAR에 src/main/webapp/WEB-INF/jsp 리소스도 포함하세요.
 호스트 context path가 /portal이면 POST /portal/chat/start와 GET /portal/chat2.jsp를 사용합니다.
@@ -31,7 +32,7 @@ JSP 화면을 쓰려면 호스트 WAR에 src/main/webapp/WEB-INF/jsp 리소스�
 `POST /securityportal-apis/chat2/send`로 보냅니다. 포털 컨텍스트에서는 시작 요청을
 `POST /securityportal-apis/chat/start`로 보냅니다.
 다른 context path가 `/portal`이면 `POST /portal/api/ai-agent/chat2/send`입니다.
-Bearer 토큰, `Content-Type: application/json`과 아래 필드를 사용하세요.
+회사 로그인 상태를 활용하려면 같은 오리진에서 `Content-Type: application/json`과 아래 필드를 사용하세요. 호스트 인증 필터가 등록한 Servlet Principal의 이름을 대화 사용자 ID로 사용합니다. 별도 토큰을 설정한 환경에서는 Bearer 인증도 사용할 수 있습니다. 호스트가 CSRF 헤더를 요구하면 회사 UI의 기존 요청 헬퍼를 사용하세요.
 
 ```json
 {"room_index":"12","type":"S","message":"테스트 메시지","chat_index":"a9c89aaf-e176-442a-8fe8-d52acd285d88","review_type":"security"}
@@ -53,18 +54,18 @@ Bearer 토큰, `Content-Type: application/json`과 아래 필드를 사용하세
 
 회사 환경에서는 기존 서버의 실제 주소와 포트를 사용하세요. 두 화면은 이름이 다르며, 현재 동일한 채팅 API와 대화 데이터를 사용합니다.
 
-모든 채팅 API 요청은 POST와 JSON을 사용합니다. `token`에는 로그인한 사용자에게 발급된 bearer 토큰을 전달합니다.
+모든 채팅 API 요청은 POST와 JSON을 사용합니다. 회사 로그인 세션을 사용하는 경우 `token`을 생략합니다. 별도 Bearer 인증을 설정한 경우에만 토큰을 전달합니다.
 
 ```js
 function createChatClient(token, reviewType, apiBase = "/chat/") {
     async function post(action, data = {}) {
         const body = reviewType ? { ...data, review_type: reviewType } : data;
+        const headers = { "Content-Type": "application/json" };
+        if (token) headers.Authorization = `Bearer ${token}`;
         const response = await fetch(new URL(action, new URL(apiBase, location.origin)), {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-            },
+            credentials: "same-origin",
+            headers,
             body: JSON.stringify(body),
         });
         const result = await response.json();

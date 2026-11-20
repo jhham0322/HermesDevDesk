@@ -1,4 +1,4 @@
-AI 챗봇 v1.0.14 회사 AI 작업 가이드
+AI 챗봇 v1.0.15 회사 AI 작업 가이드
 
 소스 ZIP을 회사에서 승인한 작업 폴더에 풀고, 회사 AI의 코딩 세션에서
 그 폴더를 작업 디렉터리로 선택하세요. 아래 지시문을 통째로 복사해
@@ -30,7 +30,9 @@ context path가 /portal이면 /portal/chat/start로 요청해.
 UI에서는 UI-CHAT-INTEGRATION.md의 fetch 함수와 예시를 사용해.
 기존 호출의 review_type 생략과 명시적 "security"는 같은 사용자 대화를
 공유해. "evidence"는 통합 테스트에서 확인하는 별도 검토 유형이야.
-사용자 토큰으로 POST /chat/*에 연결하고, 전송 재시도에는 같은 요청 ID를 써.
+같은 오리진에서 회사 로그인 세션으로 POST /chat/*에 연결해. 호스트가
+Servlet Principal을 제공하는지 확인하고 기존 인증 및 CSRF 정책을 적용해.
+전송 재시도에는 같은 요청 ID를 써.
 
 회사 AI API 연동이 작업 범위라면 AiHelperHttpClient를 읽고 실제 사내
 계약과 비교해. 세션 열기와 닫기는 AI_OPEN_PATH 및 AI_CLOSE_PATH 설정을
