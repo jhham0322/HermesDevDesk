@@ -36,7 +36,14 @@ public partial class MainWindow
                 ChatMessages.Complete(task,"partial","");
                 using(var end=JsonDocument.Parse(JsonSerializer.Serialize(new{threadId=task.ThreadId,turn=new{id=task.TurnId,status="completed"}})))typeof(DeskController).GetMethod("Handle",flags)!.Invoke(desk,[new ServerEvent("turn/completed",end.RootElement)]);
                 SelectTask(task);RenderTask();RefreshProcesses();processList.SelectedItem=p;ShowProcess();await Dispatcher.InvokeAsync(()=>{},System.Windows.Threading.DispatcherPriority.ApplicationIdle);UpdateLayout();
-                Check(Text(MessageStack).Contains("PARTIAL_KEPT")&&Text(MessageStack).Contains(note.Split(']')[0]+"]"),kind+" actual WPF displays distinct reason and retained partial answer");
+                if (kind == "response_output_limit")
+                {
+                    task.Transcript.Add(new("오류", "stream disconnected before completion: Incomplete response returned, reason: max_output_tokens", DateTime.UtcNow));
+                    RenderTask();
+                    Check(!Text(MessageStack).Contains("stream disconnected before completion"), "legacy engine error is hidden in the actual chat UI");
+                }
+                var expectedNotice = kind == "response_output_limit" ? note : note.Split(']')[0] + "]";
+                Check(Text(MessageStack).Contains("PARTIAL_KEPT")&&Text(MessageStack).Contains(expectedNotice),kind+" actual WPF displays distinct reason and retained partial answer");
                 Check(processDetails.Text.Contains(kind)&&processDetails.Text.Contains("remaining")&&!p.Active,kind+" process panel shows interruption category and resume checkpoint");
                 Processes_Click(this,new RoutedEventArgs());CaptureProgressVisibility(data,"recovery-"+kind);desk.Save();
             }
