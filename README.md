@@ -1,8 +1,12 @@
 # Hermes DevDesk 0.8.61
 
-**[AI 챗봇 v1.0.22 Java 소스 5개 다운로드](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.22-source.zip)** · 기존 Spring 앱의 `com.skhynix.hcp.srp.agent` 패키지용. 포털 컨텍스트의 메시지 전송 URI는 `POST /securityportal-apis/aiChat/chat2/send`입니다.
+**[AI 챗봇 v1.0.23 Java 소스 5개 다운로드](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.23-source.zip)** · 기존 Spring 앱의 `com.skhynix.hcp.srp.agent` 패키지용. 포털 컨텍스트의 메시지 전송 URI는 `POST /securityportal-apis/aiChat/chat2/send`입니다.
 
 채팅 시작은 `POST /securityportal-apis/aiChat/chat/start`에 JSON `{}`를 전송합니다. 포털의 인증된 사용자명 또는 기존 Bearer 토큰을 사용합니다. 포털이 서버 세션에 로그인 ID(문자열 또는 `Principal`)를 저장하는 경우 `CHAT_AUTH_SESSION_ATTRIBUTE`에 해당 속성 이름을 지정하세요.
+
+기존 로그인 서비스가 사번을 제공하면 회사 앱의 기존 `@Configuration`에 `AiChatController.PortalEmployeeResolver` 타입의 `@Bean`을 등록할 수 있습니다. 등록한 함수는 매 요청에서 인증된 사번을 반환하고 로그인하지 않은 경우 `null`을 반환해야 합니다. 이 함수가 등록되면 포털 사용자 식별에 우선 사용되며, 기존에 별도 등록한 Bearer 토큰도 지원합니다.
+
+[이전 버전 AI 챗봇 v1.0.22 소스 ZIP](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.22-source.zip)
 
 [이전 버전 AI 챗봇 v1.0.21 소스 ZIP](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.21-source.zip)
 
