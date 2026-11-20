@@ -285,13 +285,18 @@ public partial class MainWindow : Window
         }
         if (task.Status is "실행 중" or "계속 실행 대기")
         {
-            if (pendingFiles.Count > 0 || pendingSkills.Count > 0) throw new Hermes.Core.HermesException("파일과 스킬은 다음 작업을 시작할 때 첨부할 수 있습니다.");
             var images = pendingImages.ToList();
-            await desk.SteerAsync(task, prompt, RequirementMode.SelectedIndex switch { 1 => RequirementChange.CancelPending, 2 => RequirementChange.ReplacePending, _ => RequirementChange.Append }, images);
-            if (images.Count > 0 && CurrentTask == task)
+            var files = pendingFiles.ToList();
+            var skills = pendingSkills.ToList();
+            await desk.SteerAsync(task, prompt, RequirementMode.SelectedIndex switch { 1 => RequirementChange.CancelPending, 2 => RequirementChange.ReplacePending, _ => RequirementChange.Append }, images, files, skills);
+            if (images.Count + files.Count + skills.Count > 0 && CurrentTask == task)
             {
-                pendingImages.RemoveAll(images.Contains); RefreshAttachments();
-                Footer.Text = "이미지를 저장했습니다. 다음 실행 단계에서 전달합니다.";
+                pendingImages.RemoveAll(images.Contains);
+                pendingFiles.RemoveAll(files.Contains);
+                pendingSkills.RemoveAll(skills.Contains);
+                SkillHint.Text = pendingSkills.Count == 0 ? "" : string.Join(", ", pendingSkills.Select(skill => skill.Name));
+                RefreshAttachments();
+                Footer.Text = "첨부를 저장했습니다. 다음 실행 단계에서 전달합니다.";
             }
             RequirementMode.SelectedIndex = 0;
             if (CurrentTask == task && Prompt.Text == prompt) Prompt.Clear();

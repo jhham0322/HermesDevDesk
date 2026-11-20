@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -40,7 +40,7 @@ internal static class ContinuationEngineTests
             else if(n>=2&&n<=26){name="hermes_command";args=Command(n-1);}
             else if(n==27){name="hermes_command";args=Command(1);}
             else if(n==28){name="hermes_task";args=new{action="verify_item",itemId="build",evidenceId=Evidence(),verification="Observed OP_25 in the real effect artifact after all writes."};}
-            else if(n==30){if(extraRequest.Length==0 || !body.GetRawText().Contains("data:image/png;base64,"))throw new IOException("Additional request or its queued image did not survive restart");name="hermes_task";args=new{action="plan",items=new[]{Item("extra","extra.txt","EXTRA_VERIFIED",extraRequest,-10,"build")}};}
+            else if(n==30){if(extraRequest.Length==0 || (!body.GetRawText().Contains("data:image/png;base64,")||!body.GetRawText().Contains("MID_CHAT_FILE_FIXTURE")))throw new IOException("Additional request or its queued image did not survive restart");name="hermes_task";args=new{action="plan",items=new[]{Item("extra","extra.txt","EXTRA_VERIFIED",extraRequest,-10,"build")}};}
             else if(n==31){name="hermes_task";args=new{action="start_item",itemId="extra"};}
             else if(n==32){name="hermes_command";args=new{purpose="Deliver additional authorized fixture requirement",operationId="extra-once",command="Set-Content -LiteralPath '"+extra+"' -Value EXTRA_VERIFIED; Write-Output EXTRA_VERIFIED"};}
             else if(n==33){name="hermes_task";args=new{action="verify_item",itemId="extra",evidenceId=Evidence(),verification="Read and verified the additional actual artifact."};}
@@ -130,7 +130,10 @@ internal static class ContinuationEngineTests
             var imagePath = Path.Combine(root, "follow-up.png");
             File.WriteAllBytes(imagePath, Convert.FromBase64String(NativeFeatureTests.Png));
             var attachment = ImageAttachments.Import(root, imagePath);
-            await desk.SteerAsync(task, "Add an urgent extra artifact while retaining the original remaining verification requirement.", images: [attachment]);
+            var textPath = Path.Combine(root, "follow-up.txt");
+            File.WriteAllText(textPath, "MID_CHAT_FILE_FIXTURE");
+            var file = FileAttachments.Import(root, textPath);
+            await desk.SteerAsync(task, "Add an urgent extra artifact while retaining the original remaining verification requirement.", images: [attachment], files: [file]);
             extraRequest = p.Requirements.Last().Id;
             processId=p.Id;taskId=task.Id;threadId=task.ThreadId!;desk.Save();
         }
@@ -140,7 +143,7 @@ internal static class ContinuationEngineTests
             var completionReached = 0; var sample = Observe(desk, "완료", () => Interlocked.Exchange(ref completionReached, 1));
             await desk.ConnectAsync(exe,root);Pump();
             await Wait(desk,"완료",()=>Volatile.Read(ref completionReached)==1,sample);var p=desk.Processes.Single();var task=desk.State.Tasks.Single(t=>t.Id==taskId);
-            if(p.Id!=processId||task.ThreadId!=threadId||task.Attachments.Count!=1||p.Items.Count!=3||p.Items.Any(i=>i.State!="verified")||File.ReadAllLines(effects).Length!=25||!File.ReadAllText(extra).Contains("EXTRA_VERIFIED")||!File.ReadAllText(done).Contains("QUEUE_VERIFIED"))throw new IOException("Automatic restore lost requirements, replayed effects, or missed verification");
+            if(p.Id!=processId||task.ThreadId!=threadId||task.Attachments.Count!=1||task.FileAttachments.Count!=1||p.Items.Count!=3||p.Items.Any(i=>i.State!="verified")||File.ReadAllLines(effects).Length!=25||!File.ReadAllText(extra).Contains("EXTRA_VERIFIED")||!File.ReadAllText(done).Contains("QUEUE_VERIFIED"))throw new IOException("Automatic restore lost requirements, replayed effects, or missed verification");
             var report=new{passed=true,calls,uniqueEffects=25,replayedEffects=0,completedItems=p.Items.Count,operations=p.Operations.Count,toolCalls=p.ToolCalls,sameThread=true,automaticRestart=true,additionalRequirementPreserved=true,realCompanyRequests=0};
             File.WriteAllLines(Path.Combine(root,"continuation-diagnostics.jsonl"),trace.ToArray());
             File.WriteAllText(Path.Combine(root,"continuation-engine.json"),JsonSerializer.Serialize(report,new JsonSerializerOptions{WriteIndented=true}));Console.WriteLine(JsonSerializer.Serialize(report));

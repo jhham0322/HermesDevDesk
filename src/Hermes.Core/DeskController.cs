@@ -366,9 +366,7 @@ public sealed partial class DeskController : IAsyncDisposable
         var unfinished = State.Processes.LastOrDefault(p => p.TaskId == task.Id && p.ContinuationEnabled && !p.Active && p.State != "완료" && !p.UserStopped && p.ThreadId.Length > 0 && p.ThreadId == task.ThreadId && p.BlockKind.Length == 0 && !p.Operations.Any(o => o.NeedsReview));
         if (continueUntilComplete && unfinished != null && (unfinished.Items.Count > 0 || unfinished.NeedsPlan))
         {
-            if (selectedFiles.Count > 0 || selectedSkills.Count > 0)
-                throw new HermesException("이전 작업을 재개하거나 종료한 뒤 파일·스킬을 전송하세요.");
-            QueueRequirement(task, prompt, images: attachments);
+            QueueRequirement(task, prompt, images: attachments, files: selectedFiles, skills: selectedSkills);
             task.Transcript.Add(new("사용자", Safety.Redact(prompt), DateTime.UtcNow));
             await ResumeSavedProcessAsync(unfinished.Id);
             return;
@@ -402,6 +400,8 @@ public sealed partial class DeskController : IAsyncDisposable
             if (requirePlan)
             {
                 process.Requirements[0].PendingImages.AddRange(attachments);
+                process.Requirements[0].PendingFiles.AddRange(selectedFiles);
+                process.Requirements[0].PendingSkills.AddRange(selectedSkills);
                 if (IsQuickAnswer(prompt)) StartQuickAnswer(task, process);
             }
         }
@@ -448,12 +448,8 @@ public sealed partial class DeskController : IAsyncDisposable
             if (startingProcess != null && ActiveProcess(task) != startingProcess)
             { await engine.RequestAsync("turn/interrupt", new { threadId = task.ThreadId, turnId = turn.GetProperty("turn").Text("id") }); task.Status = "중단됨"; Save(); return; }
             task.ThreadWritable = writable;
-            task.FileAttachments.AddRange(selectedFiles.Select(f => new FileAttachmentRecord(f, DateTime.UtcNow)));
-            if (selectedFiles.Count > 0) task.Transcript.Add(new("파일 첨부", string.Join("\n", selectedFiles.Select(f => f.ToString())), DateTime.UtcNow));
-            RecordImages(task, attachments);
-            if (startingProcess?.RequirePlan == true) startingProcess.Requirements[0].PendingImages.Clear();
-            task.Skills.AddRange(selectedSkills.Select(s => new SkillRecord(s, DateTime.UtcNow)));
-            if (selectedSkills.Count > 0) task.Transcript.Add(new("스킬 호출", string.Join("\n", selectedSkills.Select(s => s.Name + " · " + s.RelativePath)), DateTime.UtcNow));
+            RecordAttachments(task, attachments, selectedFiles, selectedSkills);
+            if (startingProcess?.RequirePlan == true) startingProcess.Requirements[0].ClearAttachments();
             if (task.Status is "시작 중" or "실행 중") { task.TurnId = turn.GetProperty("turn").Text("id"); task.Status = "실행 중"; }
             Save();
         }
@@ -495,21 +491,37 @@ public sealed partial class DeskController : IAsyncDisposable
         task.Transcript.Add(new("이미지 첨부", string.Join("\n", images), DateTime.UtcNow));
     }
 
-    public async Task SteerAsync(WorkItem task, string text, RequirementChange change = RequirementChange.Append, IReadOnlyList<ProjectImage>? images = null)
+    private static void RecordAttachments(WorkItem task, IReadOnlyList<ProjectImage> images,
+        IReadOnlyList<ProjectFileAttachment> files, IReadOnlyList<ProjectSkill> skills)
+    {
+        RecordImages(task, images);
+        task.FileAttachments.AddRange(files.Select(file => new FileAttachmentRecord(file, DateTime.UtcNow)));
+        if (files.Count > 0) task.Transcript.Add(new("파일 첨부", string.Join("\n", files), DateTime.UtcNow));
+        task.Skills.AddRange(skills.Select(skill => new SkillRecord(skill, DateTime.UtcNow)));
+        if (skills.Count > 0) task.Transcript.Add(new("스킬 호출", string.Join("\n", skills.Select(skill => skill.Name + " · " + skill.RelativePath)), DateTime.UtcNow));
+    }
+
+    public async Task SteerAsync(WorkItem task, string text, RequirementChange change = RequirementChange.Append,
+        IReadOnlyList<ProjectImage>? images = null, IReadOnlyList<ProjectFileAttachment>? files = null, IReadOnlyList<ProjectSkill>? skills = null)
     {
         CheckOAuthSession();
         if (Engine == null || !SubscriptionReady || task.ThreadId == null || task.Status is not ("실행 중" or "계속 실행 대기")) throw new HermesException("실행 중이거나 다음 실행을 기다리는 작업에 추가 지시를 보낼 수 있습니다.");
         if (connectedFingerprint != State.Provider.Fingerprint || task.ProviderFingerprint != connectedFingerprint) throw new HermesException("작업의 연결 설정이 바뀌었습니다.");
         if (string.IsNullOrWhiteSpace(text) || text.Length > 100_000) throw new HermesException("추가 지시 내용을 확인하세요.");
         ComputerLifecycleEvent?.Invoke(task, "new-command");
-        var attachments = images is { Count: > 0 } ? ImageAttachments.Validate(Project(task).Root, images) : [];
+        var hasAttachments = (images?.Count ?? 0) + (files?.Count ?? 0) + (skills?.Count ?? 0) > 0;
         var process = ActiveProcess(task);
-        if (attachments.Count > 0 && (process == null || change == RequirementChange.CancelPending))
-            throw new HermesException("이미지는 진행 중인 작업에 요구를 추가하거나 대체할 때 전송할 수 있습니다.");
-        if (process != null) QueueRequirement(task, text, change, attachments);
+        if (hasAttachments && (process == null || change == RequirementChange.CancelPending))
+            throw new HermesException("첨부를 전송하려면 진행 중인 작업에 요구를 추가하거나 대체하세요.");
+        if (process != null)
+        {
+            var root = Project(task).Root;
+            QueueRequirement(task, text, change, ImageAttachments.Validate(root, images ?? []),
+                FileAttachments.Validate(root, files ?? []), ProjectSkills.Validate(root, skills ?? []));
+        }
         task.Transcript.Add(new("사용자", Safety.Redact(text), DateTime.UtcNow)); Save();
         if (change == RequirementChange.CancelPending) { await StopAsync(task); return; }
-        if (task.Status == "계속 실행 대기" || attachments.Count > 0) return;
+        if (task.Status == "계속 실행 대기" || hasAttachments) return;
         await Engine.RequestAsync("turn/steer", new { threadId = task.ThreadId, expectedTurnId = task.TurnId, input = new[] { new { type = "text", text } } });
     }
     internal void Handle(ServerEvent e)

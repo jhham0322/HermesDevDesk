@@ -7,6 +7,17 @@ public sealed class WorkRequirement
     public string Text { get; set; } = "";
     public bool Planned { get; set; }
     public List<ProjectImage> PendingImages { get; set; } = [];
+    public List<ProjectFileAttachment> PendingFiles { get; set; } = [];
+    public List<ProjectSkill> PendingSkills { get; set; } = [];
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasPendingAttachments => PendingImages.Count + PendingFiles.Count + PendingSkills.Count > 0;
+
+    internal void ClearAttachments()
+    {
+        PendingImages.Clear();
+        PendingFiles.Clear();
+        PendingSkills.Clear();
+    }
 }
 public sealed class WorkArtifact
 {
@@ -120,7 +131,7 @@ public static class WorkQueue
 }
 public sealed partial class DeskController
 {
-    internal string QueueRequirement(WorkItem task, string text, RequirementChange change = RequirementChange.Append, IReadOnlyList<ProjectImage>? images = null)
+    internal string QueueRequirement(WorkItem task, string text, RequirementChange change = RequirementChange.Append, IReadOnlyList<ProjectImage>? images = null, IReadOnlyList<ProjectFileAttachment>? files = null, IReadOnlyList<ProjectSkill>? skills = null)
     {
         var p = ActiveProcess(task) ?? State.Processes.LastOrDefault(x => x.TaskId == task.Id && x.ContinuationEnabled && x.State != "완료") ?? throw new HermesException("이어갈 작업이 없습니다.");
         if (!Enum.IsDefined(change)) throw new HermesException("요구 변경 모드를 확인하세요.");
@@ -128,9 +139,9 @@ public sealed partial class DeskController
         if (change != RequirementChange.Append)
             foreach (var item in p.Items.Where(i => !i.Terminal)) item.State = change == RequirementChange.CancelPending ? "cancelled" : "superseded";
         p.Decision = null; p.DecisionTurnId = ""; p.StagnantRounds = 0;
-        if (change != RequirementChange.Append) foreach (var r in p.Requirements) { r.Planned = true; r.PendingImages.Clear(); }
+        if (change != RequirementChange.Append) foreach (var r in p.Requirements) { r.Planned = true; r.ClearAttachments(); }
         if (change == RequirementChange.CancelPending) { p.NeedsPlan = false; p.Checkpoint = "사용자가 미완료 항목을 취소했습니다. 완료된 산출물은 보존합니다."; SaveCheckpoint(p); return "cancelled"; }
-        var requirement = new WorkRequirement { Text = text, Planned = task.ThreadLearningVersion == 1, PendingImages = images?.ToList() ?? [] }; p.Requirements.Add(requirement); p.NeedsPlan = task.ThreadLearningVersion != 1; p.Updated = DateTime.UtcNow; SaveCheckpoint(p); return requirement.Id;
+        var requirement = new WorkRequirement { Text = text, Planned = task.ThreadLearningVersion == 1, PendingImages = images?.ToList() ?? [], PendingFiles = files?.ToList() ?? [], PendingSkills = skills?.ToList() ?? [] }; p.Requirements.Add(requirement); p.NeedsPlan = task.ThreadLearningVersion != 1; p.Updated = DateTime.UtcNow; SaveCheckpoint(p); return requirement.Id;
     }
     private string ManageWorkQueue(WorkItem task, TaskProcess p, JsonElement args)
     {

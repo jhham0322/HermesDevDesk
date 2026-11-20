@@ -146,7 +146,7 @@ public sealed partial class DeskController
             RecordItemCompletion(process, answer, "최종 답변 전달");
             answer.ArtifactDigest = ExecutionBudget.Digest([delivered.Text]);
         }
-        if (status == "completed" && !process.NeedsPlan && process.Items.Count > 0 && process.Items.All(i => i.Terminal) &&
+        if (status == "completed" && !process.NeedsPlan && !process.Requirements.Any(r => r.HasPendingAttachments) && process.Items.Count > 0 && process.Items.All(i => i.Terminal) &&
             process.Items.Any(i => i.State == "verified") && process.Requirements.All(r => r.Planned))
         {
             process.Decision = "complete"; process.DecisionTurnId = turn.Text("id");
@@ -155,7 +155,7 @@ public sealed partial class DeskController
         if (status == "completed" && process.DecisionTurnId == turn.Text("id") && process.Decision != null)
         {
             var complete = process.Decision == "complete";
-            if (complete && (process.Items.Any(i => !i.Terminal) || process.Requirements.Any(r => !r.Planned && r.Id != "initial"))) { process.Decision = null; }
+            if (complete && (process.Requirements.Any(r => r.HasPendingAttachments) || process.Items.Any(i => !i.Terminal) || process.Requirements.Any(r => !r.Planned && r.Id != "initial"))) { process.Decision = null; }
             else
             {
             task.Transcript.Add(TranscriptPresentation.Host(complete ? "검증" : "입력 필요", complete ? (process.Items.Count > 0 ? "작업 항목의 선언된 산출물·출력·전달 조건을 확인했습니다. 원문 요구와 검증 기록을 보존합니다.\n" : "모델 완료 보고와 실행 근거 연결을 확인했습니다. 목표 달성 자체는 모델 보고이며 앱의 독립 검증은 아닙니다.\n") + process.Detail : process.Detail, turn.Text("id")));
@@ -168,7 +168,7 @@ public sealed partial class DeskController
         if (process.Items.Any(i => !i.Terminal) && WorkQueue.Next(process) == null && process.Requirements.All(r => r.Planned))
         { process.BlockKind = "dependency"; EndProcess(task, "의존관계 확인 필요", "취소·미완료 선행 항목 때문에 다음 항목을 실행할 수 없습니다. 요구 변경과 의존관계를 확인하세요."); task.Status = "의존관계 확인 필요"; Save(); return; }
         var digest = ProgressDigest(task);
-        process.StagnantRounds = digest == process.LastProgressDigest && !process.Requirements.Any(r => r.PendingImages.Count > 0)
+        process.StagnantRounds = digest == process.LastProgressDigest && !process.Requirements.Any(r => r.HasPendingAttachments)
             ? process.StagnantRounds + 1 : 0;
         process.LastProgressDigest = digest;
         if (PauseAtBoundary(task, process)) return;
@@ -224,20 +224,28 @@ public sealed partial class DeskController
             var input = new List<object> { new { type = "text", text = prompt } };
             var drmSkill = DocumentSkill.Find(root, []);
             input.Add(new { type = "text", text = DocumentSkill.Instructions(drmSkill) });
-            if (drmSkill != null && process.Requirements.Any(r => !r.Planned && DocumentSkill.IsDocumentRequest(r.Text, [])))
-                input.Add(new { type = "skill", name = drmSkill.Name, path = ProjectSkills.Resolve(root, drmSkill.RelativePath) });
-            var withImages = process.Requirements.Where(r => r.PendingImages.Count > 0).ToArray();
-            foreach (var requirement in withImages)
+            var queued = process.Requirements.Where(r => r.HasPendingAttachments).ToArray();
+            var skills = queued.SelectMany(r => ProjectSkills.Validate(root, r.PendingSkills)).Distinct().ToList();
+            if (drmSkill != null && process.Requirements.Any(r => (!r.Planned || r.HasPendingAttachments) &&
+                DocumentSkill.IsDocumentRequest(r.Text, r.PendingFiles)) && skills.All(s => !s.Name.Equals(drmSkill.Name, StringComparison.OrdinalIgnoreCase)) &&
+                skills.Count < 3 && skills.Sum(s => s.Bytes) + drmSkill.Bytes <= 128000)
+                skills.Add(drmSkill);
+            input.AddRange(skills.Select(skill => (object)new { type = "skill", name = skill.Name, path = ProjectSkills.Resolve(root, skill.RelativePath) }));
+            var sentImages = new List<ProjectImage>();
+            var sentFiles = new List<ProjectFileAttachment>();
+            foreach (var requirement in queued)
             {
-                input.Add(new { type = "text", text = $"Request {requirement.Id} and its images: {requirement.Text}" });
-                AddImageInput(input, root, ImageAttachments.Validate(root, requirement.PendingImages));
+                input.Add(new { type = "text", text = $"Request {requirement.Id} and its attachments: {requirement.Text}" });
+                if (requirement.PendingFiles.Count > 0)
+                    input.Add(new { type = "text", text = FileAttachments.ModelContext(root, requirement.PendingFiles) });
+                var images = ImageAttachments.Validate(root, requirement.PendingImages);
+                AddImageInput(input, root, images);
+                sentImages.AddRange(images);
+                sentFiles.AddRange(requirement.PendingFiles);
             }
             var result = await engine.RequestAsync("turn/start", new { threadId = task.ThreadId, cwd = root, model = EngineModel(task.Model), effort = task.ReasoningEffort.Length == 0 ? null : task.ReasoningEffort, summary = "auto", approvalPolicy = automatic ? "never" : "on-request", approvalsReviewer = "user", sandboxPolicy = policy, input });
-            foreach (var requirement in withImages.Where(r => r.PendingImages.Count > 0))
-            {
-                RecordImages(task, requirement.PendingImages);
-                requirement.PendingImages.Clear();
-            }
+            RecordAttachments(task, sentImages, sentFiles, skills);
+            foreach (var requirement in queued) requirement.ClearAttachments();
             if (ActiveProcess(task) != process || process.State == "종료 중")
             {
                 await engine.RequestAsync("turn/interrupt", new { threadId = task.ThreadId, turnId = result.GetProperty("turn").Text("id") }); Save(); return;
