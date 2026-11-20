@@ -1,4 +1,4 @@
-# AI 챗봇 v1.0.17 UI 연동 가이드
+# AI 챗봇 v1.0.18 UI 연동 가이드
 
 기존 채팅 연동은 `review_type`을 생략합니다. 보안성 검토 탭은 `review_type: "security"`를 명시합니다. 현재 서버에서 두 호출은 같은 보안성 검토 채팅으로 연결되며, 같은 사용자라면 대화 목록과 진행 중인 방을 공유합니다. 별도 검토 유형인 **보안증적 검토 (가상)**는 `"evidence"`이며 통합 테스트에서 검증합니다.
 
@@ -10,7 +10,12 @@
 
 채팅 Java 소스를 기존 회사 앱의 `src/main/java/com/skhynix/hcp/srp/agent`에 포함하세요.
 Spring이 `com.skhynix.hcp.srp.agent` 또는 상위 패키지를 스캔하면
-`AiChatServletConfiguration`의 `@Configuration`을 발견해 URI를 등록합니다.
+`AiChatWebController`의 `@RestController`, `@RequestMapping`, `@GetMapping` 및
+`@PostMapping`을 발견해 URI를 등록합니다. `AiChatServletConfiguration`은 첫 채팅
+요청에서 설정을 읽습니다. 설정이 누락되거나 잘못되면 채팅 경로가 HTTP 503을
+반환하며 호스트 서버는 계속 실행됩니다.
+JSP 주소 두 개는 Tomcat의 JSP 처리보다 먼저 연결되도록 별도 Servlet 매핑으로
+같은 화면 처리 함수에 전달합니다. 메시지 전송 API는 Spring MVC가 받습니다.
 기존 스캔 범위가 이 패키지를 포함하는지 확인하세요.
 
 회사 앱의 Spring 환경에 AI_BASE_URL, AI_OPEN_PATH, AI_CLOSE_PATH,
