@@ -1,6 +1,25 @@
-# AI 챗봇 v1.0.8 UI 연동 가이드
+# AI 챗봇 v1.0.9 UI 연동 가이드
 
 기존 채팅 연동은 `review_type`을 생략합니다. 보안성 검토 탭은 `review_type: "security"`를 명시합니다. 현재 서버에서 두 호출은 같은 보안성 검토 채팅으로 연결되며, 같은 사용자라면 대화 목록과 진행 중인 방을 공유합니다. 별도 검토 유형인 **보안증적 검토 (가상)**는 `"evidence"`이며 로컬 데모에서 사용할 수 있습니다.
+
+## 회사 Spring Boot 앱에 URI 등록
+
+회사 앱의 시작 클래스 또는 기존 설정 클래스에 아래 import를 추가하세요.
+
+```java
+import com.skhynix.hcp.srp.agent.AiChatServletConfiguration;
+import org.springframework.context.annotation.Import;
+
+// 기존 Spring Boot 시작 클래스 또는 설정 클래스에 붙입니다.
+@Import(AiChatServletConfiguration.class)
+```
+
+회사 앱의 Spring 환경에 AI_BASE_URL, AI_OPEN_PATH, AI_CLOSE_PATH,
+AI_VISIBILITY, CHAT_DB_URL, CHAT_DB_USER, CHAT_USER_TOKENS_JSON을 설정하세요.
+인증에 필요하면 AI_TOKEN과 CHAT_DB_PASSWORD도 환경에서 주입합니다.
+JSP 화면을 쓰려면 호스트 WAR에 src/main/webapp/WEB-INF/jsp 리소스도 포함하세요.
+호스트 context path가 /portal이면 POST /portal/chat/start와 GET /portal/chat2.jsp를 사용합니다.
+아래 JavaScript 함수에는 세 번째 인수로 `"/portal/chat/"`를 전달하세요.
 
 ## 호출 함수
 
@@ -18,10 +37,10 @@
 모든 API는 JSON을 받는 `POST /chat/*`입니다. `token`에는 로그인한 사용자에게 발급된 bearer 토큰을 전달합니다. 로컬 데모에서는 화면에 미리 채워진 테스트 토큰을 사용할 수 있습니다.
 
 ```js
-function createChatClient(token, reviewType) {
+function createChatClient(token, reviewType, apiBase = "/chat/") {
     async function post(action, data = {}) {
         const body = reviewType ? { ...data, review_type: reviewType } : data;
-        const response = await fetch(`/chat/${action}`, {
+        const response = await fetch(new URL(action, new URL(apiBase, location.origin)), {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
