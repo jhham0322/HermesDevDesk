@@ -71,6 +71,10 @@ internal static class ContinuationQueueTests
         End(planned, "turn-required-plan");
         check(required.State == "완료" && File.ReadAllText(Path.Combine(records, "작업내역.txt")).Contains("상태: 완료"), "all checked items close the task without a second verification call");
 
+        check(DeskController.IsQuickAnswer("출력 토큰의 의미를 설명해줘") &&
+              !DeskController.IsQuickAnswer("출력 토큰의 의미를 설명해줘. 그리고 설정을 수정해줘") &&
+              !DeskController.IsQuickAnswer("BrowserPanel.cs를 수정하고 테스트해줘"),
+            "short answer requests qualify and edits or compound requests keep the normal plan");
         var concise = Task("concise-plan");
         var conciseProcess = desk.BeginProcess(concise, "짧은 완료 조건 검증", requirePlan: true);
         string PlanError(string json)

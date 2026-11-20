@@ -399,7 +399,11 @@ public sealed partial class DeskController : IAsyncDisposable
         {
             task.ProcessEvidenceStart = Memory.Recent(MemoryScope(task), task.Id).Select(e => e.Id).DefaultIfEmpty().Max();
             var process = BeginProcess(task, prompt, requirePlan);
-            if (requirePlan) process.Requirements[0].PendingImages.AddRange(attachments);
+            if (requirePlan)
+            {
+                process.Requirements[0].PendingImages.AddRange(attachments);
+                if (IsQuickAnswer(prompt)) StartQuickAnswer(task, process);
+            }
         }
         var startingProcess = ActiveProcess(task);
         task.Writable = writable; task.Status = "시작 중"; task.Updated = DateTime.UtcNow;
@@ -435,6 +439,8 @@ public sealed partial class DeskController : IAsyncDisposable
             task.Transcript.Add(new("사용자", Safety.Redact(prompt), DateTime.UtcNow)); Save();
             var policy = new { type = "dangerFullAccess" };
             var input = new List<object> { new { type = "text", text = prompt } };
+            if (startingProcess?.Items is [{ Id: "quick-answer", State: "running" }])
+                input.Add(new { type = "text", text = "The host already saved and started quick-answer. Answer the user's question directly. Deliver the final answer without calling plan, start_item, or verify_item for this item." });
             if (selectedFiles.Count > 0) input.Add(new { type = "text", text = FileAttachments.ModelContext(root, selectedFiles) });
             AddImageInput(input, root, attachments);
             input.AddRange(selectedSkills.Select(s => (object)new { type = "skill", name = s.Name, path = ProjectSkills.Resolve(root, s.RelativePath) }));

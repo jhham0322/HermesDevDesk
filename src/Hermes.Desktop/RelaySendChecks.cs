@@ -20,26 +20,8 @@ public partial class MainWindow
             bool probe = body.RootElement.Property("max_output_tokens")?.GetInt32() == 1;
             if (probe) probes++; else { generations++; imageSent |= body.RootElement.GetRawText().Contains("data:image/png;base64,"); fileSent |= body.RootElement.GetRawText().Contains("UI_SEND_FILE_087"); drmSkillSent |= body.RootElement.GetRawText().Contains("HERMES_TEST_AUTHORIZED_DRM"); }
             JsonObject Message(string text) => new() { ["id"] = "msg_owned_" + (probes + generations), ["type"] = "message", ["role"] = "assistant", ["status"] = "completed", ["phase"] = "final_answer", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = text, ["annotations"] = new JsonArray() }) };
-            JsonObject Call(object args)
-            {
-                var tools = body.RootElement.Property("tools") is { ValueKind: JsonValueKind.Array } values
-                    ? values.EnumerateArray().ToArray()
-                    : [];
-                var ns = tools.FirstOrDefault(t => t.Text("type") == "namespace" &&
-                    t.GetProperty("tools").EnumerateArray().Any(member => member.Text("name") == "hermes_task"));
-                if (ns.ValueKind == JsonValueKind.Undefined && !tools.Any(t => t.Text("name") == "hermes_task"))
-                    throw new IOException("The fixture request did not include the work plan tool.");
-                var call = new JsonObject { ["id"] = "fc_fixture_" + generations, ["type"] = "function_call", ["status"] = "completed", ["call_id"] = "call_fixture_" + generations, ["name"] = "hermes_task", ["arguments"] = JsonSerializer.Serialize(args) };
-                if (ns.ValueKind != JsonValueKind.Undefined) call["namespace"] = ns.Text("name");
-                return call;
-            }
-            var output = probe ? Message("OK") : generations switch
-            {
-                1 => Call(new { action = "plan", items = new[] { new { id = "describe", title = "Describe the attachments", acceptance = "Deliver a description of the image and file.", kind = "answer" } } }),
-                _ => Message("OWNED_RELAY_SEND_OK")
-            };
             var response = new JsonObject { ["id"] = "resp_owned_" + (probes + generations), ["object"] = "response", ["model"] = "gpt-6-luna", ["status"] = "completed", ["created_at"] = 1,
-                ["output"] = new JsonArray(output) };
+                ["output"] = new JsonArray(probe ? Message("OK") : Message("OWNED_RELAY_SEND_OK")) };
             await LoopbackHttp.Reply(stream, 200, "application/json", response.ToJsonString(), ct);
         });
         var root = Path.Combine(data, "owned-project"); Directory.CreateDirectory(root);
@@ -69,7 +51,7 @@ public partial class MainWindow
         while (DateTime.UtcNow < until && !desk.State.Tasks.Any(t => t.Status == "완료" && t.Transcript.Any(x => x.Text.Contains("OWNED_RELAY_SEND_OK"))))
             await Task.Delay(100);
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-        if (!imageSent || !fileSent || !drmSkillSent || pendingImages.Count != 0 || pendingFiles.Count != 0 || generations != 2 || probes != 1 || models != 0 || !desk.State.Tasks.Any(t => t.Status == "완료")) throw new IOException("Relay send did not complete: " + desk.AccountStatus);
+        if (!imageSent || !fileSent || !drmSkillSent || pendingImages.Count != 0 || pendingFiles.Count != 0 || generations != 1 || probes != 1 || models != 0 || !desk.State.Tasks.Any(t => t.Status == "완료") || !desk.Processes.Any(p => p.Items is [{ Id: "quick-answer", State: "verified" }])) throw new IOException("Relay send did not complete: " + desk.AccountStatus);
         File.WriteAllText(Path.Combine(data, "relay-send-report.json"), JsonSerializer.Serialize(new { passed = true, exactModel = "gpt-6-luna", probes, generations, models, noExistingTask = true, missingUsageSupported = true, actualOfficialEngine = true, imageSent, fileSent, drmSkillSent, attachmentOnlySend = true, programmaticWpfButton = true, realCompanyRequests = false }));
     }
 }
