@@ -1,4 +1,4 @@
-# AI 챗봇 v1.0.15 UI 연동 가이드
+# AI 챗봇 v1.0.16 UI 연동 가이드
 
 기존 채팅 연동은 `review_type`을 생략합니다. 보안성 검토 탭은 `review_type: "security"`를 명시합니다. 현재 서버에서 두 호출은 같은 보안성 검토 채팅으로 연결되며, 같은 사용자라면 대화 목록과 진행 중인 방을 공유합니다. 별도 검토 유형인 **보안증적 검토 (가상)**는 `"evidence"`이며 통합 테스트에서 검증합니다.
 
@@ -49,7 +49,7 @@ JSP 화면을 쓰려면 호스트 WAR에 src/main/webapp/WEB-INF/jsp 리소스�
 | --- | --- |
 | 채팅도우미 화면 | `GET /chat2` · `http://<서버>:9200/chat2` |
 | 보안성 검토 화면 | `GET /chat1` · `http://<서버>:9200/chat1` |
-| 채팅도우미 테스트 화면 | `GET /chat2.jsp` · `http://<서버>:9200/chat2.jsp` |
+| 채팅도우미 테스트 화면 | `GET /securityportal-apis/chat2.jsp` · `http://<서버>:9200/securityportal-apis/chat2.jsp` |
 | UI에서 호출하는 API | `POST /chat/start` 등 아래 함수 참고 |
 
 회사 환경에서는 기존 서버의 실제 주소와 포트를 사용하세요. 두 화면은 이름이 다르며, 현재 동일한 채팅 API와 대화 데이터를 사용합니다.
