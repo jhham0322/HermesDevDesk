@@ -1,4 +1,4 @@
-AI 챗봇 v1.0.6 회사 AI 작업 가이드
+AI 챗봇 v1.0.7 회사 AI 작업 가이드
 
 소스 ZIP을 회사에서 승인한 작업 폴더에 풀고, 회사 AI의 코딩 세션에서
 그 폴더를 작업 디렉터리로 선택하세요. 아래 지시문을 통째로 복사해
@@ -34,7 +34,9 @@ UI에서는 UI-CHAT-INTEGRATION.md의 fetch 함수와 예시를 사용해.
 /api/v1/sr/helper/complete를 사용해. URL, 인증 방식, 요청·응답 필드,
 완료 draft 계약은 사내 문서 또는 승인된 스테이징 응답을 근거로 확인해.
 필요한 AI_BASE_URL, AI_VISIBILITY, AI_TOKEN 및 DB 값은 승인된 환경
-설정으로 주입해. 확인되지 않은 API 경로나 필드가 있으면 보고해.
+설정으로 주입해. 메시지·완료 응답은 CommonResponse<T>의 data를 사용해. 현재 예시의
+data 내부 필드와 세션 열기·닫기 계약은 사내 명세와 대조해.
+확인되지 않은 API 경로나 필드가 있으면 보고해.
 
 JDK 21로 프로젝트 루트에서 mvn -B -ntp verify를 실행해.
 로컬 UI 확인은 Windows PowerShell에서 .\run-local-demo.ps1을 실행하고
