@@ -57,7 +57,8 @@ public sealed partial class DeskController : IAsyncDisposable
         if (migrated) Store.Save(State);
         MigrateModelConnections();
         batchPersistence = dispatch != null;
-        dailyQuotaTimer = new(_ => this.dispatch(() => { if (!disposed) _ = RunDueDailyQuotaResumesAsync(DateTimeOffset.UtcNow); }), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        dailyQuotaTimer = new(_ => this.dispatch(() => { if (!disposed) _ = RunDueDailyQuotaResumesAsync(DateTimeOffset.UtcNow); }), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        UpdateDailyQuotaTimer();
         persistenceTimer = new(_ => this.dispatch(() => { if (!dirty || disposed) return; dirty = false; Store.Save(State); }), null, Timeout.Infinite, Timeout.Infinite);
     }
     private string ModelScope => State.Provider.IsChatGptPlanOAuth ? "chatgpt-plan/" + State.Provider.OAuthAccountId : State.Provider.Endpoint.TrimEnd('/');

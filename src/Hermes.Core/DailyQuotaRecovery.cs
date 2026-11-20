@@ -6,6 +6,7 @@ namespace Hermes.Core;
 public static class DailyQuotaRecovery
 {
     public const int MaxAttempts = 3;
+    internal static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(3);
     public static DateTimeOffset NextReset(DateTimeOffset observed)
     {
         var local = observed.ToOffset(TimeSpan.FromHours(9));
@@ -47,6 +48,19 @@ public static class DailyQuotaRecovery
 public sealed partial class DeskController
 {
     private int dailyQuotaPollRunning;
+    private bool dailyQuotaTimerEnabled;
+
+    private void UpdateDailyQuotaTimer()
+    {
+        if (disposed) return;
+        var needed = State.Processes.Any(p => p.DailyQuotaResumeAt != null && !p.DailyQuotaCancelled && !p.UserStopped) ||
+            (State.ModelSelectedByQuota && State.ModelConnections.FirstOrDefault() is { QuotaExhaustedUntil: not null } first &&
+             ActiveModelConnection?.Id != first.Id);
+        if (needed == dailyQuotaTimerEnabled) return;
+        dailyQuotaTimerEnabled = needed;
+        var interval = needed ? DailyQuotaRecovery.CheckInterval : Timeout.InfiniteTimeSpan;
+        dailyQuotaTimer.Change(interval, interval);
+    }
     internal bool TryScheduleDailyQuotaRpc(WorkItem task, TaskProcess process, Exception exception, DateTimeOffset now)
     {
         if (exception is not EngineRpcException { RequestMethod: "turn/start" } rpc || ActiveProcess(task) != process ||
@@ -73,21 +87,15 @@ public sealed partial class DeskController
         var connection = State.ModelConnections.FirstOrDefault(c => c.Id == task.ModelConnectionId);
         if (connection != null) connection.QuotaExhaustedUntil = reset;
         var alternate = connection != null && FirstAvailableConnection(now) != null;
-        process.DailyQuotaResumeAt = alternate ? now : reset; process.DailyQuotaClaimedAt = null;
+        process.DailyQuotaResumeAt = alternate ? now + DailyQuotaRecovery.CheckInterval : reset; process.DailyQuotaClaimedAt = null;
         process.BlockKind = "daily_token_quota";
-        var detail = alternate ? "일일 토큰을 모두 사용했습니다. 저장 순서에 따라 사용 가능한 모델로 이어서 실행합니다." : $"일일 토큰 소진으로 중단했습니다. {process.DailyQuotaResumeAt.Value.ToOffset(TimeSpan.FromHours(9)):yyyy-MM-dd HH:mm} 한국시간에 기존 작업을 한 번 재개합니다. 실제 공급자 초기화 성공은 아직 확인되지 않았습니다. 앱과 같은 모델 연결이 필요하며 꺼져 있으면 다음 연결 후 확인합니다. 프로세스 종료 버튼으로 예약을 취소할 수 있습니다.";
+        var detail = alternate ? "일일 토큰을 모두 사용했습니다. 3분 후 저장 순서에 따라 사용 가능한 모델에서 작업을 이어갑니다." : $"일일 토큰 소진으로 중단했습니다. {process.DailyQuotaResumeAt.Value.ToOffset(TimeSpan.FromHours(9)):yyyy-MM-dd HH:mm} 한국시간에 기존 작업을 한 번 재개합니다. 실제 공급자 초기화 성공은 아직 확인되지 않았습니다. 앱과 같은 모델 연결이 필요하며 꺼져 있으면 다음 연결 후 확인합니다. 프로세스 종료 버튼으로 예약을 취소할 수 있습니다.";
         EndProcess(task, alternate ? "다음 모델 연결 대기" : "일일 토큰 초기화 대기", detail); task.Status = process.State;
         task.Transcript.Add(TranscriptPresentation.Host("자동 재개 예약", detail));
         Save();
-        if (alternate) _ = PollQuotaAfterTurnAsync();
+        UpdateDailyQuotaTimer();
         return true;
     }
-    private async Task PollQuotaAfterTurnAsync()
-    {
-        await Task.Yield();
-        dispatch(() => { if (!disposed) _ = RunDueDailyQuotaResumesAsync(DateTimeOffset.UtcNow); });
-    }
-
     public void CancelDailyQuotaResume(string processId)
     {
         var p = State.Processes.Single(p => p.Id == processId);
@@ -96,6 +104,7 @@ public sealed partial class DeskController
         if (State.Tasks.SingleOrDefault(t => t.Id == p.TaskId) is { } task)
         { task.Status = p.State; task.Transcript.Add(TranscriptPresentation.Host("자동 재개 취소", p.Detail)); }
         Save();
+        UpdateDailyQuotaTimer();
     }
     public async Task RunDueDailyQuotaResumesAsync(DateTimeOffset now)
     {
@@ -163,7 +172,7 @@ public sealed partial class DeskController
                             target.QuotaExhaustedUntil = DailyQuotaRecovery.NextReset(DateTimeOffset.UtcNow);
                             p.DailyQuotaClaimedAt = null;
                             p.DailyQuotaResumeAt = FirstAvailableConnection(DateTimeOffset.UtcNow) != null
-                                ? DateTimeOffset.UtcNow : target.QuotaExhaustedUntil;
+                                ? DateTimeOffset.UtcNow + DailyQuotaRecovery.CheckInterval : target.QuotaExhaustedUntil;
                             p.BlockKind = "daily_token_quota";
                             p.State = "다음 모델 연결 대기"; task.Status = p.State; Save(); continue;
                         }
@@ -180,6 +189,10 @@ public sealed partial class DeskController
                 SelectConnection(first, true);
         }
         catch (Exception ex) { AppLog.Write(ex, "daily-quota-scheduler"); }
-        finally { Volatile.Write(ref dailyQuotaPollRunning, 0); }
+        finally
+        {
+            Volatile.Write(ref dailyQuotaPollRunning, 0);
+            UpdateDailyQuotaTimer();
+        }
     }
 }

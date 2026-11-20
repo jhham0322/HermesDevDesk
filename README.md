@@ -1,4 +1,4 @@
-# Hermes DevDesk 0.8.64
+# Hermes DevDesk 0.8.65
 
 **[AI 챗봇 v1.0.23 Java 소스 5개 다운로드](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.23-source.zip)** · 기존 Spring 앱의 `com.skhynix.hcp.srp.agent` 패키지용. 포털 컨텍스트의 메시지 전송 URI는 `POST /securityportal-apis/aiChat/chat2/send`입니다.
 
@@ -50,7 +50,7 @@
 
 **[이전 버전 AI 챗봇 v1.0.0 소스 ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.47/ai-chatbot-1.0.0-source.zip)**
 
-[Windows 64비트 설치 파일 (v0.8.64)](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.64/HermesDevDesk-0.8.64-win-x64-Setup.exe) · [포터블 ZIP (v0.8.64)](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.64/HermesDevDesk-0.8.64-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
+[Windows 64비트 설치 파일 (v0.8.65)](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.65/HermesDevDesk-0.8.65-win-x64-Setup.exe) · [포터블 ZIP (v0.8.65)](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.65/HermesDevDesk-0.8.65-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
 
 작업 결과 전체를 저장합니다. 응답 스트림이 불완전하게 종료되면 해당 결과를 완료로 기록하지 않습니다.
 

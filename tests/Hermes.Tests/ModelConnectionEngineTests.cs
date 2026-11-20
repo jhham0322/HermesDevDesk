@@ -69,6 +69,19 @@ internal static class ModelConnectionEngineTests
         await desk.ConnectAsync(exe, root);
         var task = desk.NewTask(project, "Quota rotation fixture");
         await desk.StartAsync(task, "출력 토큰의 의미를 설명해줘", "shared", true, continueUntilComplete: true, requirePlan: true);
+        var reservationTimer = System.Diagnostics.Stopwatch.StartNew();
+        while (task.Status != "다음 모델 연결 대기" && reservationTimer.Elapsed < TimeSpan.FromSeconds(15))
+        {
+            while (queue.TryDequeue(out var action)) action();
+            await Task.Delay(20);
+        }
+        var due = desk.State.Processes.Last(p => p.TaskId == task.Id).DailyQuotaResumeAt
+            ?? throw new IOException("Quota rotation was not scheduled");
+        if (due - DateTimeOffset.UtcNow < TimeSpan.FromSeconds(175))
+            throw new IOException("Quota rotation was scheduled sooner than three minutes");
+        await desk.RunDueDailyQuotaResumesAsync(due.AddSeconds(-1));
+        if (routes.Count != 1) throw new IOException("Quota rotation checked before the three-minute deadline");
+        await desk.RunDueDailyQuotaResumesAsync(due);
         var timer = System.Diagnostics.Stopwatch.StartNew();
         while (task.Status != "완료" && timer.Elapsed < TimeSpan.FromSeconds(30))
         {
