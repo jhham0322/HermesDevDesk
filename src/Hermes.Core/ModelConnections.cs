@@ -102,12 +102,8 @@ public sealed partial class DeskController
     {
         var selected = FindModelChoice(choice);
         if (selected == null) return false;
-        var now = DateTimeOffset.UtcNow;
-        var automatic = selected.QuotaExhaustedUntil > now ||
-            State.ModelSelectedByQuota && ActiveModelConnection?.Id == selected.Id;
-        var target = automatic ? FirstAvailableConnection(now) : selected;
-        if (target == null) throw new HermesException("사용 가능한 저장 모델이 없습니다. 토큰이 초기화된 뒤 다시 전송하세요.");
-        SelectConnection(target, automatic);
+        if (ActiveModelConnection?.Id == selected.Id && !HasPendingModel) return true;
+        SelectConnection(selected, false);
         return true;
     }
 

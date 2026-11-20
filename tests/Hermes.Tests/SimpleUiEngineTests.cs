@@ -20,7 +20,7 @@ internal static class SimpleUiEngineTests
         var history = Path.Combine(root, "owned-history"); var projectRoot = Path.Combine(root, "owned-project"); Directory.CreateDirectory(projectRoot);
         await using (var desk = new DeskController(history))
         {
-            desk.Configure(new() { Endpoint = mock.BaseUri.AbsoluteUri, Deployment = model, Protocol = ProviderProtocol.GatewayAuto, Authentication = ProviderAuth.BearerKey }, "SYNTHETIC_UI_FLOW_KEY");
+            desk.Configure(new() { Endpoint = mock.BaseUri.AbsoluteUri.TrimEnd('/') + "/v1/responses", Deployment = model, Protocol = ProviderProtocol.GatewayAuto, Authentication = ProviderAuth.BearerKey }, "SYNTHETIC_UI_FLOW_KEY");
             var project = desk.Register(projectRoot); desk.NewTask(project, "Owned simple connection flow");
         }
         var info = new ProcessStartInfo(app) { UseShellExecute = false }; info.ArgumentList.Add("--data-dir"); info.ArgumentList.Add(history);
@@ -35,7 +35,7 @@ internal static class SimpleUiEngineTests
                 try { final = new StateStore(history).Load(); } catch (IOException) { continue; } catch (JsonException) { continue; }
                 if (final.Tasks.Any(t => t.Status == "완료" && t.Transcript.Any(x => x.Text.Contains("OWNED_UI_FLOW_OK")))) break;
             }
-            if (final == null || !final.Tasks.Any(t => t.Status == "완료") || generations != 1 || checks != 1 || final.Provider.Protocol != ProviderProtocol.GatewayResponses) throw new IOException("Owned UI auto-connect workflow did not complete");
+            if (final == null || !final.Tasks.Any(t => t.Status == "완료") || generations != 1 || checks != 0 || final.Provider.Protocol != ProviderProtocol.GatewayResponses) throw new IOException("Owned UI auto-connect workflow did not complete");
             File.WriteAllText(report, JsonSerializer.Serialize(new { passed = true, model, minimalConnectionChecks = checks, actualFixtureGenerations = generations, automaticEngineConnect = true, realCompanyOrModelRequests = false, normalUiSendAction = true }));
             Console.WriteLine("PASS normal UI send auto-connects engine and receives exact selected model response");
         }

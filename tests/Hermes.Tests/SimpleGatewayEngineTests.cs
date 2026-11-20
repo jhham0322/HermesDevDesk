@@ -35,7 +35,7 @@ internal static class SimpleGatewayEngineTests
             await LoopbackHttp.Reply(stream, 200, "text/event-stream", AnthropicTests.Events(response), ct);
         });
         await using var desk = new DeskController(Path.Combine(root, "history"), a => queue.Enqueue(a), true);
-        desk.Configure(new() { Endpoint = mock.BaseUri.AbsoluteUri, Deployment = "computer-fixture", Protocol = ProviderProtocol.GatewayAuto, Authentication = ProviderAuth.BearerKey }, "SYNTHETIC_COMPUTER_ENGINE_KEY");
+        desk.Configure(new() { Endpoint = mock.BaseUri.AbsoluteUri.TrimEnd('/') + "/v1/messages", Deployment = "computer-fixture", Protocol = ProviderProtocol.GatewayAuto, Authentication = ProviderAuth.BearerKey }, "SYNTHETIC_COMPUTER_ENGINE_KEY");
         desk.ComputerTool = (_, args) => { ComputerTools.Parse(args); callbacks++; return callbacks == 1 ? Task.FromResult(new ComputerToolResult("COMPUTER_HOST_FIXTURE", "data:image/png;base64," + NativeFeatureTests.Png)) : pending.Task; };
         desk.ComputerStopRequested += task => { if (task != null && stopPhase) { stop = true; pending.TrySetException(new IOException("fixture emergency stop")); } };
         var project = desk.Register(root); project.ComputerEnabled = true; project.BrowserEnabled = false; project.LocalMcpEnabled = false; await desk.ConnectAsync(exe, root);

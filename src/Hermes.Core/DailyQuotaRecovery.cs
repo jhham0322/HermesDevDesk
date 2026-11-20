@@ -174,7 +174,8 @@ public sealed partial class DeskController
                 }
             }
             if (State.ModelSelectedByQuota && State.Provider.Mode == ConnectionMode.CompanyApi && !connecting &&
-                !State.Tasks.Any(IsRunning) && FirstAvailableConnection(now) is { } first &&
+                !State.Tasks.Any(IsRunning) && State.ModelConnections.FirstOrDefault() is { QuotaExhaustedUntil: { } reset } &&
+                reset <= now && FirstAvailableConnection(now) is { } first &&
                 ActiveModelConnection?.Id != first.Id)
                 SelectConnection(first, true);
         }

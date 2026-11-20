@@ -10,11 +10,11 @@ public partial class MainWindow
 {
     internal async Task RunRelaySendChecks(string data)
     {
-        int probes = 0, generations = 0, models = 0; bool imageSent = false, fileSent = false, drmSkillSent = false;
+        int probes = 0, generations = 0, models = 0, unexpectedRoutes = 0; bool imageSent = false, fileSent = false, drmSkillSent = false;
         await using var server = new LoopbackHttp(async (request, stream, ct) =>
         {
             if (request.Path.EndsWith("/models")) models++;
-            if (request.Path != "/v1/responses") { await LoopbackHttp.Reply(stream, 404, "application/json", "{}", ct); return; }
+            if (request.Path != "/v1/responses") { unexpectedRoutes++; await LoopbackHttp.Reply(stream, 404, "application/json", "{}", ct); return; }
             using var body = JsonDocument.Parse(request.Body);
             if (body.RootElement.Text("model") != "gpt-6-luna") throw new IOException("Wrong relay model");
             bool probe = body.RootElement.Property("max_output_tokens")?.GetInt32() == 1;
@@ -26,7 +26,7 @@ public partial class MainWindow
         });
         var root = Path.Combine(data, "owned-project"); Directory.CreateDirectory(root);
         var project = desk.Register(root); Projects.SelectedItem = project;
-        desk.Configure(new() { Endpoint = server.BaseUri.AbsoluteUri.TrimEnd('/') + "/v1", Deployment = "gpt-6-luna", Protocol = ProviderProtocol.GatewayAuto }, "SYNTHETIC_RELAY_SEND_ONLY");
+        desk.Configure(new() { Endpoint = server.BaseUri.AbsoluteUri.TrimEnd('/') + "/v1/responses", Deployment = "gpt-6-luna", Protocol = ProviderProtocol.GatewayAuto }, "SYNTHETIC_RELAY_SEND_ONLY");
         desk.RememberModel("gpt-6-luna"); Refresh();
         if (CurrentTask != null || desk.HasPendingModel || !StartButton.IsEnabled) throw new IOException("New conversation send remains disabled");
         UpdateShellState(); if (!StartButton.IsEnabled) throw new IOException("Shell overwrote send readiness");
@@ -51,7 +51,7 @@ public partial class MainWindow
         while (DateTime.UtcNow < until && !desk.State.Tasks.Any(t => t.Status == "완료" && t.Transcript.Any(x => x.Text.Contains("OWNED_RELAY_SEND_OK"))))
             await Task.Delay(100);
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-        if (!imageSent || !fileSent || !drmSkillSent || pendingImages.Count != 0 || pendingFiles.Count != 0 || generations != 1 || probes != 1 || models != 0 || !desk.State.Tasks.Any(t => t.Status == "완료") || !desk.Processes.Any(p => p.Items is [{ Id: "quick-answer", State: "verified" }])) throw new IOException("Relay send did not complete: " + desk.AccountStatus);
-        File.WriteAllText(Path.Combine(data, "relay-send-report.json"), JsonSerializer.Serialize(new { passed = true, exactModel = "gpt-6-luna", probes, generations, models, noExistingTask = true, missingUsageSupported = true, actualOfficialEngine = true, imageSent, fileSent, drmSkillSent, attachmentOnlySend = true, programmaticWpfButton = true, realCompanyRequests = false }));
+        if (!imageSent || !fileSent || !drmSkillSent || pendingImages.Count != 0 || pendingFiles.Count != 0 || generations != 1 || probes != 0 || models != 0 || unexpectedRoutes != 0 || !desk.State.Tasks.Any(t => t.Status == "완료") || !desk.Processes.Any(p => p.Items is [{ Id: "quick-answer", State: "verified" }])) throw new IOException("Relay send did not complete: " + desk.AccountStatus);
+        File.WriteAllText(Path.Combine(data, "relay-send-report.json"), JsonSerializer.Serialize(new { passed = true, exactModel = "gpt-6-luna", probes, generations, models, unexpectedRoutes, noExistingTask = true, missingUsageSupported = true, actualOfficialEngine = true, imageSent, fileSent, drmSkillSent, attachmentOnlySend = true, programmaticWpfButton = true, realCompanyRequests = false }));
     }
 }

@@ -60,8 +60,8 @@ internal static class ModelConnectionEngineTests
         await using var a = Server("A"); await using var b = Server("B");
         await using var desk = new DeskController(Path.Combine(root, "history"), queue.Enqueue);
         var project = desk.Register(root); project.LocalMcpEnabled = project.BrowserEnabled = project.ComputerEnabled = false;
-        ProviderSettings Settings(Uri uri) => new() { Deployment = "shared", Endpoint = uri.AbsoluteUri,
-            Protocol = ProviderProtocol.AnthropicMessages, UseAdvancedSettings = true, Authentication = ProviderAuth.BearerKey };
+        ProviderSettings Settings(Uri uri) => new() { Deployment = "shared", Endpoint = uri.AbsoluteUri.TrimEnd('/') + "/v1/messages",
+            Protocol = ProviderProtocol.AnthropicMessages, UseAdvancedSettings = false, Authentication = ProviderAuth.BearerKey };
         var first = desk.SaveModelConnection(Settings(a.BaseUri), "SYNTHETIC_ROTATION_ALPHA", alias: "first");
         var backup = desk.SaveModelConnection(Settings(b.BaseUri), "SYNTHETIC_ROTATION_BETA", alias: "second");
         if (!desk.DisplayModels.SequenceEqual(new[] { "first", "second" })) throw new IOException("Alias order mismatch");
