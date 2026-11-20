@@ -1,6 +1,8 @@
 # Hermes DevDesk 0.8.61
 
-**[AI 챗봇 v1.0.9 Java 소스 ZIP 다운로드](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.9-source.zip)** · **[회사 앱 URI 매핑 및 UI 연동 가이드](docs/ai-chatbot-ui-integration.md)** · **[회사 AI 작업 지시문 열기 (TXT)](COMPANY-AI-WORK-GUIDE.txt)**
+**[AI 챗봇 v1.0.10 Java 소스 ZIP 다운로드](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.10-source.zip)** · **[채팅도우미 전송 API 및 UI 연동 가이드](docs/ai-chatbot-ui-integration.md)** · **[회사 AI 작업 지시문 열기 (TXT)](COMPANY-AI-WORK-GUIDE.txt)**
+
+[이전 버전 AI 챗봇 v1.0.9 소스 ZIP](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.9-source.zip)
 
 [이전 버전 AI 챗봇 v1.0.8 소스 ZIP](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.8-source.zip)
 

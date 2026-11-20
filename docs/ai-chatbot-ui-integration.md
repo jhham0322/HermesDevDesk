@@ -1,4 +1,4 @@
-# AI 챗봇 v1.0.9 UI 연동 가이드
+# AI 챗봇 v1.0.10 UI 연동 가이드
 
 기존 채팅 연동은 `review_type`을 생략합니다. 보안성 검토 탭은 `review_type: "security"`를 명시합니다. 현재 서버에서 두 호출은 같은 보안성 검토 채팅으로 연결되며, 같은 사용자라면 대화 목록과 진행 중인 방을 공유합니다. 별도 검토 유형인 **보안증적 검토 (가상)**는 `"evidence"`이며 로컬 데모에서 사용할 수 있습니다.
 
@@ -21,6 +21,19 @@ JSP 화면을 쓰려면 호스트 WAR에 src/main/webapp/WEB-INF/jsp 리소스�
 호스트 context path가 /portal이면 POST /portal/chat/start와 GET /portal/chat2.jsp를 사용합니다.
 아래 JavaScript 함수에는 세 번째 인수로 `"/portal/chat/"`를 전달하세요.
 
+## 채팅도우미 메시지 전송
+
+`/chat2`와 `/chat2.jsp`는 메시지를 `POST /api/ai-agent/chat2/send`로 보냅니다.
+회사 앱의 context path가 `/portal`이면 `POST /portal/api/ai-agent/chat2/send`입니다.
+Bearer 토큰, `Content-Type: application/json`과 아래 필드를 사용하세요.
+
+```json
+{"room_index":"12","type":"S","message":"테스트 메시지","chat_index":"a9c89aaf-e176-442a-8fe8-d52acd285d88","review_type":"security"}
+```
+
+`room_index`에는 시작 조회 또는 새 방 생성에서 받은 방 ID를 넣으세요.
+같은 전송을 재시도할 때는 `chat_index`를 재사용합니다.
+
 ## 호출 함수
 
 아래 코드를 챗봇과 같은 오리진에서 실행하세요. Windows 로컬 확인은 `.\run-local-demo.ps1`이 출력하는 주소를 사용합니다. 
@@ -34,7 +47,7 @@ JSP 화면을 쓰려면 호스트 WAR에 src/main/webapp/WEB-INF/jsp 리소스�
 
 위 전체 주소는 기본 포트 예시입니다. 데모는 콘솔에 출력된 포트를, 회사 환경은 해당 챗봇 서버의 오리진을 사용하세요. 두 화면은 이름이 다르며, 현재 동일한 채팅 API와 대화 데이터를 사용합니다.
 
-모든 API는 JSON을 받는 `POST /chat/*`입니다. `token`에는 로그인한 사용자에게 발급된 bearer 토큰을 전달합니다. 로컬 데모에서는 화면에 미리 채워진 테스트 토큰을 사용할 수 있습니다.
+모든 채팅 API 요청은 POST와 JSON을 사용합니다. `token`에는 로그인한 사용자에게 발급된 bearer 토큰을 전달합니다. 로컬 데모에서는 화면에 미리 채워진 테스트 토큰을 사용할 수 있습니다.
 
 ```js
 function createChatClient(token, reviewType, apiBase = "/chat/") {

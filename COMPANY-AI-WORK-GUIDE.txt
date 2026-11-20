@@ -1,4 +1,4 @@
-AI 챗봇 v1.0.9 회사 AI 작업 가이드
+AI 챗봇 v1.0.10 회사 AI 작업 가이드
 
 소스 ZIP을 회사에서 승인한 작업 폴더에 풀고, 회사 AI의 코딩 세션에서
 그 폴더를 작업 디렉터리로 선택하세요. 아래 지시문을 통째로 복사해
@@ -26,6 +26,7 @@ PostgresChatStore의 매퍼 경로와 대상 모듈의 리소스 스캔 설정�
 화면 연결 URI는 보안성 검토 GET /chat1, 채팅도우미 GET /chat2야.
 로컬 기본 주소는 http://127.0.0.1:8080/chat1이고, 회사 환경은
 배포된 챗봇 서버의 오리진을 붙여 사용해. API 호출은 POST /chat/start로 시작해.
+채팅도우미의 메시지 전송은 POST /api/ai-agent/chat2/send를 사용해.
 UI에서는 UI-CHAT-INTEGRATION.md의 fetch 함수와 예시를 사용해.
 기존 호출의 review_type 생략과 명시적 "security"는 같은 사용자 대화를
 공유해. "evidence"는 로컬 데모에서 확인할 수 있는 별도 검토 유형이야.
