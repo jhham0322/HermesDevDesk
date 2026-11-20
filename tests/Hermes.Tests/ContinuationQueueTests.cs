@@ -71,6 +71,27 @@ internal static class ContinuationQueueTests
         End(planned, "turn-required-plan");
         check(required.State == "완료" && File.ReadAllText(Path.Combine(records, "작업내역.txt")).Contains("상태: 완료"), "all checked items close the task without a second verification call");
 
+        var concise = Task("concise-plan");
+        var conciseProcess = desk.BeginProcess(concise, "짧은 완료 조건 검증", requirePlan: true);
+        string PlanError(string json)
+        {
+            using var plan = JsonDocument.Parse(json);
+            try { desk.DecideProcess(concise, plan.RootElement, concise.TurnId!); }
+            catch (HermesException ex) { return ex.Message; }
+            return "";
+        }
+        var missingOutput = PlanError("""{"action":"plan","items":[{"id":"check","title":"검사","acceptance":"빌드 통과","kind":"evidence"}]}""");
+        check(missingOutput.Contains("check") && missingOutput.Contains("expectedOutput") && conciseProcess.Items.Count == 0,
+            "evidence plan identifies its missing expectedOutput and leaves saved state intact");
+        var invalidDependency = PlanError("""{"action":"plan","items":[{"id":"check","title":"검사","acceptance":"빌드 통과","kind":"evidence","expectedOutput":"OK","dependsOn":["missing"]}]}""");
+        check(invalidDependency.Contains("dependsOn") && invalidDependency.Contains("missing") && conciseProcess.Items.Count == 0,
+            "unknown dependency reports its exact ID without saving a partial plan");
+        var invalidArtifact = PlanError("""{"action":"plan","items":[{"id":"make","title":"파일","acceptance":"파일 생성","kind":"artifact","artifacts":[{"path":null}]}]}""");
+        check(invalidArtifact.Contains("make") && invalidArtifact.Contains("artifacts"), "missing artifact path has a field-specific diagnostic");
+        var validPlan = PlanError("""{"action":"plan","items":[{"id":"check","title":"검사","acceptance":"빌드 통과","kind":" evidence ","expectedOutput":"OK","dependsOn":null}]}""");
+        check(validPlan == "" && WorkQueue.Next(conciseProcess) is { State: "running", ExpectedOutput: "OK" },
+            "short Korean acceptance and a short literal verification marker are accepted");
+
         var cycle=Task("cycle");var cp=desk.BeginProcess(cycle,"Cycle test");
         check(Reject(()=>Decide(cycle,new{action="plan",items=new[]{Item("cycle-A","initial","cycle-B"),Item("cycle-B","initial","cycle-A")}}))&&cp.Items.Count==0,"cyclic plan is rejected atomically");
         var partial=Task("partial");var pp=desk.BeginProcess(partial,"Persist partial objective");Decide(partial,new{action="plan",items=new[]{Item("saved-A"),Item("saved-B","initial","saved-A")}});Decide(partial,new{action="start_item",itemId="saved-A"});File.WriteAllText(Path.Combine(root,"saved-A.txt"),"VERIFIED_saved-A");var saved=Proof(partial,"saved-A");Decide(partial,new{action="verify_item",itemId="saved-A",evidenceId=saved,verification="Actual saved artifact content was verified."});

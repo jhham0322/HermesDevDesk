@@ -57,14 +57,45 @@ public static class WorkQueue
         .OrderBy(i => i.State == "running" ? 0 : 1).ThenBy(i => i.Priority).ThenBy(i => process.Items.IndexOf(i)).FirstOrDefault();
     public static void Validate(IReadOnlyList<QueuedWork> items)
     {
-        if (items.Select(i => i.Id).Distinct(StringComparer.Ordinal).Count() != items.Count) throw new HermesException("작업 항목 ID 중복입니다.");
-        foreach (var i in items)
-            if (i.Id.Length is < 1 or > 80 || i.Title.Length is < 1 or > 1000 || i.Acceptance.Length is < 10 or > 4000 || i.Kind is not ("artifact" or "evidence" or "answer")
-                || i.DependsOn.Any(d => !items.Any(x => x.Id == d)) || i.DependsOn.Contains(i.Id)
-                || (i.Kind == "artifact" && i.Artifacts.Count == 0) || (i.Kind == "evidence" && i.ExpectedOutput.Length < 3)) throw new HermesException("작업 항목의 완료 조건·검증 방식·의존관계를 확인하세요.");
-        var visited = new HashSet<string>(); var visiting = new HashSet<string>();
-        void Visit(string id) { if (visited.Contains(id)) return; if (!visiting.Add(id)) throw new HermesException("작업 의존관계에 순환이 있습니다."); foreach (var dep in items.Single(i => i.Id == id).DependsOn) Visit(dep); visiting.Remove(id); visited.Add(id); }
-        foreach (var i in items) Visit(i.Id);
+        var byId = new Dictionary<string, QueuedWork>(StringComparer.Ordinal);
+        foreach (var item in items)
+        {
+            var label = string.IsNullOrWhiteSpace(item.Id) ? item.Title : item.Id;
+            if (string.IsNullOrWhiteSpace(item.Id) || item.Id.Length > 80)
+                throw new HermesException($"작업 항목 '{label}': id는 1~80자여야 합니다.");
+            if (!byId.TryAdd(item.Id, item))
+                throw new HermesException($"작업 항목 '{item.Id}': id가 중복되었습니다.");
+            if (string.IsNullOrWhiteSpace(item.Title) || item.Title.Length > 1000)
+                throw new HermesException($"작업 항목 '{item.Id}': title은 1~1000자여야 합니다.");
+            if (string.IsNullOrWhiteSpace(item.Acceptance) || item.Acceptance.Length > 4000)
+                throw new HermesException($"작업 항목 '{item.Id}': acceptance에 완료 조건을 입력하세요.");
+            if (item.Kind is not ("artifact" or "evidence" or "answer"))
+                throw new HermesException($"작업 항목 '{item.Id}': kind는 artifact, evidence, answer 중 하나여야 합니다.");
+            if (item.Kind == "artifact" && (item.Artifacts.Count == 0 || item.Artifacts.Any(a => string.IsNullOrWhiteSpace(a.Path))))
+                throw new HermesException($"작업 항목 '{item.Id}': artifact에는 artifacts에 산출물 path가 필요합니다.");
+            if (item.Kind == "evidence" && string.IsNullOrWhiteSpace(item.ExpectedOutput))
+                throw new HermesException($"작업 항목 '{item.Id}': evidence에는 실제 검증 출력에서 확인할 expectedOutput이 필요합니다.");
+        }
+
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var visiting = new HashSet<string>(StringComparer.Ordinal);
+        void Visit(QueuedWork item)
+        {
+            if (visited.Contains(item.Id)) return;
+            if (!visiting.Add(item.Id))
+                throw new HermesException($"작업 항목 '{item.Id}': dependsOn에 순환이 있습니다.");
+            foreach (var dependency in item.DependsOn)
+            {
+                if (!byId.TryGetValue(dependency, out var previous))
+                    throw new HermesException($"작업 항목 '{item.Id}': dependsOn의 '{dependency}' 항목을 찾을 수 없습니다.");
+                if (previous.State is "cancelled" or "superseded" && !item.Terminal)
+                    throw new HermesException($"작업 항목 '{item.Id}': dependsOn의 '{dependency}' 항목이 취소되었거나 대체되었습니다.");
+                Visit(previous);
+            }
+            visiting.Remove(item.Id);
+            visited.Add(item.Id);
+        }
+        foreach (var item in items) Visit(item);
     }
     public static string CheckArtifacts(string root, QueuedWork item)
     {
@@ -108,17 +139,31 @@ public sealed partial class DeskController
         if (action == "read_request") { var r = p.Requirements.SingleOrDefault(r => r.Id == args.Text("requestId")) ?? throw new HermesException("요구 ID를 확인하세요."); var offset = Math.Clamp(args.Property("offset")?.GetInt32() ?? 0, 0, r.Text.Length); return r.Text.Substring(offset, Math.Min(8000, r.Text.Length - offset)); }
         if (action == "plan")
         {
-            var incoming = JsonSerializer.Deserialize<List<QueuedWork>>(args.GetProperty("items").GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
-            if (incoming.Count == 0) throw new HermesException("실행할 작업 항목을 입력하세요.");
+            if (args.Property("items") is not { ValueKind: JsonValueKind.Array } plan || plan.GetArrayLength() is < 1 or > 200)
+                throw new HermesException("plan의 items에 1~200개 작업 항목을 입력하세요.");
+            List<QueuedWork> incoming;
+            try { incoming = plan.Deserialize<List<QueuedWork>>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!; }
+            catch (JsonException ex) { throw new HermesException($"작업 계획 JSON 형식을 확인하세요. 오류 위치: {ex.Path}", ex); }
+            if (incoming.Any(item => item == null))
+                throw new HermesException("plan의 items에는 빈 항목을 넣을 수 없습니다.");
             var candidate = JsonSerializer.Deserialize<List<QueuedWork>>(JsonSerializer.Serialize(p.Items))!;
+            var incomingIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (var item in incoming)
             {
-                item.Id = ExecutionMemory.Clean(item.Id, 80); item.Title = ExecutionMemory.Clean(item.Title, 1000); item.Acceptance = ExecutionMemory.Clean(item.Acceptance, 4000); item.ExpectedOutput = ExecutionMemory.Clean(item.ExpectedOutput, 4000);
-                foreach (var artifact in item.Artifacts) { artifact.Path = ExecutionMemory.Clean(artifact.Path, 1000); artifact.Contains = ExecutionMemory.Clean(artifact.Contains, 4000); }
+                item.Id = ExecutionMemory.Clean(item.Id ?? "", 80).Trim(); item.Title = ExecutionMemory.Clean(item.Title ?? "", 1000); item.Acceptance = ExecutionMemory.Clean(item.Acceptance ?? "", 4000); item.ExpectedOutput = ExecutionMemory.Clean(item.ExpectedOutput ?? "", 4000);
+                if (!incomingIds.Add(item.Id))
+                    throw new HermesException($"작업 항목 '{item.Id}': 현재 계획 요청에서 id가 중복되었습니다.");
+                item.RequestId = ExecutionMemory.Clean(item.RequestId ?? "initial", 80).Trim();
+                item.Kind = (item.Kind ?? "").Trim().ToLowerInvariant();
+                item.DependsOn = (item.DependsOn ?? []).Select(id => ExecutionMemory.Clean(id ?? "", 80).Trim()).Distinct(StringComparer.Ordinal).ToList();
+                item.Artifacts ??= [];
+                if (item.Artifacts.Any(artifact => artifact == null))
+                    throw new HermesException($"작업 항목 '{item.Id}': artifacts에는 빈 항목을 넣을 수 없습니다.");
+                foreach (var artifact in item.Artifacts) { artifact.Path = ExecutionMemory.Clean(artifact.Path ?? "", 1000); artifact.Contains = ExecutionMemory.Clean(artifact.Contains ?? "", 4000); }
                 if (!p.Requirements.Any(r => r.Id == item.RequestId)) throw new HermesException("원문 요구 ID를 확인하세요.");
                 var existing = candidate.SingleOrDefault(i => i.Id == item.Id);
                 if (existing != null) { if (existing.RequestId != item.RequestId || existing.Title != item.Title || existing.Acceptance != item.Acceptance || existing.Kind != item.Kind || existing.ExpectedOutput != item.ExpectedOutput || JsonSerializer.Serialize(existing.Artifacts) != JsonSerializer.Serialize(item.Artifacts) || !existing.DependsOn.SequenceEqual(item.DependsOn)) throw new HermesException("기존 작업의 완료 조건을 덮어쓸 수 없습니다. 명시적 요구 변경은 새 ID로 추가하세요."); if (!existing.Terminal) existing.Priority = item.Priority; }
-                else { item.State = "pending"; item.EvidenceId = 0; item.Verification = item.ArtifactDigest = ""; candidate.Add(item); }
+                else { item.State = "pending"; item.EvidenceId = item.EvidenceStart = 0; item.Started = null; item.TranscriptStart = 0; item.Verification = item.ArtifactDigest = ""; candidate.Add(item); }
             }
             WorkQueue.Validate(candidate); p.Items = candidate;
             foreach (var request in p.Requirements.Where(r => candidate.Any(i => i.RequestId == r.Id && i.State != "superseded"))) request.Planned = true;
