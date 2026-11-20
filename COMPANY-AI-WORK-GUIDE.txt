@@ -1,0 +1,43 @@
+AI 챗봇 v1.0.4 회사 AI 작업 가이드
+
+소스 ZIP을 회사에서 승인한 작업 폴더에 풀고, 회사 AI의 코딩 세션에서
+그 폴더를 작업 디렉터리로 선택하세요. 아래 지시문을 통째로 복사해
+붙여넣고 [작업 목표] 부분을 실제 요청으로 바꾸면 됩니다.
+사내 API 문서와 대상 모듈은 승인된 환경에서 AI가 읽을 수 있는 경로로
+지정하세요. 접속 토큰과 비밀번호는 프롬프트나 소스에 붙여넣지 마세요.
+
+---------- 회사 AI에 붙여넣을 지시문 ----------
+
+작업 목표: [예: 보안성 검토 채팅 화면을 회사 UI에 연결하고 합성 데이터로
+대화 재개, 메시지 전송, 완료 후 신청 초안 표시를 검증해.]
+
+먼저 작업 폴더의 README.md, UI-CHAT-INTEGRATION.md, pom.xml을 읽어.
+회사 프로젝트에 통합할 경우 대상 모듈의 빌드와 MyBatis 설정, 사내 AI API
+계약도 확인해. 목표, 수정 파일, 검증 방법을 짧게 정리한 뒤 코드까지 수정해.
+
+보안성 검토 매퍼는 src/main/resources/mapper/ai/AiMapper.xml이고,
+보안증적 검토 매퍼는 같은 폴더의 AiEvidenceReviewChatMapper.xml이야.
+PostgresChatStore의 매퍼 경로와 대상 모듈의 리소스 스캔 설정을 함께 확인해.
+매퍼 namespace, SQL ID, 기존 DB 기록의 호환성을 유지해.
+
+UI에서는 UI-CHAT-INTEGRATION.md의 fetch 함수와 예시를 사용해.
+기존 호출의 review_type 생략과 명시적 "security"는 같은 사용자 대화를
+공유해. "evidence"는 로컬 데모에서 확인할 수 있는 별도 검토 유형이야.
+사용자 토큰으로 POST /chat/*에 연결하고, 전송 재시도에는 같은 요청 ID를 써.
+
+회사 AI API 연동이 작업 범위라면 AiHelperHttpClient를 읽고 실제 사내
+계약과 비교해. 세션 열기와 닫기는 AI_OPEN_PATH 및 AI_CLOSE_PATH 설정을
+쓰고, 메시지와 완료는 현재 /api/v1/sr/helper/message 및
+/api/v1/sr/helper/complete를 사용해. URL, 인증 방식, 요청·응답 필드,
+완료 draft 계약은 사내 문서 또는 승인된 스테이징 응답을 근거로 확인해.
+필요한 AI_BASE_URL, AI_VISIBILITY, AI_TOKEN 및 DB 값은 승인된 환경
+설정으로 주입해. 확인되지 않은 API 경로나 필드가 있으면 보고해.
+
+JDK 21로 프로젝트 루트에서 mvn -B -ntp verify를 실행해.
+로컬 UI 확인은 Windows PowerShell에서 .\run-local-demo.ps1을 실행하고
+표시된 Chat demo 주소를 열어. 합성 데이터로 새 대화, 이어서 하기, 전송,
+완료, 취소를 확인해. 매퍼 변경은 별도 승인된 테스트 DB에서
+README.md의 PostgreSQL 검증 절차를 사용해. 운영 DB나 운영 서비스를
+변경하지 말고, 수정 파일과 실제 검증 결과, 남은 확인 사항을 보고해.
+
+---------- 지시문 끝 ----------
