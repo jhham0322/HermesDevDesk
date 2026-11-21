@@ -43,6 +43,31 @@ public sealed partial class MainWindow
         for(int i=0;i<100&&!retryLogin.IsEnabled;i++)await Task.Delay(10);
         Check(retryLogin.IsEnabled&&desk.ChatGptPlan.Accounts().Count==0,"cancel after launch-error retry leaves no credential registration");
         launchFailure.Close();
+        Check(Equals(ChatGptLoginButton.Content, "ChatGPT 로그인") && ChatGptLoginButton.IsVisible,
+            "ChatGPT login is visible on the main window");
+        var engine = Hermes.Core.AppServerClient.FindInstalledCodex() ?? throw new IOException("Bundled engine missing");
+        using var officialCancel = new CancellationTokenSource();
+        var officialBrowserOpened = false;
+        try
+        {
+            await desk.SignInToChatGptAsync(engine, data, url =>
+            {
+                officialBrowserOpened = url.Host == "auth.openai.com";
+                officialCancel.Cancel();
+            }, officialCancel.Token);
+        }
+        catch (OperationCanceledException) when (officialCancel.IsCancellationRequested) { }
+        Check(officialBrowserOpened && !desk.State.Provider.UseHermesChatGpt,
+            "bundled engine returns its official login URL and cancel does not switch providers");
+        desk.SaveModelConnection(new Hermes.Core.ProviderSettings { Endpoint = "https://company.invalid/v1", Deployment = "custom-model" },
+            "SYNTHETIC_CHATGPT_COMPANY_KEY", alias: "custom alias");
+        desk.Configure(new Hermes.Core.ProviderSettings { Mode = Hermes.Core.ConnectionMode.ExistingChatGptCli,
+            UseHermesChatGpt = true, OAuthAccountId = "synthetic" });
+        desk.Models.Add("synthetic-official-model");
+        Refresh();
+        Check(Model.Items.Cast<string>().SequenceEqual(["synthetic-official-model"]) &&
+            desk.DeploymentForChoice("synthetic-official-model") == "synthetic-official-model",
+            "ChatGPT mode only exposes the official engine catalog");
         File.WriteAllText(Path.Combine(data,"chatgpt-plan-ui-report.json"),JsonSerializer.Serialize(new{passed=true,checks,realLogin=false,realModelCalls=0,nativeMouse=false}));
     }
 }

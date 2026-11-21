@@ -20,7 +20,7 @@ public sealed class AppServerClient : IAsyncDisposable
     public event Action<string>? Diagnostic;
     public event Action? Disconnected;
     public bool Connected => process is { HasExited: false } && !closing;
-    public async Task ConnectAsync(string exe, string cwd, string? isolatedHome = null, Uri? companyBridge = null, string? bridgeKey = null, string? deployment = null, Dictionary<string, object>? mcpServers = null, ChatGptLease? chatGptPlan = null)
+    public async Task ConnectAsync(string exe, string cwd, string? isolatedHome = null, Uri? companyBridge = null, string? bridgeKey = null, string? deployment = null, Dictionary<string, object>? mcpServers = null, ChatGptLease? chatGptPlan = null, bool officialChatGpt = false)
     {
         if (process != null) throw new InvalidOperationException("이미 연결되었습니다.");
         exe = Path.GetFullPath(exe);
@@ -36,6 +36,12 @@ public sealed class AppServerClient : IAsyncDisposable
             var profile = Path.Combine(isolatedHome, "private-profile"); Directory.CreateDirectory(profile);
             info.Environment["HOME"] = profile; info.Environment["USERPROFILE"] = profile;
             foreach (var setting in new[] { "features.plugins=false", "features.recommended_plugins=false", "skills.include_instructions=false", "skills.bundled.enabled=false", "feedback.enabled=false", "otel.exporter=\"none\"", "otel.trace_exporter=\"none\"", "otel.metrics_exporter=\"none\"" }) { info.ArgumentList.Add("-c"); info.ArgumentList.Add(setting); }
+        }
+        if (officialChatGpt)
+        {
+            if (isolatedHome == null || companyBridge != null || chatGptPlan != null) throw new IOException("ChatGPT requires an isolated engine profile");
+            foreach (var setting in new[] { "model_provider=\"openai\"", "forced_login_method=\"chatgpt\"", "cli_auth_credentials_store=\"file\"" })
+            { info.ArgumentList.Add("-c"); info.ArgumentList.Add(setting); }
         }
         if (companyBridge != null)
         {

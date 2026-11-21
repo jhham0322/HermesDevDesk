@@ -52,7 +52,8 @@ public partial class MainWindow : Window
             ApprovalList.ItemsSource = desk.Approvals.Select(r => new ApprovalDisplay(r)).ToList();
             ApprovalList.SelectedItem = ApprovalList.Items.Cast<ApprovalDisplay>().FirstOrDefault(d => d.Request == approval) ?? ApprovalList.Items.Cast<ApprovalDisplay>().FirstOrDefault();
             Connection.Text = desk.AccountStatus;
-            var visibleModels = desk.DisplayModels.Count > 0 ? desk.DisplayModels.ToList() : new List<string> { "모델명을 입력하세요" };
+            ChatGptLoginButton.Content = desk.State.Provider.UseHermesChatGpt && desk.SubscriptionReady ? "ChatGPT 계정" : "ChatGPT 로그인";
+            var visibleModels = desk.DisplayModels.Count > 0 ? desk.DisplayModels.ToList() : new List<string> { desk.State.Provider.UseHermesChatGpt ? "ChatGPT 모델 연결 대기" : "모델명을 입력하세요" };
             var activeConnection = desk.ActiveModelConnection;
             var activeChanged = displayedConnectionId != activeConnection?.Id;
             displayedConnectionId = activeConnection?.Id;
@@ -121,7 +122,11 @@ public partial class MainWindow : Window
         try { var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image)); using (var stream = File.Create(path)) encoder.Save(stream); AddImage(path); }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
-    private void ChatGptPlan_Click(object sender, RoutedEventArgs e) { new ChatGptPlanWindow(desk) { Owner = this }.ShowDialog(); Refresh(); }
+    private void ChatGptPlan_Click(object sender, RoutedEventArgs e)
+    {
+        new OfficialChatGptWindow(desk, CurrentProject?.Root ?? desk.DataDirectory) { Owner = this }.ShowDialog();
+        Refresh();
+    }
     private void Settings_Click(object sender, RoutedEventArgs e) { var window = new SettingsWindow(desk) { Owner = this }; window.ShowDialog(); Refresh(); }
     private void Schedule_Click(object sender, RoutedEventArgs e) { if (CurrentProject is { } project) new ScheduleWindow(desk, project) { Owner = this }.ShowDialog(); }
     private void ProcessDrafts()
@@ -276,7 +281,7 @@ public partial class MainWindow : Window
         var choice = Model.SelectedItem as string ?? "";
         var chosenModel = desk.DeploymentForChoice(choice);
         var steering = CurrentTask?.Status is "실행 중" or "계속 실행 대기";
-        if (!desk.State.Provider.IsChatGptPlanOAuth && !steering && desk.SelectModelForNewRequest(choice))
+        if (desk.State.Provider.Mode == ConnectionMode.CompanyApi && !steering && desk.SelectModelForNewRequest(choice))
             chosenModel = desk.State.Provider.Deployment;
         if (desk.HasPendingModel || (!desk.SubscriptionReady && !desk.CanConnectCompany && desk.State.Provider.Mode == ConnectionMode.CompanyApi))
         {
@@ -288,7 +293,7 @@ public partial class MainWindow : Window
         }
         var prompt = Prompt.Text; var task = CurrentTask;
         if (task == null) { NewTask_Click(this, new RoutedEventArgs()); task = CurrentTask ?? throw new Hermes.Core.HermesException("프로젝트를 선택하세요."); }
-        if (!desk.SubscriptionReady && desk.CanConnectCompany)
+        if (!desk.SubscriptionReady && (desk.CanConnectCompany || desk.State.Provider.UseHermesChatGpt))
         {
             connectingCompany = true; Refresh();
             try
@@ -296,9 +301,13 @@ public partial class MainWindow : Window
                 var configured = desk.State.CodexPath;
                 var exe = configured != null && File.Exists(configured) ? configured : AppServerClient.FindInstalledCodex() ?? throw new Hermes.Core.HermesException("동봉한 엔진을 찾지 못했습니다. 설치 폴더의 engine을 확인하세요.");
                 await desk.ConnectAsync(exe, CurrentProject!.Root);
+                if (desk.State.Provider.UseHermesChatGpt && !desk.SubscriptionReady)
+                    throw new Hermes.Core.HermesException("상단 ChatGPT 로그인에서 계정에 로그인하세요.");
             }
             finally { connectingCompany = false; Refresh(); }
         }
+        if (desk.State.Provider.UseHermesChatGpt && !desk.Models.Contains(chosenModel))
+            chosenModel = desk.Models.FirstOrDefault() ?? throw new Hermes.Core.HermesException("ChatGPT 계정에서 사용할 수 있는 모델이 없습니다.");
         if (task.Status is "실행 중" or "계속 실행 대기")
         {
             var images = pendingImages.ToList();

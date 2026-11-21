@@ -78,7 +78,7 @@ public sealed partial class DeskController : IAsyncDisposable
     {
         get
         {
-            if (State.Provider.IsChatGptPlanOAuth) return Models.ToArray();
+            if (State.Provider.Mode != ConnectionMode.CompanyApi) return Models.ToArray();
             var names = new List<string>();
             if (HasPendingModel) names.Add(State.PendingModel);
             names.AddRange(State.ModelConnections.Select(c => ModelChoice(c.Id, c.Settings.Deployment)));
@@ -233,18 +233,20 @@ public sealed partial class DeskController : IAsyncDisposable
                 AccountStatus = "회사 API 전용 연결 · 실제 인증/배포 검증은 첫 서버 응답 기준 · 외부 fallback 없음";
                 State.CodexPath = exe; Save(); await RestorePendingLoopsAsync(); return;
             }
-            await client.ConnectAsync(exe, cwd);
+            await client.ConnectAsync(exe, cwd, State.Provider.UseHermesChatGpt ? HermesChatGptHome : null,
+                officialChatGpt: State.Provider.UseHermesChatGpt);
             var account = await client.RequestAsync("account/read", new { refreshToken = false });
             var type = account.Property("account")?.Text("type") ?? "";
             // API keys, external tokens, gateways and providers require a separately authorized path.
             SubscriptionReady = type == "chatgpt";
-            AccountStatus = SubscriptionReady ? "공식 ChatGPT 인증 연결 · 구독 사용량 소비" : string.IsNullOrEmpty(type) ? "새 CLI 로그인 필요 · 앱에서 로그인 생성 안 함" : "별도 인증/과금 경로 차단: " + type;
-            var models = await client.RequestAsync("model/list", new { limit = 100, includeHidden = false });
+            AccountStatus = SubscriptionReady ? "공식 ChatGPT 인증 연결 · 구독 사용량 소비" : string.IsNullOrEmpty(type) ? "ChatGPT 로그인이 필요합니다" : "별도 인증/과금 경로 차단: " + type;
             Models.Clear(); ModelEfforts.Clear();
-            if (models.Property("data") is { } data) foreach (var model in data.EnumerateArray())
+            var models = SubscriptionReady ? await client.RequestAsync("model/list", new { limit = 100, includeHidden = false }) : default;
+            if (models.ValueKind == JsonValueKind.Object && models.Property("data") is { } data) foreach (var model in data.EnumerateArray())
             {
                 var name = model.Text("model"); if (name.Length == 0) continue;
-                Models.Add(name);
+                if (model.Property("isDefault") is { ValueKind: JsonValueKind.True }) Models.Insert(0, name);
+                else Models.Add(name);
                 ModelEfforts[name] = model.Property("supportedReasoningEfforts") is { ValueKind: JsonValueKind.Array } efforts ? efforts.EnumerateArray().Select(x => x.Text("reasoningEffort")).Where(x => x.Length > 0).ToList() : [];
             }
             // Inspect effective MCP names through supported API, never config.toml or private DB.
