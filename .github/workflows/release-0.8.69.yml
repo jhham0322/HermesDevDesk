@@ -31,7 +31,7 @@ jobs:
       - name: Build tagged source and Windows packages
         shell: pwsh
         run: ./scripts/build.ps1 -DotnetPath (Get-Command dotnet).Source -OutputDirectory artifacts/release-0.8.69
-      - name: Run full synthetic regression
+      - name: Verify account model display names and full synthetic regression
         shell: pwsh
         run: |
           dotnet build tests/Hermes.Tests/Hermes.Tests.csproj -c Release --nologo -p:NuGetAudit=false

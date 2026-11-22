@@ -95,8 +95,8 @@ internal static class ChatGptPlanTests
             desk.SaveModelConnection(new ProviderSettings{Endpoint="https://company.invalid/v1",Deployment="company-fixture",Protocol=ProviderProtocol.GatewayResponses,Authentication=ProviderAuth.None,UseAdvancedSettings=true},null);
             var saved=desk.ExportModelConnections();
             desk.Configure(new ProviderSettings{Mode=ConnectionMode.ExistingChatGptCli,OAuthAccountId=account.Id,Endpoint="",Deployment="oauth-model"});
-            desk.Models.Add("oauth-model");
-            check(desk.DisplayModels.SequenceEqual(new[]{"oauth-model"}),"OAuth picker uses only active account server models");
+            desk.SetChatGptPlanCatalog([new("oauth-model", "OpenAI model")]);
+            check(desk.DisplayModels.SequenceEqual(new[]{"OpenAI model"}) && desk.DeploymentForChoice("OpenAI model") == "oauth-model","OAuth picker uses only active account server models");
             check(desk.ExportModelConnections()==saved,"OAuth connection leaves existing company model export unchanged");
             check(desk.SelectModelConnection("company-fixture")&&!desk.State.Provider.IsChatGptPlanOAuth&&desk.ExportModelConnections()==saved,"Existing company model selection works after OAuth without conversion");
         }

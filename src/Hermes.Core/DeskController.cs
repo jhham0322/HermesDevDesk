@@ -11,6 +11,20 @@ public sealed partial class DeskController : IAsyncDisposable
     private DateTimeOffset oauthEngineExpires;
     private readonly Dictionary<string, string> oauthModelChoices = [];
     public bool ChatGptPlanNeedsConnection => State.Provider.IsChatGptPlanOAuth && (!SubscriptionReady || oauthEngineExpires <= DateTimeOffset.UtcNow.AddMinutes(1));
+    internal void SetChatGptPlanCatalog(IEnumerable<ChatGptModel> catalog)
+    {
+        Models.Clear();
+        ModelEfforts.Clear();
+        oauthModelChoices.Clear();
+        foreach (var model in catalog.DistinctBy(model => model.Slug))
+        {
+            var label = model.DisplayName;
+            while (oauthModelChoices.ContainsKey(label)) label += " · " + model.Slug;
+            oauthModelChoices.Add(label, model.Slug);
+            Models.Add(model.Slug);
+        }
+    }
+
     private string ActiveModelProvider => State.Provider.IsChatGptPlanOAuth ? "openai_chatgpt_plan" : company == null ? "openai" : "hermes_company";
     private void CheckOAuthSession()
     {
@@ -208,14 +222,8 @@ public sealed partial class DeskController : IAsyncDisposable
                 var lease = await ChatGptPlan.LeaseAsync(State.Provider.OAuthAccountId!, cancellation);
                 await client.ConnectAsync(exe, cwd, Path.Combine(DataDirectory, "chatgpt-plan", "engine-" + lease.AccountId), chatGptPlan: lease);
                 cancellation.ThrowIfCancellationRequested();
-                oauthEngineExpires = lease.Expires; Models.Clear(); ModelEfforts.Clear(); oauthModelChoices.Clear();
-                foreach (var model in catalog.DistinctBy(m => m.Slug))
-                {
-                    var label = model.DisplayName;
-                    while (oauthModelChoices.ContainsKey(label)) label += " · " + model.Slug;
-                    oauthModelChoices.Add(label, model.Slug);
-                    Models.Add(model.Slug);
-                }
+                oauthEngineExpires = lease.Expires;
+                SetChatGptPlanCatalog(catalog);
                 SubscriptionReady = true; AccountStatus = "ChatGPT plan OAuth · " + ChatGptPlan.Accounts().Single(a => a.Id == lease.AccountId).Label + "; model access is verified only by a completed turn.";
                 State.CodexPath = exe; connectedFingerprint = State.Provider.Fingerprint; Save(); return; // OAuth reconnect preserves checkpoints; resumption requires the matching saved process.
             }
