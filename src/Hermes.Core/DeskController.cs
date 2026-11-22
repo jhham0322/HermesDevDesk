@@ -9,6 +9,8 @@ public sealed partial class DeskController : IAsyncDisposable
     public string DataDirectory { get; }
     public ChatGptPlanAuth ChatGptPlan { get; private set; } = null!;
     private DateTimeOffset oauthEngineExpires;
+    private readonly Dictionary<string, string> oauthModelChoices = [];
+    public bool ChatGptPlanNeedsConnection => State.Provider.IsChatGptPlanOAuth && (!SubscriptionReady || oauthEngineExpires <= DateTimeOffset.UtcNow.AddMinutes(1));
     private string ActiveModelProvider => State.Provider.IsChatGptPlanOAuth ? "openai_chatgpt_plan" : company == null ? "openai" : "hermes_company";
     private void CheckOAuthSession()
     {
@@ -18,7 +20,7 @@ public sealed partial class DeskController : IAsyncDisposable
     public async Task DisconnectOAuthAsync()
     {
         if (State.Tasks.Any(IsRunning)) throw new HermesException("Stop active work before switching or signing out of ChatGPT.");
-        if (State.Provider.IsChatGptPlanOAuth && Engine != null) { await Engine.DisposeAsync(); Engine = null; SubscriptionReady = false; Models.Clear(); Save(); }
+        if (State.Provider.IsChatGptPlanOAuth && Engine != null) { await Engine.DisposeAsync(); Engine = null; SubscriptionReady = false; Models.Clear(); oauthModelChoices.Clear(); Save(); }
     }
     public ProtectedKeyStore KeyStore { get; }
     private CompanyBridge? company;
@@ -78,6 +80,7 @@ public sealed partial class DeskController : IAsyncDisposable
     {
         get
         {
+            if (State.Provider.IsChatGptPlanOAuth) return oauthModelChoices.Keys.ToArray();
             if (State.Provider.Mode != ConnectionMode.CompanyApi) return Models.ToArray();
             var names = new List<string>();
             if (HasPendingModel) names.Add(State.PendingModel);
@@ -125,7 +128,7 @@ public sealed partial class DeskController : IAsyncDisposable
         State.Provider = settings;
         if (previousScope == ModelScope && !string.IsNullOrWhiteSpace(previousModel)) AddModel(previousModel);
         if (settings.Mode == ConnectionMode.CompanyApi) AddModel(settings.Deployment);
-        State.PendingModel = ""; ProviderCheckStatus = ""; Models.Clear(); ModelEfforts.Clear(); SubscriptionReady = false; AccountStatus = "설정 저장됨 · 전송 시 연결"; Save();
+        State.PendingModel = ""; ProviderCheckStatus = ""; Models.Clear(); oauthModelChoices.Clear(); ModelEfforts.Clear(); SubscriptionReady = false; AccountStatus = "설정 저장됨 · 전송 시 연결"; Save();
     }
     public async Task<string> CheckProviderAsync(CancellationToken ct = default)
     {
@@ -201,11 +204,18 @@ public sealed partial class DeskController : IAsyncDisposable
             if (State.Provider.IsChatGptPlanOAuth)
             {
                 var catalog = await ChatGptPlan.ModelsAsync(State.Provider.OAuthAccountId!, cancellation);
-                if (!catalog.Any(m => m.Slug == State.Provider.Deployment)) throw new HermesException("Select an available model from this ChatGPT account.");
+                if (catalog.Count == 0) throw new HermesException("이 ChatGPT 계정에 사용할 수 있는 모델이 없습니다.");
                 var lease = await ChatGptPlan.LeaseAsync(State.Provider.OAuthAccountId!, cancellation);
                 await client.ConnectAsync(exe, cwd, Path.Combine(DataDirectory, "chatgpt-plan", "engine-" + lease.AccountId), chatGptPlan: lease);
                 cancellation.ThrowIfCancellationRequested();
-                oauthEngineExpires = lease.Expires; Models.Clear(); ModelEfforts.Clear(); Models.AddRange(catalog.Select(m => m.Slug));
+                oauthEngineExpires = lease.Expires; Models.Clear(); ModelEfforts.Clear(); oauthModelChoices.Clear();
+                foreach (var model in catalog.DistinctBy(m => m.Slug))
+                {
+                    var label = model.DisplayName;
+                    while (oauthModelChoices.ContainsKey(label)) label += " · " + model.Slug;
+                    oauthModelChoices.Add(label, model.Slug);
+                    Models.Add(model.Slug);
+                }
                 SubscriptionReady = true; AccountStatus = "ChatGPT plan OAuth · " + ChatGptPlan.Accounts().Single(a => a.Id == lease.AccountId).Label + "; model access is verified only by a completed turn.";
                 State.CodexPath = exe; connectedFingerprint = State.Provider.Fingerprint; Save(); return; // OAuth reconnect preserves checkpoints; resumption requires the matching saved process.
             }

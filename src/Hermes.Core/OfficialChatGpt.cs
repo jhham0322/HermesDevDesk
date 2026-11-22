@@ -64,9 +64,7 @@ public sealed partial class DeskController
         var previous = Engine;
         Engine = null;
         if (previous != null) await previous.DisposeAsync();
-        Configure(new ProviderSettings());
-        if (State.ModelConnections.FirstOrDefault(c => c.Id == State.ActiveModelConnectionId) is { } saved)
-            SelectConnection(saved, false);
+        UseSavedCompanyConnection();
     }
 
     private void EnsureChatGptIdle()

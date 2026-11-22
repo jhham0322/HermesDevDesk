@@ -16,12 +16,13 @@ public sealed class ChatGptPlanWindow : Window
     private CancellationTokenSource? operation;
     private string catalogAccount = "";
     private readonly Action<Uri> browser;
-    public ChatGptPlanWindow(DeskController desk, Action<Uri>? browser = null)
+    private readonly string cwd;
+    public ChatGptPlanWindow(DeskController desk, Action<Uri>? browser = null, string? cwd = null)
     {
-        this.desk = desk; this.browser = browser ?? (uri => Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true })); Title = "ChatGPT 계정 · OAuth"; Width = 680; Height = 650; MinWidth = 580; MinHeight = 500;
+        this.desk = desk; this.cwd = cwd ?? desk.DataDirectory; this.browser = browser ?? (uri => Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true })); Title = "Sign in with ChatGPT"; Width = 680; Height = 650; MinWidth = 580; MinHeight = 500;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var panel = new StackPanel { Margin = new(24) }; Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        panel.Children.Add(new TextBlock { Text = "ChatGPT 계정으로 연결", FontSize = 24, Margin = new(0, 0, 0, 12) });
+        panel.Children.Add(new TextBlock { Text = "Sign in with ChatGPT", FontSize = 24, Margin = new(0, 0, 0, 12) });
         panel.Children.Add(new TextBlock { Text = "API 키 없이 공식 브라우저 로그인으로 ChatGPT 플랜 사용을 승인합니다. 추론은 공식 Responses API를 사용합니다. 계정·워크스페이스의 모델 접근, 앱별 사용 한도와 플랜 정책이 적용됩니다. 자동 결제·다른 공급자로 전환하지 않습니다.", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(accounts);
         accounts.SelectionChanged += (_, _) => { models.ItemsSource = null; catalogAccount = ""; status.Text = "선택 계정의 모델 목록을 새로 확인하세요."; };
@@ -32,6 +33,8 @@ public sealed class ChatGptPlanWindow : Window
         panel.Children.Add(models);
         Add(panel, "이 계정·모델로 에이전트 연결", Connect);
         Add(panel, "선택 계정 로그아웃", SignOut);
+        if (desk.State.Provider.UseHermesChatGpt)
+            Add(panel, "이전 Codex 계정 관리", () => { new OfficialChatGptWindow(desk, this.cwd) { Owner = this }.ShowDialog(); return Task.CompletedTask; });
         var cancel = new Button { Content = "진행 취소", Margin = new(0, 6, 0, 6), Padding = new(8) }; cancel.Click += (_, _) => operation?.Cancel(); panel.Children.Add(cancel);
         var usage = new Button { Content = "ChatGPT 설정 → 사용량 / 앱 권한", Margin = new(0, 6, 0, 6), Padding = new(8) };
         usage.Click += (_, _) => Process.Start(new ProcessStartInfo("https://chatgpt.com/settings/usage") { UseShellExecute = true }); panel.Children.Add(usage);
@@ -56,12 +59,19 @@ public sealed class ChatGptPlanWindow : Window
     private ChatGptAccount Selected() => accounts.SelectedItem as ChatGptAccount ?? throw new IOException("ChatGPT 계정을 선택하세요.");
     private void Idle() { if (desk.State.Tasks.Any(DeskController.IsRunning)) throw new IOException("진행 중인 작업을 먼저 중지하세요. 계정 전환·로그아웃은 실행 중에 적용하지 않습니다."); }
     private void Reload(string? selected = null)
-    { var list = desk.ChatGptPlan.Accounts(); accounts.ItemsSource = list; accounts.SelectedItem = list.FirstOrDefault(a => a.Id == selected) ?? list.FirstOrDefault(); }
+    { var list = desk.ChatGptPlan.Accounts(); accounts.ItemsSource = list; accounts.SelectedItem = list.FirstOrDefault(a => a.Id == (selected ?? desk.State.Provider.OAuthAccountId)) ?? list.FirstOrDefault(); }
     private async Task SignIn(string? id, bool enable)
     {
         Idle(); status.Text = "공식 브라우저에서 로그인·동의를 완료하세요. 비밀번호를 이 앱에 입력하지 마세요.";
-        await desk.ChatGptPlan.SignInAsync(id, browser, enable, Token);
-        Reload(id); status.Text = "서명·계정 검증 완료. 플랜 사용 권한과 모델 접근은 별도로 확인합니다.";
+        var signedIn = await desk.ChatGptPlan.SignInAsync(id, browser, enable, Token);
+        Reload(signedIn);
+        if (!Selected().PlanAllowed)
+        {
+            status.Text = "로그인했습니다. ChatGPT 모델을 사용하려면 선택 계정의 플랜 사용을 승인하세요.";
+            return;
+        }
+        await Catalog();
+        if (models.SelectedItem != null) await Connect();
     }
     private async Task Catalog()
     {
@@ -71,16 +81,19 @@ public sealed class ChatGptPlanWindow : Window
     private async Task Connect()
     {
         Idle(); var account = Selected(); if (catalogAccount != account.Id || models.SelectedItem is not ChatGptModel model) throw new IOException("현재 계정의 서버 모델 목록에서 모델을 선택하세요.");
-        if (string.IsNullOrEmpty(desk.State.CodexPath)) throw new IOException("먼저 기존 CLI 경로 설정을 완료하세요.");
-        var project = desk.State.Projects.FirstOrDefault() ?? throw new IOException("작업할 프로젝트를 먼저 등록하세요.");
+        var exe = AppServerClient.FindInstalledCodex() ?? (File.Exists(desk.State.CodexPath) ? desk.State.CodexPath : null)
+            ?? throw new IOException("동봉된 Codex 엔진을 찾을 수 없습니다.");
         await desk.DisconnectOAuthAsync(); Token.ThrowIfCancellationRequested();
         desk.Configure(new ProviderSettings { Mode = ConnectionMode.ExistingChatGptCli, OAuthAccountId = account.Id, Endpoint = "", Deployment = model.Slug });
-        await desk.ConnectAsync(desk.State.CodexPath, project.Root, Token); status.Text = "선택 계정: " + account.Label + " / " + model.DisplayName + ". 에이전트 연결됨; 실제 모델 추론은 아직 미확인.";
+        await desk.ConnectAsync(exe, cwd, Token); status.Text = "선택 계정: " + account.Label + " / " + model.DisplayName + ". 에이전트 연결됨; 실제 모델 추론은 아직 미확인.";
     }
     private async Task SignOut()
     {
-        Idle(); var selected = Selected(); await desk.DisconnectOAuthAsync();
+        Idle(); var selected = Selected();
+        var active = desk.State.Provider.IsChatGptPlanOAuth && desk.State.Provider.OAuthAccountId == selected.Id;
+        if (active) await desk.DisconnectOAuthAsync();
         var revoked = await desk.ChatGptPlan.SignOutAsync(selected.Id, Token); Reload(selected.Id);
+        if (active) desk.UseSavedCompanyConnection();
         status.Text = revoked ? "로그아웃 완료. 계정 등록·호스트 식별자는 다음 로그인을 위해 유지합니다." : "로컬 로그아웃 완료. 원격 세션 해제는 확인하지 못했습니다. ChatGPT 설정에서 앱 연결을 해제하세요.";
     }
 }

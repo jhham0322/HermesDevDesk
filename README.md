@@ -1,6 +1,6 @@
-# Hermes DevDesk 0.8.68
+# Hermes DevDesk 0.8.69
 
-앱 상단 **ChatGPT 로그인**에서 공식 브라우저 로그인을 완료하면 ChatGPT 모델 목록으로 전환됩니다. **ChatGPT 계정**에서 로그아웃하면 회사 모델 설정으로 돌아갑니다.
+앱 상단 **ChatGPT 로그인**은 OpenAI의 [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)를 사용합니다. 브라우저에서 Hermes DevDesk 로그인과 플랜 사용을 승인하면 해당 계정의 모델이 표시됩니다. **ChatGPT 계정**에서 로그인 프로필을 선택하거나 사용량을 관리하고 로그아웃할 수 있습니다.
 
 **[AI 챗봇 v1.0.23 Java 소스 5개 다운로드](https://raw.githubusercontent.com/jhham0322/HermesDevDesk/main/downloads/ai-chatbot-1.0.23-source.zip)** · 기존 Spring 앱의 `com.skhynix.hcp.srp.agent` 패키지용. 포털 컨텍스트의 메시지 전송 URI는 `POST /securityportal-apis/aiChat/chat2/send`입니다.
 
@@ -52,7 +52,7 @@
 
 **[이전 버전 AI 챗봇 v1.0.0 소스 ZIP](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.47/ai-chatbot-1.0.0-source.zip)**
 
-[Windows 64비트 설치 파일 (v0.8.68)](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.68/HermesDevDesk-0.8.68-win-x64-Setup.exe) · [포터블 ZIP (v0.8.68)](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.68/HermesDevDesk-0.8.68-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
+[Windows 64비트 설치 파일 (v0.8.69)](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.69/HermesDevDesk-0.8.69-win-x64-Setup.exe) · [포터블 ZIP (v0.8.69)](https://github.com/jhham0322/HermesDevDesk/releases/download/v0.8.69/HermesDevDesk-0.8.69-win-x64-Portable.zip) · [최신 릴리스](https://github.com/jhham0322/HermesDevDesk/releases/latest)
 
 작업 결과 전체를 저장합니다. 응답 스트림이 불완전하게 종료되면 해당 결과를 완료로 기록하지 않습니다.
 

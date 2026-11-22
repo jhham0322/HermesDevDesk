@@ -62,7 +62,8 @@ public sealed partial class DeskController
         ?? State.ModelConnections.FirstOrDefault(c => c.Id == choice)
         ?? State.ModelConnections.FirstOrDefault(c => c.Settings.Deployment == choice);
 
-    public string DeploymentForChoice(string choice) => State.Provider.Mode != ConnectionMode.CompanyApi
+    public string DeploymentForChoice(string choice) => State.Provider.IsChatGptPlanOAuth ? oauthModelChoices.GetValueOrDefault(choice, choice)
+        : State.Provider.Mode != ConnectionMode.CompanyApi
         ? choice : FindModelChoice(choice)?.Settings.Deployment ?? choice;
 
     public ModelConnection SaveModelConnection(ProviderSettings settings, string? token, string? replaceId = null, string? alias = null)
@@ -105,6 +106,13 @@ public sealed partial class DeskController
         if (ActiveModelConnection?.Id == selected.Id && !HasPendingModel) return true;
         SelectConnection(selected, false);
         return true;
+    }
+
+    public void UseSavedCompanyConnection()
+    {
+        Configure(new ProviderSettings());
+        if (State.ModelConnections.FirstOrDefault(c => c.Id == State.ActiveModelConnectionId) is { } saved)
+            SelectConnection(saved, false);
     }
 
     public bool SelectModelConnection(string model)

@@ -97,7 +97,7 @@ public sealed class ChatGptPlanAuth : IDisposable
         if (!client.StartsWith("oaiapp_", StringComparison.Ordinal) || (priorClient != null && client != priorClient)) throw new IOException("OAuth registration/client mismatch");
         return client;
     }
-    public async Task SignInAsync(string? accountId, Action<Uri> openBrowser, bool enablePlan, CancellationToken ct)
+    public async Task<string> SignInAsync(string? accountId, Action<Uri> openBrowser, bool enablePlan, CancellationToken ct)
     {
         if (Interlocked.Exchange(ref signingIn, 1) != 0) throw new IOException("ChatGPT sign-in is already in progress");
         try
@@ -126,7 +126,7 @@ public sealed class ChatGptPlanAuth : IDisposable
             else { if (previous.IdToken.Length > 0) query["id_token_hint"] = previous.IdToken; if (previous.Email.Length > 0) query["login_hint"] = previous.Email; }
             if (enablePlan) query["prompt"] = "consent";
             LaunchBrowser(new Uri(Issuer + "/api/accounts/authorize?" + Query(query)), openBrowser, ct);
-            var returned = await callback.Task.WaitAsync(ct); ct.ThrowIfCancellationRequested();
+            var returned = await callback.Task.WaitAsync(TimeSpan.FromMinutes(5), ct); ct.ThrowIfCancellationRequested();
             var client = ValidateCallback(returned, state, previous?.ClientId);
             using var tokens = await Token(new() { ["grant_type"] = "authorization_code", ["client_id"] = client, ["code"] = returned["code"], ["code_verifier"] = verifier, ["redirect_uri"] = redirect, ["resource"] = Resource }, ct);
             var identity = await Identity(tokens.RootElement.Text("id_token"), client, nonce, ct);
@@ -134,6 +134,7 @@ public sealed class ChatGptPlanAuth : IDisposable
             var record = new ChatGptRegistration { ClientId = client, Subject = identity.Subject, Email = identity.Email };
             SetTokens(record, tokens.RootElement, false); ct.ThrowIfCancellationRequested();
             using (await Lock(ct)) { var all = Load(); all.RemoveAll(r => r.Id == record.Id); all.Add(record); Save(all); }
+            return record.Id;
         }
         finally { Interlocked.Exchange(ref signingIn, 0); }
     }

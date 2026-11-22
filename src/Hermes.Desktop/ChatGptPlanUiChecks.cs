@@ -8,7 +8,8 @@ public sealed partial class MainWindow
     internal async Task RunChatGptPlanUiChecks(string data)
     {
         int opened = 0; var checks = new List<string>();
-        var account = new ChatGptPlanWindow(desk, _ => opened++) { Owner = this }; account.Show();
+        Uri? authorization = null;
+        var account = new ChatGptPlanWindow(desk, url => { opened++; authorization = url; }) { Owner = this }; account.Show();
         var panel = (StackPanel)((ScrollViewer)account.Content).Content;
         var buttons = panel.Children.OfType<Button>().ToArray();
         var login = buttons.Single(b => b.Content.ToString()!.StartsWith("Continue with ChatGPT"));
@@ -17,6 +18,8 @@ public sealed partial class MainWindow
         login.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         for(int i=0;i<100 && opened==0;i++)await Task.Delay(10);
         Check(opened==1&&!login.IsEnabled,"sign-in starts once and disables repeated submissions");
+        Check(authorization?.Host == "auth.openai.com" && authorization.Query.Contains("client_id=dynamic_agent_client") &&
+            authorization.Query.Contains("agent_name_hint=HermesDevDesk"), "Hermes uses the published Sign in with ChatGPT registration");
         login.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Task.Delay(50);
         Check(opened==1,"duplicate login event does not open another authorization attempt");
         cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

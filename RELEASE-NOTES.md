@@ -1,3 +1,7 @@
+# Hermes DevDesk 0.8.69
+
+- 앱 상단에서 OpenAI가 공개한 Sign in with ChatGPT를 사용합니다. Hermes DevDesk 이름으로 로그인하고, ChatGPT 플랜 사용 승인 후 OpenAI의 계정별 모델을 표시합니다.
+
 # Hermes DevDesk 0.8.68
 
 - 앱 상단에 ChatGPT 로그인과 계정 관리를 추가했습니다. 동봉된 공식 엔진이 브라우저 인증과 세션 저장을 처리하며 로그인하면 ChatGPT 모델 목록으로 전환합니다.
