@@ -29,14 +29,14 @@ public partial class MainWindow
 
     private void ConversationOlder_Click(object sender, RoutedEventArgs e)
     {
-        historyEnd = Math.Max(ConversationPageSize, (historyEnd ?? (CurrentTask?.Transcript ?? []).Count(entry => !IsLegacyOutputLimitNotice(entry) && (desk.State.Desktop.ShowProgressSummaries || !ProgressMessages.IsHiddenWhenProgressOff(entry)))) - ConversationPageSize);
+        historyEnd = Math.Max(ConversationPageSize, (historyEnd ?? (CurrentTask?.Transcript ?? []).Count(IsConversationEntryVisible)) - ConversationPageSize);
         conversationStamp = ""; RenderConversation(); ConversationScroll.ScrollToTop();
     }
     private void ConversationLatest_Click(object sender, RoutedEventArgs e)
     { historyEnd = null; conversationStamp = ""; RenderConversation(); ConversationScroll.ScrollToEnd(); }
     private void ConversationNewer_Click(object sender, RoutedEventArgs e)
     {
-        var count = (CurrentTask?.Transcript ?? []).Count(entry => !IsLegacyOutputLimitNotice(entry) && (desk.State.Desktop.ShowProgressSummaries || !ProgressMessages.IsHiddenWhenProgressOff(entry)));
+        var count = (CurrentTask?.Transcript ?? []).Count(IsConversationEntryVisible);
         var next = (historyEnd ?? count) + ConversationPageSize;
         historyEnd = next >= count ? null : next;
         conversationStamp = ""; RenderConversation(); ConversationScroll.ScrollToTop();
@@ -48,12 +48,32 @@ public partial class MainWindow
         historyEnd = null; renderedConversation = null; conversationStamp = "";
         RenderConversation();
     }
+    private void ShowHermesToolMessages_Click(object sender, RoutedEventArgs e)
+    {
+        desk.State.Desktop.ShowHermesToolMessages = ShowHermesToolMessagesMenu.IsChecked;
+        // An explicit request to show tool calls also enables their parent progress category.
+        if (ShowHermesToolMessagesMenu.IsChecked)
+        {
+            desk.State.Desktop.ShowProgressSummaries = true;
+            ShowProgressSummaries.IsChecked = true;
+        }
+        desk.Save();
+        historyEnd = null;
+        renderedConversation = null;
+        conversationStamp = "";
+        RenderConversation();
+    }
+
+    private bool IsConversationEntryVisible(TranscriptEntry entry) =>
+        !IsLegacyOutputLimitNotice(entry) &&
+        (desk.State.Desktop.ShowProgressSummaries || !ProgressMessages.IsHiddenWhenProgressOff(entry)) &&
+        (desk.State.Desktop.ShowHermesToolMessages || !ProgressMessages.IsHiddenWhenHermesToolsOff(entry));
+
     private void RenderConversation()
     {
         var entries = CurrentTask?.Transcript ?? [];
-        if (!desk.State.Desktop.ShowProgressSummaries || entries.Any(IsLegacyOutputLimitNotice))
-            entries = entries.Where(entry => !IsLegacyOutputLimitNotice(entry) &&
-                (desk.State.Desktop.ShowProgressSummaries || !ProgressMessages.IsHiddenWhenProgressOff(entry))).ToList();
+        if (!desk.State.Desktop.ShowProgressSummaries || !desk.State.Desktop.ShowHermesToolMessages || entries.Any(IsLegacyOutputLimitNotice))
+            entries = entries.Where(IsConversationEntryVisible).ToList();
         if (renderedConversation != CurrentTask?.Id) historyEnd = null;
         var end = Math.Min(historyEnd ?? entries.Count, entries.Count);
         var offset = Math.Max(0, end - ConversationPageSize);

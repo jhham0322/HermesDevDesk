@@ -10,12 +10,25 @@ public static class ProgressMessages
     // Attention and answer entries stay visible regardless of tool-card preference.
     public static bool IsHiddenWhenProgressOff(TranscriptEntry entry)
     {
-        if (entry.Kind is "사용자" or "에이전트" or "에이전트 스트림" || IsErrorDetail(entry)
-            || entry.Kind.StartsWith("승인", StringComparison.Ordinal) || entry.Stage == "입력 필요") return false;
+        if (IsAlwaysVisible(entry)) return false;
         return IsSummary(entry) || entry.Origin.StartsWith("도구:", StringComparison.Ordinal)
             || entry.ItemId?.StartsWith("tool-progress:", StringComparison.Ordinal) == true
             || entry.Kind is "작업 진행" or "명령 결과" or "명령 출력" or "MCP 도구" or "도구 결과";
     }
+    public static bool IsHiddenWhenHermesToolsOff(TranscriptEntry entry)
+    {
+        var origin = entry.Origin.AsSpan().Trim();
+        if (origin.StartsWith("도구:", StringComparison.Ordinal))
+            origin = origin["도구:".Length..].TrimStart();
+        var hermesTool = origin.StartsWith("hermes_", StringComparison.OrdinalIgnoreCase) ||
+            (origin.IsEmpty && entry.Kind is "명령 결과" or "실행 결과" or "브라우저 결과" or "컴퓨터 결과");
+        return hermesTool && !IsAlwaysVisible(entry);
+    }
+
+    private static bool IsAlwaysVisible(TranscriptEntry entry) =>
+        entry.Kind is "사용자" or "에이전트" or "에이전트 스트림" || IsErrorDetail(entry) ||
+        entry.Kind.StartsWith("승인", StringComparison.Ordinal) || entry.Stage == "입력 필요";
+
     private static bool HasLegacyToolFailure(TranscriptEntry entry)
     {
         if (entry.Kind == "명령 결과" && entry.Stage.Length == 0)

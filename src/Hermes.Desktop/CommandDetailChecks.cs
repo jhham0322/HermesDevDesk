@@ -22,6 +22,7 @@ public partial class MainWindow
         task.Transcript.Add(new TranscriptEntry("명령 결과","Get-ChildItem\nevidenceId=1; exit=0\nOUTPUT_PRESERVED",DateTime.UtcNow,"command-result"){Origin="도구: hermes_command",Stage="완료"});
         task.Transcript.Add(new TranscriptEntry("명령 출력",string.Join('\n',Enumerable.Repeat("LONG_OUTPUT",5000)),DateTime.UtcNow,"stream-output"){Origin="도구: commandExecution"});
         ProgressMessages.Complete(task,"public-summary","0","완료한 일: 범위 확인. 남은 일: 검증. 다음 행동: 테스트.");
+        ShowHermesToolMessagesMenu.IsChecked = true; ShowHermesToolMessages_Click(this, new());
         conversationStamp="";RenderConversation();UpdateLayout();
         Check(new[]{"tool-progress:owned-command","legacy-command","command-result","stream-output"}.All(id=>!View(id).IsExpanded&&View(id).Content==null),"new, legacy, result and long streamed command details default collapsed and lazy");
         Check(Header(View("tool-progress:owned-command")).Contains("명령 실행")&&Header(View("tool-progress:owned-command")).Contains("중"),"running command summary remains in folded header");

@@ -85,6 +85,7 @@ public sealed class DesktopPreferences
     public SavedWindowBounds? WindowBounds { get; set; }
     public bool WindowMaximized { get; set; }
     public bool ShowProgressSummaries { get; set; } = true;
+    public bool ShowHermesToolMessages { get; set; }
     public ExecutionBudget ExecutionBudget { get; set; } = new();
     public bool DarkTheme { get; set; }
     public bool SidebarVisible { get; set; } = true;

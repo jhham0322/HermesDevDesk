@@ -16,6 +16,7 @@ public partial class MainWindow
         if (restart)
         {
             var saved = desk.State.Tasks.Single(t => t.Title == "Tool cards fixture"); SelectTask(saved); Render();
+            Check(desk.State.Desktop.ShowHermesToolMessages && ShowHermesToolMessagesMenu.IsChecked, "Hermes tool preference survives restart");
             Check(!desk.State.Desktop.ShowProgressSummaries && ShowProgressSummaries.IsChecked == false, "hidden setting survives actual process restart");
             Check(MessageStack.Children.Count == 5 && !Visible("stream-live"), "restart hides entire tool cards but preserves attention and answers");
             Check(saved.Transcript.Any(t => t.ItemId == "stream-live" && t.Text == "LATEST_HIDDEN_OUTPUT"), "restart retains streamed tool output");
@@ -36,11 +37,20 @@ public partial class MainWindow
             task.Transcript.AddRange(new[] {
                 new TranscriptEntry("사용자", "USER_REMAINS", DateTime.UtcNow, "user"),
                 new TranscriptEntry("에이전트", "FINAL_REMAINS", DateTime.UtcNow, "answer"),
-                new TranscriptEntry("오류", "ERROR_REMAINS", DateTime.UtcNow, "error"),
+                new TranscriptEntry("도구 오류", "ERROR_REMAINS", DateTime.UtcNow, "error") { Origin = "도구: hermes_command", Stage = "에러원인" },
                 new TranscriptEntry("승인 요청", "APPROVAL_REMAINS", DateTime.UtcNow, "approval") });
             ProgressMessages.Complete(task, "summary", "0", "PUBLIC_PROGRESS");
             Event("item/started", """{"threadId":"tool-view-thread","item":{"type":"dynamicToolCall","id":"command","tool":"hermes_command"}}""");
-            Check(Visible("tool-progress:command"), "tool card renders while reports enabled");
+            Check(!Visible("tool-progress:command") && ShowHermesToolMessagesMenu.IsChecked == false &&
+                Visible("progress:summary:0"), "Hermes calls are hidden by default while model summaries remain visible");
+            ShowHermesToolMessagesMenu.IsChecked = true; ShowHermesToolMessages_Click(this, new()); Render();
+            Check(Visible("tool-progress:command"), "explicit Hermes setting shows calls");
+            ShowHermesToolMessagesMenu.IsChecked = false; ShowHermesToolMessages_Click(this, new()); Render();
+            Check(!Visible("tool-progress:command") && Visible("answer") && Visible("error") &&
+                task.Transcript.Any(e => e.ItemId == "tool-progress:command") &&
+                !desk.Store.Load().Desktop.ShowHermesToolMessages, "hiding preserves stored calls, answers and errors");
+            ShowHermesToolMessagesMenu.IsChecked = true; ShowHermesToolMessages_Click(this, new()); Render();
+            Check(desk.Store.Load().Desktop.ShowHermesToolMessages, "explicit visibility is saved");
             var index = renderedEntries.Single(e => e.Value.ItemId == "tool-progress:command").Key;
             Check(!((Expander)MessageStack.Children[index]).IsExpanded, "command card retains collapsed default");
             Toggle(false);
