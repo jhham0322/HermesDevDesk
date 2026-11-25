@@ -46,6 +46,7 @@ public partial class MainWindow
             Check(desk.State.Tasks.Any(t => t.Title.Length > 600), "long titles remain intact after switching conversations");
         }
         finally { if (previousClipboard != null) Clipboard.SetDataObject(previousClipboard, true); else Clipboard.Clear(); }
+        await VerifyChatSelectionAndGit(data, Check);
         File.WriteAllText(Path.Combine(data, "conversation-title-report.json"), JsonSerializer.Serialize(new { checks, realModelCalls = 0, isolatedProfile = true }, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

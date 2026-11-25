@@ -14,11 +14,23 @@ public static class GitRunner
         foreach (var key in psi.Environment.Keys.Where(k => k.StartsWith("GIT_", StringComparison.OrdinalIgnoreCase) && k != "GIT_OPTIONAL_LOCKS").ToArray()) psi.Environment.Remove(key);
         return psi;
     }
-    public static async Task<GitResult> Run(string root, params string[] args)
+    public static Task<GitResult> Run(string root, params string[] args) => RunWithInput(root, null, args);
+
+    internal static async Task<GitResult> RunWithInput(string root, string? input, params string[] args)
     {
-        using var p = Process.Start(Info(root, args)) ?? throw new HermesException("Git을 실행할 수 없습니다.");
+        var info = Info(root, args);
+        info.RedirectStandardInput = input != null;
+        if (input != null) info.StandardInputEncoding = new UTF8Encoding(false);
+        using var p = Process.Start(info) ?? throw new HermesException("Git을 실행할 수 없습니다.");
         var output = ReadBounded(p.StandardOutput.BaseStream, 8_000_000); var error = p.StandardError.ReadToEndAsync();
-        try { await Task.WhenAll(p.WaitForExitAsync(), output).WaitAsync(TimeSpan.FromSeconds(30)); }
+        async Task FeedAsync()
+        {
+            if (input == null) return;
+            try { await p.StandardInput.WriteAsync(input); }
+            catch (IOException) when (p.HasExited && p.ExitCode != 0) { }
+            finally { p.StandardInput.Close(); }
+        }
+        try { await Task.WhenAll(p.WaitForExitAsync(), output, FeedAsync()).WaitAsync(TimeSpan.FromSeconds(30)); }
         catch { if (!p.HasExited) p.Kill(true); throw; }
         return new(p.ExitCode, Encoding.UTF8.GetString(await output), Safety.Redact(await error));
     }

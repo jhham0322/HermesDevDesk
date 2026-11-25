@@ -239,9 +239,29 @@ public partial class MainWindow : Window
         }
     }
     private async void CommandStop_Click(object sender, RoutedEventArgs e) => await Guard(() => terminal.StopAsync());
-    private void Register_Click(object sender, RoutedEventArgs e)
+    private bool registeringProject;
+    private async void Register_Click(object sender, RoutedEventArgs e) => await Guard(RegisterProjectAsync);
+
+    private async Task RegisterProjectAsync()
     {
-        _ = Guard(() => { var dialog = new OpenFolderDialog { Title = "독립 작업 프로젝트 폴더 선택" }; if (dialog.ShowDialog(this) == true) { var project = desk.Register(dialog.FolderName); project.FullPermissions = true; project.BrowserEnabled = true; desk.Save(); Projects.SelectedItem = project; fileDirectory = ""; Refresh(); RefreshFiles(); } return Task.CompletedTask; });
+        if (registeringProject) return;
+        var dialog = new OpenFolderDialog { Title = "등록할 프로젝트 폴더 선택 · 로컬 Git에 저장" };
+        if (dialog.ShowDialog(this) != true) return;
+        registeringProject = true;
+        try
+        {
+            Footer.Text = "프로젝트를 로컬 Git에 저장하는 중…";
+            var project = await desk.RegisterWithGitAsync(dialog.FolderName);
+            project.FullPermissions = true;
+            project.BrowserEnabled = true;
+            desk.Save();
+            Projects.SelectedItem = project;
+            fileDirectory = "";
+            Refresh();
+            RefreshFiles();
+            Footer.Text = "프로젝트 등록 · 로컬 Git 저장 완료";
+        }
+        finally { registeringProject = false; }
     }
     private void NewTask_Click(object sender, RoutedEventArgs e)
     { if (CurrentProject == null) { Footer.Text = "프로젝트를 먼저 등록하세요."; return; } ArchivedOnly.IsChecked = false; Search.Clear(); CurrentProject.BrowserEnabled = true; var task = desk.NewTask(CurrentProject, "작업 " + DateTime.Now.ToString("MM-dd HH:mm")); Tasks.SelectedItem = task; RenderTask(); }
@@ -277,7 +297,7 @@ public partial class MainWindow : Window
     {
         if (connectingCompany) return;
         if (string.IsNullOrWhiteSpace(Prompt.Text)) { if (pendingImages.Count + pendingFiles.Count == 0) { Footer.Text = "질문을 입력하세요."; Prompt.Focus(); return; } Prompt.Text = "첨부한 이미지와 파일을 확인하고 내용을 설명해 주세요."; }
-        if (CurrentProject == null) { Footer.Text = "질문을 실행할 프로젝트 폴더를 선택하세요."; Register_Click(this, new RoutedEventArgs()); if (CurrentProject == null) return; }
+        if (CurrentProject == null) { Footer.Text = "질문을 실행할 프로젝트 폴더를 선택하세요."; await RegisterProjectAsync(); if (CurrentProject == null) return; }
         var choice = Model.SelectedItem as string ?? "";
         var chosenModel = desk.DeploymentForChoice(choice);
         var steering = CurrentTask?.Status is "실행 중" or "계속 실행 대기";

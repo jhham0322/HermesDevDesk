@@ -11,6 +11,35 @@ public static class GitWorkbench
         if (result.Exit != 0) throw new HermesException(result.Error);
         await GitRunner.RepositoryRoot(root);
     }
+    internal static async Task SaveInitialProject(string root)
+    {
+        var existing = await GitRunner.Run(root, "rev-parse", "--show-toplevel");
+        if (existing.Exit == 0) { await GitRunner.RepositoryRoot(root); return; }
+        await Initialize(root);
+
+        var files = await GitRunner.Run(root, "ls-files", "--others", "--exclude-standard", "-z");
+        if (files.Exit != 0) throw new HermesException(files.Error);
+        var eligible = new List<string>();
+        foreach (var path in files.Output.Split('\0', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (path.Split('/').Any(part => Safety.IsSecret(part) ||
+                part.Equals(".hermes-attachments", StringComparison.OrdinalIgnoreCase))) continue;
+            string full;
+            try { full = Safety.Resolve(root, path); }
+            catch (HermesException) { continue; }
+            if (File.Exists(full)) eligible.Add(path);
+        }
+        if (eligible.Count > 0)
+        {
+            var staged = await GitRunner.RunWithInput(root, string.Join('\0', eligible) + "\0",
+                "--literal-pathspecs", "add", "--pathspec-from-file=-", "--pathspec-file-nul");
+            if (staged.Exit != 0) throw new HermesException(staged.Error);
+        }
+        var commit = await GitRunner.Run(root, "-c", "user.name=Hermes DevDesk", "-c", "user.email=hermes@localhost",
+            "-c", "commit.gpgSign=false", "commit", "--allow-empty", "-m", "Initial project snapshot");
+        if (commit.Exit != 0) throw new HermesException(commit.Error);
+    }
+
     public static async Task SetAuthor(string root, string name, string email)
     {
         await GitRunner.RepositoryRoot(root); name = name.Trim(); email = email.Trim();

@@ -176,7 +176,9 @@ public partial class MainWindow
         var stamp = Search.Text + "|" + ArchivedOnly.IsChecked + "|" + CurrentTask?.Id + "|" + string.Join('|', desk.State.Projects.Select(p => p.Id + p.Name)) + "|" + string.Join('|', desk.State.Tasks.Select(t => t.Id + t.Title + t.Status + t.Pinned + t.Archived));
         if (stamp == sidebarStamp) return; sidebarStamp = stamp;
         SidebarGroups.Children.Clear();
+        chatSelectionRows.Clear();
         IEnumerable<WorkItem> Visible(ProjectEntry? project = null) => desk.Search(Search.Text, project?.Id, ArchivedOnly.IsChecked == true);
+        if (ChatSelectionMode.IsChecked == true) selectedChatIds.IntersectWith(BulkChatCandidates().Select(task => task.Id));
         var pins = Visible().Where(t => t.Pinned).ToList();
         if (pins.Count > 0) { SidebarGroups.Children.Add(new TextBlock { Text = "고정됨", Foreground = Brush("Muted"), FontSize = 12, Margin = new Thickness(10, 8, 0, 6) }); foreach (var pin in pins) SidebarGroups.Children.Add(TaskButton(pin)); }
         foreach (var project in desk.State.Projects)
@@ -192,6 +194,7 @@ public partial class MainWindow
             group.Collapsed += (_, _) => collapsedProjects.Add(project.Id); group.Expanded += (_, _) => collapsedProjects.Remove(project.Id);
             SidebarGroups.Children.Add(group);
         }
+        UpdateChatSelectionControls();
         if (desk.State.Projects.Count == 0) SidebarGroups.Children.Add(new TextBlock { Text = "프로젝트를 추가하여 시작하세요", Foreground = Brush("Muted"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(10, 20, 10, 0) });
     }
     private readonly List<string> openChats = [];
@@ -216,8 +219,9 @@ public partial class MainWindow
         }
         var add = new Button { Content = "+", ToolTip = "새 채팅" }; add.Click += NewTask_Click; ChatTabs.Children.Add(add);
     }
-    private Button TaskButton(WorkItem task)
+    private FrameworkElement TaskButton(WorkItem task)
     {
+        if (ChatSelectionMode.IsChecked == true) return BuildChatSelectionRow(task);
         var row = new DockPanel();
         if (DeskController.IsRunning(task)) { var state = new TextBlock { Text = "진행", Foreground = Brush("Muted"), FontSize = 10, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) }; DockPanel.SetDock(state, Dock.Right); row.Children.Add(state); }
         row.Children.Add(new TextBlock { Text = ShortTitle(task.Title), TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 18 });
@@ -238,18 +242,47 @@ public partial class MainWindow
         Item("채팅 삭제", () => _ = Guard(() => { DeleteChat(task, true); return Task.CompletedTask; }));
         return menu;
     }
-    private void DeleteChat(WorkItem task, bool confirm)
+    private void DeleteChat(WorkItem task, bool confirm) => DeleteChatBatch([task], confirm);
+
+    private void DeleteChatBatch(IReadOnlyList<WorkItem> tasks, bool confirm)
     {
-        if (DeskController.IsRunning(task)) throw new Hermes.Core.HermesException("삭제할 채팅을 먼저 중단하세요.");
-        if (browserLocks.TryGetValue(task.Id, out var browserGate) && browserGate.CurrentCount == 0) throw new Hermes.Core.HermesException("브라우저 작업이 끝난 뒤 채팅을 삭제하세요.");
-        if (confirm && MessageBox.Show(this, "이 채팅의 대화 기록과 초안을 삭제할까요?\n프로젝트 파일, Git 이력과 사용량은 유지됩니다.", "채팅 삭제", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-        openChats.Remove(task.Id); closedChats.Remove(task.Id); navigation.RemoveAll(id => id == task.Id); navigationIndex = navigation.Count - 1;
-        imageDrafts.Remove(task.Id); fileDrafts.Remove(task.Id); skillDrafts.Remove(task.Id); modelDrafts.Remove(task.Id);
-        if (draftTaskId == task.Id) { draftTaskId = null; switchingDraft = true; Prompt.Clear(); switchingDraft = false; pendingImages.Clear(); pendingFiles.Clear(); pendingSkills.Clear(); Attachments.ItemsSource = null; }
-        ReleaseIdleBrowsers(); chatBrowsers.Remove(task.Id);
+        if (tasks.Count == 0) return;
+        if (tasks.Any(task => !CanDeleteChat(task))) throw new HermesException("실행 중인 작업이나 브라우저가 끝난 뒤 삭제하세요.");
+        if (confirm && MessageBox.Show(this, $"선택한 채팅 {tasks.Count}개의 대화 기록과 초안을 삭제할까요?\n프로젝트 파일, Git 이력과 사용량은 유지됩니다.",
+            "채팅 삭제", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (tasks.Any(task => !desk.State.Tasks.Contains(task) || !CanDeleteChat(task)))
+            throw new HermesException("채팅 상태가 바뀌었습니다. 삭제할 채팅을 다시 선택하세요.");
+        var ids = tasks.Select(task => task.Id).ToHashSet();
+        openChats.RemoveAll(ids.Contains);
+        closedChats.ExceptWith(ids);
+        navigation.RemoveAll(ids.Contains);
+        navigationIndex = navigation.Count - 1;
+        selectedChatIds.ExceptWith(ids);
+        foreach (var id in ids)
+        {
+            imageDrafts.Remove(id);
+            fileDrafts.Remove(id);
+            skillDrafts.Remove(id);
+            modelDrafts.Remove(id);
+            chatBrowsers.Remove(id);
+            browserLocks.Remove(id);
+        }
+        if (draftTaskId != null && ids.Contains(draftTaskId))
+        {
+            draftTaskId = null;
+            switchingDraft = true;
+            Prompt.Clear();
+            switchingDraft = false;
+            pendingImages.Clear();
+            pendingFiles.Clear();
+            pendingSkills.Clear();
+            Attachments.ItemsSource = null;
+        }
+        desk.DeleteTasks(tasks);
+        ReleaseIdleBrowsers();
+        Refresh();
         ShowChatBrowser();
-        browserLocks.Remove(task.Id);
-        desk.DeleteTask(task); Footer.Text = "채팅 삭제됨 · 프로젝트 파일과 Git 이력은 유지됨";
+        Footer.Text = $"채팅 {tasks.Count}개 삭제됨";
     }
     private void DeleteChat_Click(object sender, RoutedEventArgs e) => _ = Guard(() => { if (CurrentTask is { } task) DeleteChat(task, true); return Task.CompletedTask; });
     private void ChatMenu_Click(object sender, RoutedEventArgs e) { if (CurrentTask is { } task) { var menu = ChatMenu(task); menu.PlacementTarget = (UIElement)sender; menu.IsOpen = true; } }

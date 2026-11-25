@@ -163,12 +163,26 @@ public sealed partial class DeskController : IAsyncDisposable
         if (!dirty) { dirty = true; persistenceTimer.Change(2000, Timeout.Infinite); }
         StreamChanged?.Invoke();
     }
-    public ProjectEntry Register(string path)
+    private ProjectEntry? ExistingProject(string root)
     {
-        var root = Safety.ProjectRoot(path);
         var existing = State.Projects.FirstOrDefault(p => string.Equals(p.Root, root, StringComparison.OrdinalIgnoreCase));
         if (existing != null) return existing;
         if (State.Projects.Any(p => Safety.Within(p.Root, root) || Safety.Within(root, p.Root))) throw new HermesException("중첩 프로젝트는 등록하지 않습니다. 작업 경계를 분리하세요.");
+        return null;
+    }
+
+    public async Task<ProjectEntry> RegisterWithGitAsync(string path)
+    {
+        var root = Safety.ProjectRoot(path);
+        ExistingProject(root);
+        await GitWorkbench.SaveInitialProject(root);
+        return Register(root);
+    }
+
+    public ProjectEntry Register(string path)
+    {
+        var root = Safety.ProjectRoot(path);
+        if (ExistingProject(root) is { } existing) return existing;
         var entry = new ProjectEntry { Root = root, Name = Path.GetFileName(root) }; State.Projects.Add(entry); Save(); return entry;
     }
     public WorkItem NewTask(ProjectEntry project, string title)
@@ -300,15 +314,31 @@ public sealed partial class DeskController : IAsyncDisposable
         }
         if (created.Count > 0) Save(); return created;
     }
-    public void DeleteTask(WorkItem task)
+    public void DeleteTask(WorkItem task) => DeleteTasks([task]);
+
+    public void DeleteTasks(IEnumerable<WorkItem> tasks)
     {
-        if (!State.Tasks.Contains(task)) throw new HermesException("등록된 채팅이 아닙니다.");
-        if (IsRunning(task)) throw new HermesException("이 채팅을 중단한 뒤 삭제하세요. 다른 채팅은 계속 실행할 수 있습니다.");
-        State.Tasks.Remove(task); State.Desktop.Drafts.Remove(task.Id);
-        if (task.ThreadId != null) { loadedThreads.Remove(task.ThreadId); State.ThreadUsageSnapshots.Remove(task.ThreadId); }
-        Approvals.RemoveAll(a => a.Params.Text("threadId") == task.ThreadId);
-        company?.ForgetTask(task.Id);
-        Save(); Store.Save(State); // Rotate the recovery snapshot to the deleted state as well.
+        var selected = tasks.Distinct().ToArray();
+        if (selected.Length == 0) return;
+        if (selected.Any(task => !State.Tasks.Contains(task))) throw new HermesException("등록된 채팅만 삭제할 수 있습니다.");
+        if (selected.Any(IsRunning)) throw new HermesException("실행 중인 채팅을 중단한 뒤 삭제하세요.");
+
+        var ids = selected.Select(task => task.Id).ToHashSet();
+        State.Tasks.RemoveAll(task => ids.Contains(task.Id));
+        State.Processes.RemoveAll(process => ids.Contains(process.TaskId));
+        foreach (var task in selected)
+        {
+            State.Desktop.Drafts.Remove(task.Id);
+            if (task.ThreadId != null)
+            {
+                loadedThreads.Remove(task.ThreadId);
+                State.ThreadUsageSnapshots.Remove(task.ThreadId);
+                Approvals.RemoveAll(a => a.Params.Text("threadId") == task.ThreadId);
+            }
+            company?.ForgetTask(task.Id);
+        }
+        Save();
+        Store.Save(State); // Rotate the recovery snapshot to the deleted state as well.
     }
     public async Task SetArchivedAsync(WorkItem task, bool archived, CancellationToken cancellation = default)
     {
