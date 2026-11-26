@@ -33,6 +33,7 @@ public partial class MainWindow
         ApplyTheme(); SetSidebar(desk.State.Desktop.SidebarVisible); SetInspector(desk.State.Desktop.InspectorVisible);
         EnterSendMenu.IsChecked = desk.State.Desktop.EnterToSend;
         ShowHermesToolMessagesMenu.IsChecked = desk.State.Desktop.ShowHermesToolMessages;
+        ApplyChatTextSize();
         Effort.ItemsSource = new[] { "기본" }; Effort.SelectedIndex = 0;
         InitializeBrowserPanel();
         InitializeComputerPanel();

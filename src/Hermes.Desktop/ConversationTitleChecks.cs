@@ -1,3 +1,4 @@
+using Hermes.Core;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -47,6 +48,49 @@ public partial class MainWindow
         }
         finally { if (previousClipboard != null) Clipboard.SetDataObject(previousClipboard, true); else Clipboard.Clear(); }
         await VerifyChatSelectionAndGit(data, Check);
+        await VerifyChatScrollAndTextSize(project, Check);
         File.WriteAllText(Path.Combine(data, "conversation-title-report.json"), JsonSerializer.Serialize(new { checks, realModelCalls = 0, isolatedProfile = true }, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private async Task VerifyChatScrollAndTextSize(ProjectEntry project, Action<bool, string> check)
+    {
+        var task = desk.NewTask(project, "Scroll and text size fixture");
+        for (var i = 0; i < 48; i++) task.Transcript.Add(new("에이전트", $"Fixture paragraph {i}", DateTime.UtcNow, $"scroll-{i}"));
+        SelectTask(task);
+        async Task Layout()
+        {
+            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            UpdateLayout();
+        }
+        await Layout();
+        check(AtConversationBottom && ConversationScroll.ScrollableHeight > 300, "latest conversation initially follows the bottom");
+        ConversationScroll.ScrollToVerticalOffset(120);
+        await Layout();
+        var offset = ConversationScroll.VerticalOffset;
+        check(readingEnd == 48 && offset > 100, "scrolling up pauses automatic follow");
+        for (var i = 48; i < 55; i++) task.Transcript.Add(new("에이전트", $"New paragraph {i}", DateTime.UtcNow, $"scroll-{i}"));
+        RenderConversation();
+        await Layout();
+        check(Math.Abs(ConversationScroll.VerticalOffset - offset) < 2 &&
+            renderedEntries.Values.Any(entry => entry.ItemId == "scroll-47") &&
+            !renderedEntries.Values.Any(entry => entry.ItemId == "scroll-54"), "new messages preserve the reading position across the page boundary");
+        ConversationScroll.ScrollToEnd();
+        await Layout();
+        check(readingEnd == null && AtConversationBottom &&
+            renderedEntries.Values.Any(entry => entry.ItemId == "scroll-54"), "scrolling to the bottom reveals all new messages");
+        task.Transcript.Add(new("에이전트 스트림", "Streaming fixture", DateTime.UtcNow, "scroll-stream"));
+        RenderConversation();
+        await Layout();
+        check(AtConversationBottom, "new live messages follow automatically after returning to the bottom");
+        var original = ChatTextSize;
+        ChatTextLarger.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Layout();
+        var stream = ((StackPanel)((Border)MessageStack.Children[^1]).Child).Children[^1] as TextBox;
+        check(ChatTextSize == original + 2 && stream?.FontSize == ChatFont(18) &&
+            Prompt.FontSize == ChatFont(18) && desk.Store.Load().Desktop.ChatTextSize == original + 2,
+            "font increase updates live chat and composer and persists");
+        ChatTextSmaller.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Layout();
+        check(ChatTextSize == original && AtConversationBottom, "font decrease restores size and keeps following");
     }
 }

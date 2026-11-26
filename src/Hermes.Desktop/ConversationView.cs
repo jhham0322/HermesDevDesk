@@ -21,6 +21,61 @@ public partial class MainWindow
     private string? renderedConversation;
     private int renderedOffset;
     private int? historyEnd;
+    private int? readingEnd;
+    private bool scrollFollowPending;
+    private const int MinimumChatTextSize = 12;
+    private const int MaximumChatTextSize = 32;
+    private int ChatTextSize => Math.Clamp(desk.State.Desktop.ChatTextSize, MinimumChatTextSize, MaximumChatTextSize);
+    private double ChatFont(double size) => size * ChatTextSize / 20;
+    private bool AtConversationBottom => ConversationScroll.ScrollableHeight - ConversationScroll.VerticalOffset <= 2;
+
+    private void ConversationScroll_Changed(object sender, ScrollChangedEventArgs e)
+    {
+        if (!ReferenceEquals(e.OriginalSource, ConversationScroll) || historyEnd != null ||
+            e.VerticalChange == 0 || e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0) return;
+        if (!AtConversationBottom)
+        {
+            readingEnd ??= renderedOffset + MessageStack.Children.Count;
+            return;
+        }
+        if (readingEnd == null) return;
+        readingEnd = null;
+        RenderConversation();
+        QueueConversationFollow();
+    }
+
+    private void QueueConversationFollow()
+    {
+        if (scrollFollowPending || readingEnd != null || historyEnd != null) return;
+        scrollFollowPending = true;
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
+        {
+            scrollFollowPending = false;
+            if (readingEnd == null && historyEnd == null && ConversationScroll.IsVisible &&
+                System.Windows.Input.Mouse.LeftButton != System.Windows.Input.MouseButtonState.Pressed)
+                ConversationScroll.ScrollToEnd();
+        });
+    }
+
+    private void ChatTextSmaller_Click(object sender, RoutedEventArgs e) => ChangeChatTextSize(-2);
+    private void ChatTextLarger_Click(object sender, RoutedEventArgs e) => ChangeChatTextSize(2);
+    private void ApplyChatTextSize()
+    {
+        Prompt.FontSize = ChatFont(18);
+        ChatTextSmaller.IsEnabled = ChatTextSize > MinimumChatTextSize;
+        ChatTextLarger.IsEnabled = ChatTextSize < MaximumChatTextSize;
+    }
+    private void ChangeChatTextSize(int delta)
+    {
+        var next = Math.Clamp(ChatTextSize + delta, MinimumChatTextSize, MaximumChatTextSize);
+        if (next == ChatTextSize) return;
+        desk.State.Desktop.ChatTextSize = next;
+        ApplyChatTextSize();
+        renderedEntries.Clear();
+        conversationStamp = "";
+        RenderConversation();
+        desk.Save();
+    }
     private const int ConversationPageSize = 40;
     private static bool IsLegacyOutputLimitNotice(TranscriptEntry entry) =>
         entry.Kind is "오류" or "호스트 보고" &&
@@ -29,15 +84,16 @@ public partial class MainWindow
 
     private void ConversationOlder_Click(object sender, RoutedEventArgs e)
     {
-        historyEnd = Math.Max(ConversationPageSize, (historyEnd ?? (CurrentTask?.Transcript ?? []).Count(IsConversationEntryVisible)) - ConversationPageSize);
+        historyEnd = Math.Max(ConversationPageSize, (historyEnd ?? readingEnd ?? (CurrentTask?.Transcript ?? []).Count(IsConversationEntryVisible)) - ConversationPageSize);
         conversationStamp = ""; RenderConversation(); ConversationScroll.ScrollToTop();
     }
     private void ConversationLatest_Click(object sender, RoutedEventArgs e)
-    { historyEnd = null; conversationStamp = ""; RenderConversation(); ConversationScroll.ScrollToEnd(); }
+    { historyEnd = readingEnd = null; conversationStamp = ""; RenderConversation(); QueueConversationFollow(); }
     private void ConversationNewer_Click(object sender, RoutedEventArgs e)
     {
         var count = (CurrentTask?.Transcript ?? []).Count(IsConversationEntryVisible);
-        var next = (historyEnd ?? count) + ConversationPageSize;
+        var next = (historyEnd ?? readingEnd ?? count) + ConversationPageSize;
+        readingEnd = null;
         historyEnd = next >= count ? null : next;
         conversationStamp = ""; RenderConversation(); ConversationScroll.ScrollToTop();
     }
@@ -45,7 +101,7 @@ public partial class MainWindow
     {
         desk.State.Desktop.ShowProgressSummaries = ShowProgressSummaries.IsChecked == true;
         desk.Save();
-        historyEnd = null; renderedConversation = null; conversationStamp = "";
+        historyEnd = readingEnd = null; renderedConversation = null; conversationStamp = "";
         RenderConversation();
     }
     private void ShowHermesToolMessages_Click(object sender, RoutedEventArgs e)
@@ -74,13 +130,13 @@ public partial class MainWindow
         var entries = CurrentTask?.Transcript ?? [];
         if (!desk.State.Desktop.ShowProgressSummaries || !desk.State.Desktop.ShowHermesToolMessages || entries.Any(IsLegacyOutputLimitNotice))
             entries = entries.Where(IsConversationEntryVisible).ToList();
-        if (renderedConversation != CurrentTask?.Id) historyEnd = null;
-        var end = Math.Min(historyEnd ?? entries.Count, entries.Count);
+        if (renderedConversation != CurrentTask?.Id) historyEnd = readingEnd = null;
+        var end = Math.Min(historyEnd ?? readingEnd ?? entries.Count, entries.Count);
         var offset = Math.Max(0, end - ConversationPageSize);
         var stamp = offset + ":" + end + ":" + (CurrentTask?.Id ?? "empty") + ":" + entries.Count + ":" + string.Join('|', entries.Skip(offset).Take(end - offset).Select(e => e.GetHashCode()));
         if (stamp == conversationStamp) return;
         conversationStamp = stamp;
-        var follow = ConversationScroll.ScrollableHeight - ConversationScroll.VerticalOffset < 60;
+
         OlderMessages.IsEnabled = offset > 0;
         NewerMessages.IsEnabled = end < entries.Count;
         ConversationRange.Text = entries.Count == 0 ? "" : $"{offset + 1}–{end} / {entries.Count}";
@@ -107,8 +163,8 @@ public partial class MainWindow
             var isError = ProgressMessages.IsErrorDetail(entry);
             if (!isError && entry.Kind is "사용자" or "에이전트" or "에이전트 스트림")
             {
-                UIElement content = entry.Kind == "에이전트 스트림" ? new TextBox { Text = entry.Text, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, FontSize = 18, BorderThickness = new Thickness(0), Padding = new Thickness(0), Background = Brushes.Transparent } : Markdown(entry.Text);
-                var labeled = new StackPanel(); if (entry.Kind != "사용자") labeled.Children.Add(new TextBlock { Text = TranscriptPresentation.Label(entry), Foreground = Brush("Muted"), FontSize = 12, Margin = new Thickness(0, 0, 0, 6) }); labeled.Children.Add(content);
+                UIElement content = entry.Kind == "에이전트 스트림" ? new TextBox { Text = entry.Text, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, FontSize = ChatFont(18), BorderThickness = new Thickness(0), Padding = new Thickness(0), Background = Brushes.Transparent } : Markdown(entry.Text);
+                var labeled = new StackPanel(); if (entry.Kind != "사용자") labeled.Children.Add(new TextBlock { Text = TranscriptPresentation.Label(entry), Foreground = Brush("Muted"), FontSize = ChatFont(12), Margin = new Thickness(0, 0, 0, 6) }); labeled.Children.Add(content);
                 var box = new Border { Child = labeled, Padding = new Thickness(entry.Kind == "사용자" ? 16 : 0), Margin = new Thickness(0, 10, 0, 22), CornerRadius = new CornerRadius(16), Background = entry.Kind == "사용자" ? Brush("Hover") : Brushes.Transparent, HorizontalAlignment = entry.Kind == "사용자" ? HorizontalAlignment.Right : HorizontalAlignment.Stretch, MaxWidth = entry.Kind == "사용자" ? 650 : double.PositiveInfinity };
                 view = box;
             }
@@ -118,7 +174,7 @@ public partial class MainWindow
                 var shortText = isError ? "오류 상세 보기" : entry.Text[..Math.Min(95, firstLine < 0 ? entry.Text.Length : firstLine)];
                 if (!isError && (firstLine < 0 ? entry.Text.Length : firstLine) > 95) shortText += "…";
                 var header = new DockPanel(); header.Children.Add(MakeIcon(entry.Kind.Contains("명령") ? "code" : entry.Kind.Contains("파일") ? "document" : "chat", 16));
-                header.Children.Add(new TextBlock { Text = TranscriptPresentation.Label(entry) + " " + entry.Kind + "  " + shortText, Foreground = Brush("Muted"), FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis });
+                header.Children.Add(new TextBlock { Text = TranscriptPresentation.Label(entry) + " " + entry.Kind + "  " + shortText, Foreground = Brush("Muted"), FontSize = ChatFont(13), TextTrimming = TextTrimming.CharacterEllipsis });
                 var trackExpansion = isError || IsCommandDetail(entry);
                 var expansionKey = trackExpansion ? (isError ? "error|" : "") + CommandExpansionKey(entry) : "";
                 var expander = new Expander { Header = header, Margin = new Thickness(0, 2, 0, 12), IsExpanded = trackExpansion ? commandExpansion.GetValueOrDefault(expansionKey) : entry.Kind is "호스트 보고" or "오류" or "진행 요약" or "작업 진행" or "계획" or "명령 출력" or "브라우저 소스" };
@@ -132,7 +188,7 @@ public partial class MainWindow
             renderedEntries[position] = entry;
         }
         while (MessageStack.Children.Count > end - offset) MessageStack.Children.RemoveAt(MessageStack.Children.Count - 1);
-        if (follow && historyEnd == null) Dispatcher.BeginInvoke(() => ConversationScroll.ScrollToEnd());
+        QueueConversationFollow();
     }
     private StackPanel Markdown(string text)
     {
@@ -143,7 +199,7 @@ public partial class MainWindow
             var copy = new Button { Content = "복사", FontSize = 11, Padding = new Thickness(8, 4, 8, 4), HorizontalAlignment = HorizontalAlignment.Right }; DockPanel.SetDock(copy, Dock.Right); top.Children.Add(copy);
             top.Children.Add(new TextBlock { Text = language ?? "", Foreground = Brush("Muted"), Margin = new Thickness(8, 6, 0, 0), FontSize = 11 }); body.Children.Add(top);
             copy.Click += (_, _) => Clipboard.SetText(source);
-            body.Children.Add(new TextBox { Text = source, IsReadOnly = true, FontFamily = new FontFamily("Consolas"), FontSize = 12, BorderThickness = new Thickness(0), Background = Brush("Code"), HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(12) });
+            body.Children.Add(new TextBox { Text = source, IsReadOnly = true, FontFamily = new FontFamily("Consolas"), FontSize = ChatFont(12), BorderThickness = new Thickness(0), Background = Brush("Code"), HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(12) });
             panel.Children.Add(new Border { Child = body, Background = Brush("Code"), CornerRadius = new CornerRadius(10), Margin = new Thickness(0, 6, 0, 12) }); code.Clear();
         }
         RichTextBox? prose = null;
@@ -158,6 +214,7 @@ public partial class MainWindow
             if (value.StartsWith("### ", StringComparison.Ordinal)) { value = value[4..]; size = 17; bold = true; }
             else if (value.StartsWith("## ", StringComparison.Ordinal)) { value = value[3..]; size = 20; bold = true; }
             else if (value.StartsWith("# ", StringComparison.Ordinal)) { value = value[2..]; size = 23; bold = true; }
+            size = ChatFont(size);
             var document = new FlowDocument { FontFamily = FontFamily, FontSize = size, Foreground = Brush("Ink"), PagePadding = new Thickness(0), LineHeight = size * 1.65 };
             var paragraph = new Paragraph { FontSize = size, LineHeight = size * 1.65, Margin = new Thickness(0, 0, 0, 3), FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal };
             var pattern = @"(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))";

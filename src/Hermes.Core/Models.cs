@@ -86,6 +86,7 @@ public sealed class DesktopPreferences
     public bool WindowMaximized { get; set; }
     public bool ShowProgressSummaries { get; set; } = true;
     public bool ShowHermesToolMessages { get; set; }
+    public int ChatTextSize { get; set; } = 20;
     public ExecutionBudget ExecutionBudget { get; set; } = new();
     public bool DarkTheme { get; set; }
     public bool SidebarVisible { get; set; } = true;
