@@ -1,6 +1,6 @@
 # Hermes DevDesk 0.8.72
 
-**푸셔(Pusher) 1.2.2 · Windows 64비트** — 선택한 파일만 지정한 Git 브랜치에 반영하는 도구입니다. [설치 파일 다운로드](https://github.com/jhham0322/HermesDevDesk/raw/refs/heads/main/SelectiveGitPush-Setup-win-x64.exe)
+**푸셔(Pusher) 1.2.4 · Windows 64비트** — 선택한 파일만 지정한 Git 브랜치에 반영하는 도구입니다. [설치 파일 다운로드](https://github.com/jhham0322/HermesDevDesk/raw/refs/heads/main/SelectiveGitPush-Setup-win-x64.exe)
 
 앱 상단 **ChatGPT 로그인**은 OpenAI의 [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)를 사용합니다. 브라우저에서 Hermes DevDesk 로그인과 플랜 사용을 승인하면 해당 계정의 모델이 표시됩니다. **ChatGPT 계정**에서 로그인 프로필을 선택하거나 사용량을 관리하고 로그아웃할 수 있습니다.
 
